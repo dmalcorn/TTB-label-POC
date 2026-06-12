@@ -43,7 +43,9 @@ class Settings(BaseModel):
             llm_provider=os.getenv("LLM_PROVIDER"),
             llm_base_url=os.getenv("LLM_BASE_URL"),
             langchain_tracing_enabled=_env_bool("LANGCHAIN_TRACING_ENABLED", default=False),
-            database_path=os.getenv("DATABASE_PATH", "data/app.db"),
+            # `or` (not getenv's default arg) so a set-but-empty DATABASE_PATH=""
+            # falls back to the default instead of opening a throwaway temp DB.
+            database_path=os.getenv("DATABASE_PATH") or "data/app.db",
         )
 
 

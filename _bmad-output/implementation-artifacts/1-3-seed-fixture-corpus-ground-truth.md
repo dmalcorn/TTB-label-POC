@@ -4,7 +4,7 @@ baseline_commit: a92d674
 
 # Story 1.3: Seed the fixture corpus with Ground Truth
 
-Status: review
+Status: done
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -68,6 +68,14 @@ so that the demo and the benchmark have reproducible data spanning all beverage 
   - [x] Runnable as `python -m app.db.seed` (init + seed the configured `DATABASE_PATH`); the Epic-6 `POST /reset` will reuse `seed()`.
 - [x] **Task 5 — Tests `tests/test_seed.py` (AC: 1, 2, 3, 4, 5)**
   - [x] 12 tests: count 30–50, all three types, SEEDED-per-submission + ≥1 image each, 10-image round-trip via `repositories.list_label_images`, per-type PASS/REVIEW/FAIL coverage, GT-diverges-on-violation / GT-matches-on-clean, 11-image `ValueError` + DB `position=11` rejection, idempotency (count + UNIQUE ttb_id), all-images-are-synthetic-jpeg, and every seeded field documented in `data-dictionary.md`.
+
+### Review Findings
+
+_Code review 2026-06-12 (multi-story 1.1+1.2+1.3; Blind Hunter · Edge Case Hunter · Acceptance Auditor). All 5 ACs PASS — 36-row corpus across all types, per-type PASS/REVIEW/FAIL coverage, GT divergence on violations, 10-image round-trip + 11th rejected, synthetic-only & idempotent. The seed is atomic (rollback-on-exception preserves the corpus), so the "bad fixture wipes the DB" class is a non-issue. Triaged findings below._
+
+- [x] [Review][Patch] Seed ingestion surfaced opaque errors with no row identity — **FIXED:** added `_parse_image_manifest(raw, ttb_id)` (wraps `JSONDecodeError` + rejects non-list with the row's `ttb_id`) and a per-entry `filename`/dict guard in `_insert_label_images`. Regressions: `test_parse_image_manifest_rejects_malformed_json` / `_rejects_non_list` / `test_insert_label_images_rejects_entry_without_filename`. [app/db/seed.py:74-113]
+- [x] [Review][Defer] `_insert_label_images` enforces only the upper bound (`>10`); a 0-image submission would seed silently though AC-4 says 1–10. Controlled corpus today — add a lower-bound guard when `POST /reset` accepts external CSVs. [app/db/seed.py:74-79] — deferred, every committed row has ≥1 image
+- [x] [Review][Defer] Government Warning text (`GOV_WARNING`/`GOV_WARNING_REWORDED`) is a literal constant in the dev-only `fixtures/generate.py` — legitimate as fixture *image content*, NOT a "CFR-in-check-logic" violation. Forward note: Epic-3's §16.21 wording check MUST read the canonical text from a Ruleset row, never duplicate this constant. [fixtures/generate.py] — deferred, forward note for Epic-3
 
 ## Dev Notes
 

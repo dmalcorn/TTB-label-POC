@@ -78,6 +78,10 @@ def _insert_label_images(conn: sqlite3.Connection, submission_id: int, images: l
             "(docs/image-handling.md §1)"
         )
     for img in images:
+        if not isinstance(img, dict) or "filename" not in img:
+            raise ValueError(
+                f"image manifest entry must be an object with a 'filename'; got {img!r}"
+            )
         conn.execute(
             "INSERT INTO label_images "
             "(submission_id, image_role, position, filename, mime_type, "
@@ -96,6 +100,19 @@ def _insert_label_images(conn: sqlite3.Connection, submission_id: int, images: l
         )
 
 
+def _parse_image_manifest(raw: str | None, ttb_id: str | None) -> list[dict]:
+    """Parse a row's ``images`` JSON manifest, failing with the row's ttb_id."""
+    try:
+        images = json.loads(raw or "[]")
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"row ttb_id={ttb_id!r}: malformed images JSON: {exc}") from exc
+    if not isinstance(images, list):
+        raise ValueError(
+            f"row ttb_id={ttb_id!r}: images JSON must be an array, got {type(images).__name__}"
+        )
+    return images
+
+
 def seed(db_path: str | Path, fixtures_dir: str | Path = FIXTURES_DIR) -> int:
     """Load the fixture corpus into the database. Returns the submission count.
 
@@ -112,7 +129,7 @@ def seed(db_path: str | Path, fixtures_dir: str | Path = FIXTURES_DIR) -> int:
         conn.execute("DELETE FROM submissions")  # cascades to children
         for row in rows:
             submission_id = _insert_submission(conn, row)
-            images = json.loads(row.get("images") or "[]")
+            images = _parse_image_manifest(row.get("images"), row.get("ttb_id"))
             _insert_label_images(conn, submission_id, images)
             conn.execute(
                 "INSERT INTO audit_events (submission_id, event_type, actor, to_status, note) "

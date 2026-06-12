@@ -4,7 +4,7 @@ baseline_commit: 552cb74b60624d037cc8ba54728671d6144a609e
 
 # Story 1.2: Mock COLA Database schema & connection layer
 
-Status: review
+Status: done
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -65,6 +65,17 @@ so that application data can be stored and read consistently without an ORM.
   - [x] `tmp_path` DB; asserts tables created, deferred tables absent, `journal_mode=wal`, `foreign_keys=1`, idempotent re-init.
   - [x] Round-trip through `get_submission` / `get_submission_by_ttb_id` / `list_label_images` (ordered) returning Pydantic models with the right `snake_case` values.
   - [x] Constraint tests: invalid `status`/`beverage_type` rejected; `position=11` rejected; `DECIDED` without disposition rejected; disposition on non-`DECIDED` rejected; valid `DECIDED`+disposition allowed; cascade delete of `label_images`. (Also isolated the `/healthz` tests' startup DB to `tmp_path` so the suite writes nothing into the repo.)
+
+### Review Findings
+
+_Code review 2026-06-12 (multi-story 1.1+1.2+1.3; Blind Hunter · Edge Case Hunter · Acceptance Auditor). All 4 ACs PASS — schema transcribed faithfully (§1.1/§1.2 incl. both cross-column CHECKs, queue index, updated_at trigger), PRAGMAs correct, typed read round-trip, constraint + cascade tests green. Triaged findings below._
+
+- [x] [Review][Decision→Patch] Read-model enums typed as plain `str` — **RESOLVED 1a (tightened to `Literal`):** added `BeverageType`/`SourceOfProduct`/`ApplicationType`/`Status`/`EngineVerdict`/`Disposition`/`ImageRole` Literal aliases mirroring the CHECK vocabularies; the read boundary now validates enums too. Regression: `test_read_model_rejects_out_of_vocab_enum`. [app/db/repositories.py]
+- [x] [Review][Patch] `get_connection` sets no busy timeout, and the docstring/Dev Notes overstate WAL — **FIXED:** added `PRAGMA busy_timeout = 5000` per connection and corrected the docstring (WAL = concurrent readers + a single writer; busy_timeout absorbs writer serialization). [app/db/connection.py:27-39]
+- [x] [Review][Patch] `DATABASE_PATH=""` (set-but-empty) bypasses the default → `sqlite3.connect("")` throwaway temp DB — **FIXED:** `os.getenv("DATABASE_PATH") or "data/app.db"`; documented `DATABASE_PATH` in `.env.example`. Regression: `test_database_path_empty_string_falls_back_to_default`. [app/config.py:46 / .env.example]
+- [x] [Review][Defer] `trg_submissions_set_updated_at` relies on the default `recursive_triggers = OFF`, never asserted in `connection.py` — add a `WHEN OLD.updated_at = NEW.updated_at` guard or set the PRAGMA explicitly. [app/db/schema.sql / app/db/connection.py] — deferred, documented reliance on a stable SQLite default
+- [x] [Review][Defer] No busy/lock handling for a concurrent `seed()`/reset racing the startup `init_db` on one file (`BEGIN IMMEDIATE`/app lock) — belongs to the Epic-6 `POST /reset` story. [app/db/seed.py] — deferred, reset not wired in 1.2
+- [x] [Review][Defer] `audit_events` landed inside the Story 1.2 commit (`a92d674`) though it is 1.3's need — commit-boundary smell only; the deferred-tables test correctly still forbids the deep tables. No code action. — deferred, cosmetic commit boundary
 
 ## Dev Notes
 

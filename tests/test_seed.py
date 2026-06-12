@@ -12,7 +12,7 @@ import pytest
 
 from app.db import repositories as repo
 from app.db.connection import connect, init_db
-from app.db.seed import FIXTURES_DIR, _insert_label_images, seed
+from app.db.seed import FIXTURES_DIR, _insert_label_images, _parse_image_manifest, seed
 
 GROUND_TRUTH_CSV = FIXTURES_DIR / "ground_truth.csv"
 DATA_DICTIONARY = Path(__file__).resolve().parents[1] / "docs" / "data-dictionary.md"
@@ -184,3 +184,31 @@ def test_every_seeded_field_is_documented():
     documented = set(re.findall(r"`([a-z_]+)`", text))
     missing = [c for c in SUBMISSION_APPLICATION_FIELDS if c not in documented]
     assert not missing, f"undocumented seeded fields: {missing}"
+
+
+# ── Ingestion hardening: opaque errors carry the row's ttb_id (review P3) ─────
+
+
+def test_parse_image_manifest_rejects_malformed_json():
+    with pytest.raises(ValueError, match="26150000000099"):
+        _parse_image_manifest("{not valid json", "26150000000099")
+
+
+def test_parse_image_manifest_rejects_non_list():
+    with pytest.raises(ValueError, match="must be an array"):
+        _parse_image_manifest('{"position": 1}', "26150000000099")
+
+
+def test_parse_image_manifest_empty_or_absent_yields_empty_list():
+    assert _parse_image_manifest(None, "x") == []
+    assert _parse_image_manifest("", "x") == []
+    assert _parse_image_manifest("[]", "x") == []
+
+
+def test_insert_label_images_rejects_entry_without_filename(tmp_path):
+    # The guard fires before any DB write, so no real submission row is needed.
+    db_path = tmp_path / "t.db"
+    init_db(db_path)
+    with connect(db_path) as conn:
+        with pytest.raises(ValueError, match="filename"):
+            _insert_label_images(conn, 1, [{"role": "BRAND", "position": 1}])

@@ -205,3 +205,37 @@ def test_delete_submission_cascades_to_label_images(tmp_path):
         conn.execute("DELETE FROM submissions WHERE id = ?", (sub_id,))
         conn.commit()
         assert repo.list_label_images(conn, sub_id) == []
+
+
+# ── Read boundary: enum columns validate as Literal (review P4) ───────────────
+
+_VALID_SUBMISSION_ROW = {
+    "id": 1,
+    "ttb_id": "26001000000001",
+    "beverage_type": "DISTILLED_SPIRITS",
+    "status": "RECEIVED",
+    "created_at": "2026-06-01T12:00:00Z",
+    "updated_at": "2026-06-01T12:00:00Z",
+}
+
+
+def test_read_model_accepts_valid_enums():
+    sub = repo.Submission.model_validate(_VALID_SUBMISSION_ROW)
+    assert sub.beverage_type == "DISTILLED_SPIRITS"
+    assert sub.status == "RECEIVED"
+
+
+@pytest.mark.parametrize(
+    ("field", "bad_value"),
+    [
+        ("beverage_type", "CIDER"),
+        ("status", "ARCHIVED"),
+        ("engine_verdict", "MAYBE"),
+        ("disposition", "PENDING"),
+    ],
+)
+def test_read_model_rejects_out_of_vocab_enum(field: str, bad_value: str):
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError):
+        repo.Submission.model_validate({**_VALID_SUBMISSION_ROW, field: bad_value})

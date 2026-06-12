@@ -69,3 +69,10 @@ def test_from_env_does_not_raise_on_enabled_without_provider(monkeypatch) -> Non
     assert settings.llm_enabled is True
     assert settings.llm_provider is None
     assert settings.llm_base_url is None
+
+
+def test_database_path_empty_string_falls_back_to_default(monkeypatch) -> None:
+    # A set-but-empty DATABASE_PATH="" must fall back to the default, not open a
+    # throwaway temp DB via sqlite3.connect("") (code review 2026-06-12, P2).
+    monkeypatch.setenv("DATABASE_PATH", "")
+    assert Settings.from_env().database_path == "data/app.db"

@@ -84,6 +84,10 @@ _Code review 2026-06-12 (Blind Hunter · Edge Case Hunter · Acceptance Auditor)
 - [x] [Review][Defer] `/healthz` would 401 if a global auth gate (Story 1.5) is added without exempting it — Docker HEALTHCHECK would start failing [Dockerfile:39 / app/main.py] — deferred, forward-looking to 1.5
 - [x] [Review][Defer] `tests/` is COPY'd into the production image — bloat/attack surface; intentional now (in-container `pytest` verifies AC-2 per Dev Record), revisit for prod hardening [Dockerfile:33] — deferred, intentional for now
 
+_Multi-story re-review 2026-06-12 (1.1+1.2+1.3). One new item:_
+
+- [x] [Review][Decision→Patch] AC-3 partial — the four root contract placeholder modules (`app/contracts.py`, `app/normalize.py`, `app/verdict.py`, `app/disposition.py`) were never created. **RESOLVED 2b (created stubs):** added the four modules as docstring-only placeholders citing their owning story + the centralized-contract rules; bodies still land in Epics 2/3. AC-3 tree now complete. [app/]
+
 ## Dev Notes
 
 ### Scope guardrails (read first)
