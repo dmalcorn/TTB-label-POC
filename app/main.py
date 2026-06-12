@@ -22,6 +22,7 @@ from fastapi.templating import Jinja2Templates
 from app.config import get_settings
 from app.db.connection import connect, init_db
 from app.db.seed import seed
+from app.pipeline.scheduler import shutdown_scheduler, start_scheduler
 from app.web.deps import gate_enabled, has_valid_access, is_exempt
 from app.web.routes_access import router as access_router
 
@@ -77,14 +78,22 @@ def create_app() -> FastAPI:
     settings = get_settings()
 
     @asynccontextmanager
-    async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
+    async def lifespan(app_: FastAPI) -> AsyncIterator[None]:
         # Local file work only (DDL + WAL) — no network, so this is safe at
         # startup and under `docker run --network none`.
         init_db(settings.database_path)
         # Fill a fresh (empty) Volume DB with the seeded corpus so the gated
         # landing never sits on an empty DB (AC-2). Idempotent + startup-only.
         _seed_if_empty(settings.database_path)
-        yield
+        # Start the in-process background sweep AFTER init + seed so it always
+        # finds a ready DB (Story 2.2). In-process, zero egress — the
+        # `docker run --network none` boot still holds. Guarded by
+        # `scheduler_enabled` so a TestClient lifespan can opt out.
+        start_scheduler(app_)
+        try:
+            yield
+        finally:
+            shutdown_scheduler(app_)
 
     app = FastAPI(title="TTB Label Review", version="0.1.0", lifespan=lifespan)
 

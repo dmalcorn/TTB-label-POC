@@ -209,3 +209,97 @@ def insert_llm_result(
         ),
     )
     return int(cur.lastrowid)
+
+
+# ── pipeline lifecycle write helpers (Story 2.2) ─────────────────────────────
+# The raw SQL behind the background sweep's status machine. These live here (the
+# data boundary — SQL only in app/db/) and are the SQL primitives that the
+# orchestration layer ``app/pipeline/status.py`` composes into atomic, ordered,
+# vocabulary-checked lifecycle steps. They DO NOT commit (the 2.1 convention):
+# the caller — ``status.py`` — owns each short transaction and commits per step
+# so PROCESSING is durable/visible (the atomic claim) and readers never block.
+
+
+def get_status(conn: sqlite3.Connection, submission_id: int) -> str | None:
+    """Read just the lifecycle ``status`` of one submission; ``None`` if absent.
+
+    A light single-column read used to compute ``from_status`` for the
+    forward-only transition guard — avoids validating the whole row.
+    """
+    row = conn.execute(
+        "SELECT status FROM submissions WHERE id = ?",
+        (submission_id,),
+    ).fetchone()
+    return row["status"] if row is not None else None
+
+
+def claim_for_processing(conn: sqlite3.Connection, submission_id: int) -> bool:
+    """Atomically claim a ``RECEIVED`` submission for processing (the AR-2 guard).
+
+    Conditional ``UPDATE … WHERE status='RECEIVED'``: only the worker that flips
+    the row sees ``rowcount == 1``; an overlapping sweep that lost the race gets
+    ``0`` and must no-op. This is what makes the sweep idempotent and double-
+    process-safe regardless of batch overlap. The caller commits.
+    """
+    cur = conn.execute(
+        "UPDATE submissions SET status = 'PROCESSING' WHERE id = ? AND status = 'RECEIVED'",
+        (submission_id,),
+    )
+    return cur.rowcount == 1
+
+
+def update_status(conn: sqlite3.Connection, submission_id: int, status: str) -> None:
+    """Write a submission's lifecycle ``status`` (forward-order is enforced one
+    level up, in ``status.advance``). The caller commits."""
+    conn.execute(
+        "UPDATE submissions SET status = ? WHERE id = ?",
+        (status, submission_id),
+    )
+
+
+def insert_audit_event(
+    conn: sqlite3.Connection,
+    *,
+    submission_id: int,
+    event_type: str,
+    actor: str | None = None,
+    from_status: str | None = None,
+    to_status: str | None = None,
+    note: str | None = None,
+) -> int:
+    """Append one ``audit_events`` row; return its id. ``occurred_at`` is stamped
+    by the DB default (``CURRENT_TIMESTAMP``). The caller commits.
+
+    ``event_type`` membership in the fixed vocabulary is enforced one level up in
+    ``status.py`` (and by the DB ``CHECK``)."""
+    cur = conn.execute(
+        """
+        INSERT INTO audit_events
+            (submission_id, event_type, actor, from_status, to_status, note)
+        VALUES (?, ?, ?, ?, ?, ?)
+        """,
+        (submission_id, event_type, actor, from_status, to_status, note),
+    )
+    return int(cur.lastrowid)
+
+
+def update_processing_ms(conn: sqlite3.Connection, submission_id: int, processing_ms: int) -> None:
+    """Roll the total pre-compute time into ``submissions.processing_ms`` (the DB
+    ``CHECK`` enforces ``>= 0``). The caller commits."""
+    conn.execute(
+        "UPDATE submissions SET processing_ms = ? WHERE id = ?",
+        (processing_ms, submission_id),
+    )
+
+
+def list_received_ids(conn: sqlite3.Connection, limit: int) -> list[int]:
+    """List ``RECEIVED`` submission ids, oldest-first, capped at ``limit`` — the
+    bounded batch the background sweep claims each tick (AC1/AC5).
+
+    Ordered by ``submitted_at`` then ``id`` so the order is stable even when
+    several rows share a ``submitted_at`` (the seed stamps coarse timestamps)."""
+    rows = conn.execute(
+        "SELECT id FROM submissions WHERE status = 'RECEIVED' ORDER BY submitted_at, id LIMIT ?",
+        (limit,),
+    ).fetchall()
+    return [int(r["id"]) for r in rows]
