@@ -17,6 +17,12 @@ python-multipart~=0.0.32   # POST form parsing for the token gate (Story 1.5)
 # Background jobs (in-process sweep; 3.x stable, NOT the 4.0 pre-release)
 apscheduler~=3.11
 
+# Local image preprocessing (Story 2.3) — pure-local OpenCV, zero egress. Headless
+# (no GUI libs) for the slim container; the Dockerfile already bakes libgl1 + glib.
+# numpy is the array type the cv2 steps operate on (a direct import in preprocess.py).
+opencv-python-headless~=4.13
+numpy~=2.4
+
 # dev / quality / test
 ruff~=0.15
 pytest~=9.0

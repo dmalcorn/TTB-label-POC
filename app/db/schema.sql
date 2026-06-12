@@ -92,6 +92,17 @@ CREATE TABLE IF NOT EXISTS label_images (
     label_width_in   REAL,
     label_height_in  REAL,
     file_size_bytes  INTEGER,
+    -- Local-OpenCV preprocessing outputs (Story 2.3 / architecture D7 + AR-7). Derived
+    -- enhanced/binarized variants are written as FILES to the generated-images root on the
+    -- Volume and referenced here by path RELATIVE to that root (portable local↔Volume); the
+    -- original `filename` is never replaced. NULL when a clean image needed no enhancement
+    -- (no variant files written — the "omitted, not inert" UI contract, UX-DR-13).
+    enhanced_path    TEXT,          -- grayscale/color variant (PaddleOCR input), relative path
+    binarized_path   TEXT,          -- thresholded variant (Tesseract input), relative path
+    preprocess_log   TEXT,          -- JSON: ordered transforms applied + params (deskew angle,
+                                    -- CLAHE clip) + per-stage ms; for the Epic-5 benchmark/audit
+    preprocess_ms    INTEGER CHECK (preprocess_ms IS NULL OR preprocess_ms >= 0),
+    preprocessed_at  TIMESTAMP,     -- UTC ISO-8601 when preprocessing ran; NULL until it has
     created_at       TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     UNIQUE (submission_id, position)
 );

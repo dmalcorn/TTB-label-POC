@@ -91,6 +91,13 @@ class LabelImage(BaseModel):
     label_width_in: float | None = None
     label_height_in: float | None = None
     file_size_bytes: int | None = None
+    # Local-OpenCV preprocessing outputs (Story 2.3). Paths are RELATIVE to the
+    # generated-images root; NULL when a clean image needed no enhancement.
+    enhanced_path: str | None = None
+    binarized_path: str | None = None
+    preprocess_log: str | None = None
+    preprocess_ms: int | None = None
+    preprocessed_at: str | None = None
     created_at: str
 
 
@@ -303,3 +310,50 @@ def list_received_ids(conn: sqlite3.Connection, limit: int) -> list[int]:
         (limit,),
     ).fetchall()
     return [int(r["id"]) for r in rows]
+
+
+# ── preprocessing write helper (Story 2.3) ───────────────────────────────────
+# Persists the local-OpenCV preprocess stage's outputs onto the existing
+# `label_images` row (architecture D7 — referenced "by path in label_images").
+# The contract→column mapping lives ONLY here: the ordered transform/param/timing
+# log is JSON-encoded (like `word_boxes`), paths are stored RELATIVE to the
+# generated-images root, and the original `filename` is never touched. Does NOT
+# commit — the pipeline stage owns the unit of work (the 2.1/2.2 convention).
+
+
+def update_label_image_variants(
+    conn: sqlite3.Connection,
+    label_image_id: int,
+    *,
+    enhanced_path: str | None,
+    binarized_path: str | None,
+    preprocess_log: object,
+    preprocess_ms: int,
+    preprocessed_at: str,
+) -> None:
+    """Record one image's preprocessing outputs on its ``label_images`` row.
+
+    ``enhanced_path``/``binarized_path`` are paths RELATIVE to the generated-images
+    root (``None`` when a clean image produced no variant). ``preprocess_log`` is any
+    JSON-serializable object (the ordered transform log) and is ``json.dumps``-ed
+    here. The caller commits.
+    """
+    conn.execute(
+        """
+        UPDATE label_images
+           SET enhanced_path   = ?,
+               binarized_path  = ?,
+               preprocess_log  = ?,
+               preprocess_ms   = ?,
+               preprocessed_at = ?
+         WHERE id = ?
+        """,
+        (
+            enhanced_path,
+            binarized_path,
+            json.dumps(preprocess_log) if preprocess_log is not None else None,
+            preprocess_ms,
+            preprocessed_at,
+            label_image_id,
+        ),
+    )

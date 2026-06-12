@@ -244,6 +244,10 @@ applied labels). One row per image file.
 | `width_px` / `height_px` | INTEGER |  | Pixel dimensions (from OCR/preprocessing). |
 | `label_width_in` / `label_height_in` | REAL |  | Physical label size if captured — the *only* possible scale reference; absent → font-size checks stay out of scope. |
 | `file_size_bytes` | INTEGER |  | For the ≤750 KB baseline note. |
+| `enhanced_path` / `binarized_path` | TEXT |  | Story 2.3: derived OpenCV variants (enhanced grayscale/color for PaddleOCR; binarized for Tesseract), written to the generated-images root on the Volume, referenced by **relative** path (D7/AR-7). `NULL` when a clean image needed no enhancement. The original `filename` is never replaced. |
+| `preprocess_log` | TEXT (JSON) |  | Story 2.3: ordered transforms applied + params (detected deskew angle, CLAHE clip) + per-stage ms — the per-image enhancement log for the benchmark/audit ([`image-handling.md`](image-handling.md) §3). |
+| `preprocess_ms` | INTEGER |  | Story 2.3: preprocessing wall-time (CHECK ≥ 0); rolls into `submissions.processing_ms`. |
+| `preprocessed_at` | TIMESTAMP |  | Story 2.3: when preprocessing ran; `NULL` until processed. |
 | `created_at` | TIMESTAMP | NOT NULL | Insert time. |
 
 ```sql
@@ -259,6 +263,14 @@ CREATE TABLE label_images (
     label_width_in   REAL,
     label_height_in  REAL,
     file_size_bytes  INTEGER,
+    -- Story 2.3 — local-OpenCV preprocessing outputs (D7/AR-7). Derived variants written as
+    -- files to the generated-images root on the Volume, referenced by RELATIVE path; the
+    -- original `filename` is never replaced. NULL when a clean image needed no enhancement.
+    enhanced_path    TEXT,
+    binarized_path   TEXT,
+    preprocess_log   TEXT,          -- JSON: ordered transforms + params + per-stage ms
+    preprocess_ms    INTEGER CHECK (preprocess_ms IS NULL OR preprocess_ms >= 0),
+    preprocessed_at  TIMESTAMP,
     created_at       TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     UNIQUE (submission_id, position)
 );

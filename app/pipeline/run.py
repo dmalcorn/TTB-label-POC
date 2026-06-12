@@ -35,6 +35,7 @@ from typing import Any
 from app.db import repositories as repo
 from app.db.connection import connect
 from app.pipeline import status
+from app.pipeline.preprocess import preprocess_stage
 
 logger = logging.getLogger(__name__)
 
@@ -74,7 +75,11 @@ def passthrough_stage(ctx: StageContext) -> None:
 # The single registration point for the ordered stage sequence (AC3). Swapping
 # this list changes pipeline behavior with no edit to scheduler.py/status.py —
 # the seam asserted by the tests. 2.3/2.4/2.5 append their stages here.
-STAGES: list[Stage] = [passthrough_stage]
+# Story 2.3 registers `preprocess_stage` at the FRONT (it runs before OCR and
+# produces the enhanced/binarized variants the OCR stage will consume). Its wall-
+# time is inside `process_submission`'s timed loop, so it already rolls into
+# `processing_ms` (AC3) without any scheduler/status change (AC5).
+STAGES: list[Stage] = [preprocess_stage, passthrough_stage]
 
 
 def process_submission(db_path: str, submission_id: int) -> None:

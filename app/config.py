@@ -64,6 +64,12 @@ class Settings(BaseModel):
     sweep_interval_seconds: int = 5
     pipeline_max_workers: int = 2
     pipeline_batch_size: int = 10
+    # Root for DERIVED generated images — the OpenCV enhanced/binarized variants
+    # (Story 2.3). A purgeable directory on the Railway Volume (default beside the
+    # SQLite file under `data/`, which is gitignored). Seeded fixtures stay read-only
+    # and baked into the image; ONLY derived variants are written here. Demo reset
+    # (Epic 6, POST /reset) purges this root — see the TODO hook in pipeline/preprocess.
+    generated_images_dir: str = "data/generated"
 
     @classmethod
     def from_env(cls) -> Settings:
@@ -80,6 +86,9 @@ class Settings(BaseModel):
             sweep_interval_seconds=_env_int("SWEEP_INTERVAL_SECONDS", default=5, min_value=1),
             pipeline_max_workers=_env_int("PIPELINE_MAX_WORKERS", default=2, min_value=1),
             pipeline_batch_size=_env_int("PIPELINE_BATCH_SIZE", default=10, min_value=1),
+            # `or` so a set-but-empty GENERATED_IMAGES_DIR="" falls back to the default
+            # rather than writing variants into the process CWD.
+            generated_images_dir=os.getenv("GENERATED_IMAGES_DIR") or "data/generated",
         )
 
 

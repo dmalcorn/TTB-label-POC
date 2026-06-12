@@ -129,12 +129,21 @@ and limits come from the live COLAs Online upload screens
 | `height_px` | Height (pixels) | Integer, nullable. | Pixel height, from image metadata. |
 | `label_width_in` | Label Width (inches) | `REAL` inches, nullable. | Physical label width; usable as a pixels→mm scale reference for (conditional) type-size checks ([`Research-Findings.md`](../ref-docs/Research-Findings.md) §3). TODO: confirm captured in STORRd. |
 | `label_height_in` | Label Height (inches) | `REAL` inches, nullable. | Physical label height (scale reference companion to `label_width_in`). TODO. |
+| `enhanced_path` | Enhanced Variant Path | String, nullable. Path **relative** to the generated-images root. | The enhanced (grayscale/color) preprocessing variant — PaddleOCR's preferred input ([`image-handling.md`](image-handling.md) §3). `NULL` when a clean image needed no enhancement (no variant written). Written by the Story 2.3 OpenCV stage; the original `filename` is never replaced. |
+| `binarized_path` | Binarized Variant Path | String, nullable. Path **relative** to the generated-images root. | The binarized (adaptive/Otsu threshold) variant — Tesseract's preferred input ([`image-handling.md`](image-handling.md) §3). `NULL` when a clean image needed no enhancement. |
+| `preprocess_log` | Preprocess Log (JSON) | TEXT holding JSON (Postgres: JSONB), nullable. | The ordered list of transforms applied, key parameters (detected **deskew angle**, CLAHE clip), and **per-stage timing** — the required per-image enhancement log for the Epic-5 benchmark/audit ([`image-handling.md`](image-handling.md) §3 "Logging for the benchmark"). |
+| `preprocess_ms` | Preprocess Time (ms) | Integer milliseconds, nullable. **CHECK ≥ 0**. | Wall-clock the OpenCV stage took on this image; contributes to the submission's `processing_ms`. |
+| `preprocessed_at` | Preprocessed Timestamp | Timestamp (ISO 8601, UTC), nullable. | When preprocessing ran; `NULL` until the pipeline has processed the image. |
 | `created_at` | Created Timestamp | Timestamp, not null, default `CURRENT_TIMESTAMP`. | When the image row was inserted. (Images are fixtures in v1 — there is no separate upload time.) |
 
-> **Not stored in the POC schema:** an OpenCV `preprocessed` flag (deskew / perspective / glare).
-> Preprocessing is part of the pipeline ([`discussion-points.md`](../ref-docs/discussion-points.md)
-> §10) but its state is not persisted on `label_images` in v1; add a column if it becomes
-> load-bearing.
+> **Preprocessing IS stored (Story 2.3, supersedes the earlier "not stored" note).** An earlier
+> draft of this dictionary deliberately did **not** persist preprocessing state, saying "add a
+> column if it becomes load-bearing." It is now load-bearing: architecture **D7** writes the
+> derived enhanced/binarized images to the Volume **referenced by path in `label_images`**, **AR-7**
+> stores both variants for benchmark scoring, and [`image-handling.md`](image-handling.md) §3
+> requires the per-image transform/param/timing log. The five columns above (`enhanced_path`,
+> `binarized_path`, `preprocess_log`, `preprocess_ms`, `preprocessed_at`) are that persistence.
+> Per the source-wins-on-conflict rule, this dictionary is updated to match the architecture.
 
 ---
 
