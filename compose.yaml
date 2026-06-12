@@ -1,0 +1,28 @@
+# Local dev for the TTB COLA Label Specialist POC (AR-2).
+# Single service, built from the offline-pinned Dockerfile.
+#
+#   docker compose up --build       # run the skeleton at http://localhost:8000
+#
+# Egress smoke test (NFR-2 / AR-8) — proves the zero-egress OCR-only boot.
+# Run the built image directly with no network and confirm /healthz answers:
+#
+#   docker build -t ttb-label-poc .
+#   docker run --rm --network none -e LLM_ENABLED=false -p 8000:8000 ttb-label-poc
+#
+# (Later stories mount a Volume for the SQLite file + generated images; the
+# skeleton needs no persistent storage yet.)
+services:
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    # `.env` (when present) is the single source for runtime config. No
+    # `environment:` overrides here — a Compose `environment:` value takes
+    # precedence over `env_file`, which would silently shadow a value set in
+    # `.env` (e.g. `LLM_ENABLED=true`). Absent `.env`, the app defaults safely
+    # via `app/config.py` (LLM off), so no override is needed.
+    env_file:
+      - path: .env
+        required: false
