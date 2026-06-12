@@ -22,7 +22,8 @@ so all of that guidance from the source guide is intentionally dropped.
 | **GitHub repo** | `dmalcorn/TTB-label-POC` (branch `main`, auto-deploy on push) |
 | **Public URL** | `https://ttb-label-poc-production.up.railway.app` (targetPort **8000**) |
 | **Builder** | `DOCKERFILE` at `/Dockerfile` (✅ not Nixpacks — matches D1) |
-| **Volume** | **none attached yet** — Story 1.6 AC-1 must add one for `DATABASE_PATH` |
+| **Volume** | `ttb-web-volume` mounted at **`/data`** (`DATABASE_PATH=/data/app.db`) — added Story 1.6 |
+| **Service vars** | `ACCESS_TOKEN`, `DATABASE_PATH=/data/app.db`, `LLM_ENABLED=false`, `LANGCHAIN_TRACING_ENABLED=false`, `PORT=8000` (+ Railway's `RAILWAY_*`) |
 
 > **Naming note (renamed 2026-06-12):** project and service were initially swapped (project
 > `TTB-label-web`, service `TTB-label-POC`). Renamed via `projectUpdate`/`serviceUpdate` to the
@@ -91,13 +92,27 @@ curl -s -X POST https://backboard.railway.com/graphql/v2 \
 - **Project rename** is dashboard-only ergonomics too (Project Settings → Name); no hostname
   or reference-variable impact for this single-service project.
 
-## `$PORT` reconciliation (Story 1.6 AC-1, Task 1)
+## `$PORT` reconciliation (Story 1.6 — learned the hard way)
 
-Railway injects `$PORT` (defaults to **8080** if unset). Our public domain `targetPort` is
-**8000** and the Dockerfile `CMD` hardcodes `--port 8000`. The first build deployed SUCCESS/
-RUNNING, so they currently agree — but Story 1.6 must make the start command honor `$PORT`
-(`uvicorn app.main:app --host 0.0.0.0 --port $PORT`) and keep `8000` as the compose/local
-default, so a future Railway `PORT` change can't silently 404 the edge.
+**Railway runs `railway.toml`'s `startCommand` in EXEC form (no shell), so env vars do NOT
+expand.** A bare `startCommand = "uvicorn app.main:app --host 0.0.0.0 --port $PORT"` passed the
+literal string `$PORT` to uvicorn and crashed every replica on the first 1.6 deploy:
+
+```
+Error: Invalid value for '--port': '$PORT' is not a valid integer.
+```
+
+The deploy built fine but FAILED in the DEPLOYING phase (healthcheck never went green). **Fix —
+wrap in `sh -c` to force shell expansion, with a local fallback:**
+
+```toml
+startCommand = "sh -c 'uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}'"
+```
+
+And pin `PORT=8000` as a service var so `$PORT` matches the domain's `targetPort` (8000) — the
+edge routes the public domain → `targetPort` → the container's port; if they differ you get a
+silent 404/502 from `railway-edge`. The Dockerfile `CMD` keeps `8000` for local/compose. After
+the fix, deploy reached SUCCESS and `Uvicorn running on http://0.0.0.0:8000` with `/healthz 200`.
 
 ## Failed-first-build → Railpack lock (we dodged it — keep dodging)
 
