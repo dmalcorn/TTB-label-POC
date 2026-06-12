@@ -1,5 +1,11 @@
 # Deferred Work
 
+## Deferred from: code review of 2-1-engine-agnostic-ocr-llm-adapter-contracts (2026-06-12)
+
+- **`word_boxes` JSON serialization is fragile to non-plain types** — `insert_ocr_result` does `json.dumps(result.word_boxes)` with no `default=`/coercion. `word_boxes` is typed `list[dict]`, but a real PaddleOCR engine (Story 2.4) commonly returns numpy scalars in box coords, which raise `TypeError: not JSON serializable` mid-insert. The contract requires plain in-memory types, so the fix belongs in the OCR adapters (Story 2.4): coerce boxes to plain `int`/`float` before constructing `OcrResult`. Add an adapter test with a numpy-bearing box. [app/db/repositories.py / Story 2.4 adapters]
+- **`llm_results.label_image_id ON DELETE SET NULL` path untested** — `submission_id` is `ON DELETE CASCADE` and a benchmark-only LLM row already has `label_image_id=NULL`, so the SET-NULL transition only fires when a label image is deleted out from under a non-benchmark LLM row — never exercised. Add a deletion test if/when label-image deletion becomes a real path. [tests/test_adapters.py]
+- **Partial-batch durability of the multi-engine write** — `connect()` commits only *after* the `with` body (post-yield), so a pipeline that inserts one engine's OCR row then raises before finishing the unit loses the earlier row on close (all-or-nothing). That atomic behavior is defensible, but whether per-engine partial progress should survive is an Epic-2 pipeline transaction-granularity decision. Settle it in the scheduler/lifecycle story (2.2). [app/db/connection.py]
+
 ## Deferred from: code review of 1-6-deploy-to-railway-with-run-from-readme (2026-06-12)
 
 - **Concurrent seed race on the Volume** — `_seed_if_empty`'s `COUNT(*)==0` check and `seed()` run in separate connections (non-atomic check-then-seed), and `seed()` opens a *deferred* `BEGIN` rather than `BEGIN IMMEDIATE`. A Railway rolling-redeploy overlap (old+new container on one `/data/app.db`) or a future second writer (Epic-2 pipeline) could clobber-reload the corpus or hit `SQLITE_BUSY` past the 5s busy_timeout and crash-loop. Reinforces the existing "Concurrent seed/reset vs startup init" item — fold the atomic check (`BEGIN IMMEDIATE` + re-check count inside the txn) into the Epic-6 reset story. [app/db/seed.py / app/main.py]

@@ -115,3 +115,60 @@ CREATE TABLE IF NOT EXISTS audit_events (
     occurred_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 CREATE INDEX IF NOT EXISTS idx_audit_events_submission ON audit_events (submission_id, occurred_at);
+
+-- ── ocr_results ──────────────────────────────────────────────────────────────
+-- One row per OCR engine run on one image — the multi-OCR benchmark store
+-- (database-schema.md §1.3). Each engine (tesseract / paddleocr / …) gets its
+-- OWN row per image: per-engine results are stored independently, never merged
+-- (AR-4). Created here by Story 2.1, the first to need it.
+CREATE TABLE IF NOT EXISTS ocr_results (
+    id               INTEGER PRIMARY KEY,
+    label_image_id   INTEGER NOT NULL REFERENCES label_images(id) ON DELETE CASCADE,
+    submission_id    INTEGER NOT NULL REFERENCES submissions(id)  ON DELETE CASCADE,
+    engine_name      TEXT    NOT NULL,
+    engine_version   TEXT,
+    extracted_text   TEXT,           -- the OcrResult.text contract field
+    confidence       REAL    CHECK (confidence IS NULL OR confidence BETWEEN 0 AND 1),
+    word_boxes       TEXT,           -- JSON (list of per-word {text, box}); Postgres: JSONB
+    latency_ms       INTEGER CHECK (latency_ms IS NULL OR latency_ms >= 0),
+    ran_on_cpu       BOOLEAN DEFAULT 1,
+    status           TEXT DEFAULT 'OK' CHECK (status IN ('OK','ERROR')),
+    error_text       TEXT,           -- writer-supplied; not part of the OcrResult shape
+    created_at       TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_ocr_results_image      ON ocr_results (label_image_id);
+CREATE INDEX IF NOT EXISTS idx_ocr_results_engine     ON ocr_results (engine_name);
+CREATE INDEX IF NOT EXISTS idx_ocr_results_submission ON ocr_results (submission_id);
+-- TODO(postgres): word_boxes -> JSONB for indexed querying. SQLite: store JSON as TEXT.
+
+-- ── llm_results ──────────────────────────────────────────────────────────────
+-- One row per LLM/VLM model run — full model identity, timing, and token counts
+-- so the benchmark can compute $/1,000 verifications (database-schema.md §1.4).
+-- The LLM is optional (OCR-only fallback), so rows here may be absent. Per-model
+-- rows are stored independently (AR-4). Created here by Story 2.1.
+CREATE TABLE IF NOT EXISTS llm_results (
+    id                INTEGER PRIMARY KEY,
+    submission_id     INTEGER NOT NULL REFERENCES submissions(id) ON DELETE CASCADE,
+    label_image_id    INTEGER REFERENCES label_images(id) ON DELETE SET NULL,
+    task              TEXT,
+    model_name        TEXT,
+    model_id          TEXT,
+    model_full_id     TEXT,
+    provider          TEXT,
+    is_benchmark_only BOOLEAN DEFAULT 0,   -- writer-supplied; not part of the LlmResult shape
+    prompt_tokens     INTEGER CHECK (prompt_tokens     IS NULL OR prompt_tokens     >= 0),
+    completion_tokens INTEGER CHECK (completion_tokens IS NULL OR completion_tokens >= 0),
+    -- Derived, never inserted: the sum can never drift from its parts. NULL if either part is NULL.
+    -- Mirrored by the LlmResult.total_tokens read-only property in app/contracts.py.
+    total_tokens      INTEGER GENERATED ALWAYS AS (prompt_tokens + completion_tokens) STORED,
+    latency_ms        INTEGER CHECK (latency_ms        IS NULL OR latency_ms        >= 0),
+    requested_at      TIMESTAMP,
+    responded_at      TIMESTAMP,
+    result_text       TEXT,
+    status            TEXT DEFAULT 'OK' CHECK (status IN ('OK','ERROR')),
+    created_at        TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_llm_results_submission ON llm_results (submission_id);
+CREATE INDEX IF NOT EXISTS idx_llm_results_model      ON llm_results (model_id);
+-- TODO(normalization): if the model list grows, factor model_name/model_id/model_full_id/
+-- provider into a `llm_models` reference table and FK to it. Keep inline for the POC.

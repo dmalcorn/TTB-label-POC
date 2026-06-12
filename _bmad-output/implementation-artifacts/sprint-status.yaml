@@ -1,5 +1,5 @@
 # generated: 2026-06-12
-# last_updated: 2026-06-12 (story 1.6 → done after code review)
+# last_updated: 2026-06-12 (epic-1 → done; all six stories complete)
 # project: TTB-label-POC
 # project_key: NOKEY
 # tracking_system: file-system
@@ -38,13 +38,14 @@ generated: 2026-06-12
 last_updated: 2026-06-12
 project: TTB-label-POC
 # story 1.6 moved review -> done on 2026-06-12 (code review: 4 patches applied, 2 deferred)
+# story 2.1 moved review -> done on 2026-06-12 (code review: 3 patches applied, 3 deferred)
 project_key: NOKEY
 tracking_system: file-system
 story_location: _bmad-output/implementation-artifacts
 
 development_status:
   # Epic 1: Foundation, Data & Access
-  epic-1: in-progress
+  epic-1: done
   1-1-containerized-fastapi-skeleton: done
   1-2-mock-cola-db-schema-and-connection: done
   1-3-seed-fixture-corpus-ground-truth: done
@@ -54,12 +55,12 @@ development_status:
   epic-1-retrospective: optional
 
   # Epic 2: Pre-compute Pipeline & Multi-Engine Extraction
-  epic-2: backlog
-  2-1-engine-agnostic-ocr-llm-adapter-contracts: backlog
-  2-2-background-sweep-and-submission-lifecycle: backlog
-  2-3-local-opencv-image-preprocessing: backlog
-  2-4-tesseract-paddleocr-extraction-both-image-variants: backlog
-  2-5-toggleable-llm-extraction-and-ocr-only-fallback: backlog
+  epic-2: in-progress
+  2-1-engine-agnostic-ocr-llm-adapter-contracts: done
+  2-2-background-sweep-and-submission-lifecycle: in-progress
+  2-3-local-opencv-image-preprocessing: ready-for-dev
+  2-4-tesseract-paddleocr-extraction-both-image-variants: ready-for-dev
+  2-5-toggleable-llm-extraction-and-ocr-only-fallback: ready-for-dev
   epic-2-retrospective: optional
 
   # Epic 3: Compliance Engine & Rulesets

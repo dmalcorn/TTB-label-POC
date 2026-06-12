@@ -10,15 +10,21 @@ Enum columns are typed as ``Literal`` over their CHECK vocabularies so the read
 boundary validates them too (AR-13): the database ``CHECK`` is the write-time
 source of truth, and these aliases mirror it 1:1 — keep the two in lockstep.
 
-Seeding/writes are Story 1.3+; this module is read-only.
+Reads return Pydantic models. The pipeline write helpers
+(:func:`insert_ocr_result` / :func:`insert_llm_result`, Story 2.1) persist the
+centralized ``OcrResult`` / ``LlmResult`` adapter shapes — the one place the
+contract field names map to columns. Raw SQL stays inside ``app/db/``.
 """
 
 from __future__ import annotations
 
+import json
 import sqlite3
 from typing import Literal
 
 from pydantic import BaseModel
+
+from app.contracts import LlmResult, OcrResult
 
 # Enum vocabularies — mirror the `TEXT + CHECK` constraints in `schema.sql`
 # (UPPER_SNAKE). The DB CHECK remains the write-time source of truth; these
@@ -113,3 +119,93 @@ def list_label_images(conn: sqlite3.Connection, submission_id: int) -> list[Labe
         (submission_id,),
     ).fetchall()
     return [LabelImage.model_validate(dict(row)) for row in rows]
+
+
+# ── pipeline write helpers (Story 2.1) ───────────────────────────────────────
+# Persist the centralized adapter shapes. Each engine/model gets its OWN row
+# (per-engine/per-model storage, never merged — AR-4). The contract→column
+# mapping lives ONLY here: OcrResult.text → extracted_text; word_boxes → JSON;
+# total_tokens is a DB-generated column and is NEVER inserted.
+#
+# Transaction ownership: these helpers issue the INSERT but DO NOT commit — the
+# caller owns the unit of work so a submission's multiple engine/model rows
+# commit atomically (AR-4). Use ``connect(...)`` (commits on clean exit) or call
+# ``conn.commit()`` yourself; a bare ``get_connection(...)`` that closes without
+# a commit discards the rows. See app/db/connection.py.
+
+
+def insert_ocr_result(
+    conn: sqlite3.Connection,
+    *,
+    submission_id: int,
+    label_image_id: int,
+    result: OcrResult,
+    error_text: str | None = None,
+) -> int:
+    """Insert one :class:`OcrResult` as an ``ocr_results`` row; return its id."""
+    cur = conn.execute(
+        """
+        INSERT INTO ocr_results
+            (label_image_id, submission_id, engine_name, engine_version,
+             extracted_text, confidence, word_boxes, latency_ms, ran_on_cpu,
+             status, error_text)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            label_image_id,
+            submission_id,
+            result.engine_name,
+            result.engine_version,
+            result.text,  # contract `text` → column `extracted_text`
+            result.confidence,
+            json.dumps(result.word_boxes) if result.word_boxes is not None else None,
+            result.latency_ms,
+            result.ran_on_cpu,
+            result.status,
+            error_text,
+        ),
+    )
+    return int(cur.lastrowid)
+
+
+def insert_llm_result(
+    conn: sqlite3.Connection,
+    *,
+    submission_id: int,
+    result: LlmResult,
+    label_image_id: int | None = None,
+    is_benchmark_only: bool = False,
+) -> int:
+    """Insert one :class:`LlmResult` as an ``llm_results`` row; return its id.
+
+    ``total_tokens`` is omitted: the column is ``GENERATED ALWAYS AS
+    (prompt_tokens + completion_tokens) STORED`` and inserting it would raise.
+    """
+    cur = conn.execute(
+        """
+        INSERT INTO llm_results
+            (submission_id, label_image_id, task, model_name, model_id,
+             model_full_id, provider, is_benchmark_only, prompt_tokens,
+             completion_tokens, latency_ms, requested_at, responded_at,
+             result_text, status)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            submission_id,
+            label_image_id,
+            result.task,
+            result.model_name,
+            result.model_id,
+            result.model_full_id,
+            result.provider,
+            is_benchmark_only,
+            result.prompt_tokens,
+            result.completion_tokens,
+            result.latency_ms,
+            result.requested_at,
+            result.responded_at,
+            result.result_text,
+            result.status,
+        ),
+    )
+    return int(cur.lastrowid)

@@ -64,14 +64,19 @@ def test_init_creates_tables(tmp_path):
 
 
 def test_deferred_tables_not_created(tmp_path):
-    """Scope guard: only submissions + label_images exist this story."""
+    """Scope guard: tables still deferred to later stories must not exist yet.
+
+    ``ocr_results`` / ``llm_results`` moved out of this guard in Story 2.1, which
+    creates them; ``field_comparisons`` / ``checklist_items`` are created in
+    Epic 3 (Story 3.1).
+    """
     db_path = _make_db(tmp_path)
     with connect(db_path) as conn:
         names = {
             r["name"]
             for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()
         }
-    for deferred in ("ocr_results", "llm_results", "field_comparisons", "checklist_items"):
+    for deferred in ("field_comparisons", "checklist_items", "review_progress"):
         assert deferred not in names
 
 
