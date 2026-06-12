@@ -9,6 +9,7 @@ stories mount the routers, static assets, and the APScheduler sweep here.
 
 from __future__ import annotations
 
+import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -31,6 +32,8 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 STATIC_DIR = BASE_DIR / "static"
 TEMPLATES_DIR = BASE_DIR / "templates"
 
+logger = logging.getLogger(__name__)
+
 
 def _seed_if_empty(db_path: str) -> None:
     """Populate an empty database with the fixture corpus (Story 1.6, AC-2).
@@ -42,11 +45,23 @@ def _seed_if_empty(db_path: str) -> None:
     at startup like ``init_db`` — never on a request/render path, so the 5-second
     read contract (AR-5) is intact. Reads baked-in fixtures + writes the local
     SQLite file only: zero egress, so ``docker run --network none`` still boots.
+
+    Boot-degraded posture (code review 2026-06-12): ``seed()`` is transactional
+    (rolls back on failure), but a fixture/data error must NOT take the whole
+    service down. We swallow + log any seed failure so the app still boots on an
+    empty DB — a reachable demo beats a Railway ``ON_FAILURE`` crash-loop. The
+    ``count == 0`` guard means the next clean boot retries the seed.
     """
     with connect(db_path) as conn:
         count = conn.execute("SELECT COUNT(*) FROM submissions").fetchone()[0]
     if count == 0:
-        seed(db_path)
+        try:
+            seed(db_path)
+        except Exception:
+            logger.exception(
+                "Seed-if-empty failed; booting on an empty database. "
+                "The next clean startup will retry the seed."
+            )
 
 
 def create_app() -> FastAPI:

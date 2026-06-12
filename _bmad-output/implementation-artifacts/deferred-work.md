@@ -1,5 +1,10 @@
 # Deferred Work
 
+## Deferred from: code review of 1-6-deploy-to-railway-with-run-from-readme (2026-06-12)
+
+- **Concurrent seed race on the Volume** — `_seed_if_empty`'s `COUNT(*)==0` check and `seed()` run in separate connections (non-atomic check-then-seed), and `seed()` opens a *deferred* `BEGIN` rather than `BEGIN IMMEDIATE`. A Railway rolling-redeploy overlap (old+new container on one `/data/app.db`) or a future second writer (Epic-2 pipeline) could clobber-reload the corpus or hit `SQLITE_BUSY` past the 5s busy_timeout and crash-loop. Reinforces the existing "Concurrent seed/reset vs startup init" item — fold the atomic check (`BEGIN IMMEDIATE` + re-check count inside the txn) into the Epic-6 reset story. [app/db/seed.py / app/main.py]
+- **Silent off-Volume seeding if the mount is missing** — `init_db` does `path.parent.mkdir(parents=True, exist_ok=True)`, so a missing/misconfigured Railway Volume mount at `/data` is masked: the app creates `/data/app.db` on the ephemeral container FS and seeds it, looking healthy while losing data on every redeploy (defeats AC-1's "survives redeploys"). A hard mount-assertion would break the legitimate local `data/app.db` path, so this stays an operator-discipline item; the railway-deployment.md playbook documents the `railway volume add` step. Consider a startup log line when `DATABASE_PATH` resolves outside a known mount. [app/db/connection.py:68]
+
 ## Deferred from: code review of 1-1-containerized-fastapi-skeleton (2026-06-12)
 
 - **LLM fail-fast validation** — `LLM_ENABLED=true` with absent `LLM_PROVIDER`/`LLM_BASE_URL` yields an inconsistent Settings with no fail-fast. Add a validator in the Epic-2 story that wires the LLM. [app/config.py]
@@ -21,7 +26,7 @@
 
 ## Deferred from: code review of stories 1.4+1.5 (2026-06-12)
 
-- **`Secure` cookie flag behind Railway's proxy (Story 1.6)** — the access cookie sets `secure=request.url.scheme=="https"`, which is `http` behind Railway's TLS-terminating edge unless uvicorn runs with `--proxy-headers`/`--forwarded-allow-ips` (or `ProxyHeadersMiddleware` is added). Without it the shared-token cookie is set **without `Secure` in production**. Fix in Story 1.6 deploy config; the route code is correct once forwarded-proto is trusted. [app/web/routes_access.py:55]
+- ~~**`Secure` cookie flag behind Railway's proxy (Story 1.6)**~~ — **RESOLVED in Story 1.6 (code review 2026-06-12).** `railway.toml` `startCommand` now runs uvicorn with `--proxy-headers --forwarded-allow-ips=*`, so `X-Forwarded-Proto: https` is trusted, `request.url.scheme` reflects the real https hop, and the access cookie ships `Secure` in production. Route code at `app/web/routes_access.py:55` was already correct; regression `test_start_command_trusts_railway_proxy_headers`.
 - **303 gate redirect coerces non-GET → GET** — every non-exempt request (any method) is `RedirectResponse("/access", 303)`, turning a future unauthenticated `POST` into a silent GET of the gate instead of a 401. Latent; only `GET /` exists today. Revisit when a protected non-GET route lands. [app/main.py]
 - **Stale cookie not cleared on denial** — `POST /access` denial returns 401 without `delete_cookie(ACCESS_COOKIE)`; a rotated/old cookie lingers (correct outcome, untidy). [app/web/routes_access.py:46]
 - **Un-normalized exemption-prefix matching** — `is_exempt` does case-sensitive `startswith("/static/")`; case-variants, `//static`, and `/static/..` aren't normalized. Benign today (case-sensitive routes; `StaticFiles` rejects traversal) but fragile behind a path-rewriting proxy. [app/web/deps.py:44-48]

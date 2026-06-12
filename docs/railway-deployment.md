@@ -106,13 +106,21 @@ The deploy built fine but FAILED in the DEPLOYING phase (healthcheck never went 
 wrap in `sh -c` to force shell expansion, with a local fallback:**
 
 ```toml
-startCommand = "sh -c 'uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}'"
+startCommand = "sh -c 'uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000} --proxy-headers --forwarded-allow-ips=*'"
 ```
 
 And pin `PORT=8000` as a service var so `$PORT` matches the domain's `targetPort` (8000) — the
 edge routes the public domain → `targetPort` → the container's port; if they differ you get a
 silent 404/502 from `railway-edge`. The Dockerfile `CMD` keeps `8000` for local/compose. After
 the fix, deploy reached SUCCESS and `Uvicorn running on http://0.0.0.0:8000` with `/healthz 200`.
+
+> **`--proxy-headers --forwarded-allow-ips=*` (added code review 2026-06-12).** Railway
+> terminates TLS at its edge and forwards plain HTTP from a non-loopback internal IP. Uvicorn's
+> default `forwarded_allow_ips=127.0.0.1` ignores `X-Forwarded-Proto: https`, so
+> `request.url.scheme` stays `http` and the Story 1.5 access cookie ships **without `Secure`** in
+> production. Trusting the proxy makes the scheme reflect the real `https` hop so the cookie is
+> `Secure` on Railway (local/compose has no proxy → scheme is genuinely `http` → no `Secure`,
+> which is correct). This closes the deferred-work item assigned to Story 1.6.
 
 ## Failed-first-build → Railpack lock (we dodged it — keep dodging)
 

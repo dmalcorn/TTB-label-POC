@@ -9,7 +9,7 @@ context:
 
 # Story 1.6: Deploy to Railway with run-from-README
 
-Status: review
+Status: done
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -79,6 +79,17 @@ so that I can both reach the live demo and reproduce it locally.
   - [x] `railway.toml` parses; builder is Dockerfile (asserts not `nixpacks`); `healthcheckPath == "/healthz"`; `startCommand` honors `$PORT` with no hardcoded port.
   - [x] `.env.example` documents every `Settings` field — parses both and diffs (generic over `Settings.model_fields`).
   - [x] Seed-if-empty guard: populates an empty temp DB, and is a no-op when data is present (drop-one-row probe proves no clobber).
+
+## Review Findings
+
+_Code review 2026-06-12 (story 1.6; Blind Hunter · Edge Case Hunter · Acceptance Auditor — all three layers ran, none failed). AC scorecard: **AC-1 MET · AC-2 PARTIAL** (seed logic + tests pass; live deploy is a deferred operator step) **· AC-3 MET · AC-4 MET · AC-5 MET.** One obligation the spec assigned to 1.6 was **not discharged** (Secure cookie behind the proxy — P1 below). 4 patch · 2 defer · 6 dismissed (1 decision resolved → boot-degraded patch)._
+
+- [x] [Review][Patch] **Seed-failure startup posture (resolved → boot degraded)** — `_seed_if_empty` re-raises with no try/except; if `seed()` throws on a fresh Volume (corrupt/short-read fixture, CHECK violation, `SQLITE_BUSY` past the 5s timeout) the lifespan aborts and Railway's `ON_FAILURE`/10-retry policy crash-loops with no degraded boot. **Decision (Diane): boot degraded** — wrap `seed()` in try/except, log the failure, and come up on an empty DB so the demo URL stays reachable. [app/main.py:35-49]
+- [x] [Review][Patch] **CRITICAL — access cookie set without `Secure` in production (deferred-from-1.5 obligation not discharged)** — FIXED: `startCommand` now runs `--proxy-headers --forwarded-allow-ips=*`; regression `test_start_command_trusts_railway_proxy_headers`. deferred-work.md item marked RESOLVED. — Railway terminates TLS at the edge and forwards plain HTTP; uvicorn's `forwarded_allow_ips` defaults to `127.0.0.1`, so `X-Forwarded-Proto: https` is untrusted, `request.url.scheme=="https"` is False, and the shared-token cookie ships without `Secure`. The `railway.toml` `startCommand` has no `--proxy-headers --forwarded-allow-ips`. deferred-work.md explicitly assigned this fix to Story 1.6. Fix: add `--proxy-headers --forwarded-allow-ips=*` to the `startCommand` (or set `FORWARDED_ALLOW_IPS`); add a deploy test. [railway.toml:19 / app/web/routes_access.py:55]
+- [x] [Review][Patch] **HIGH — HEALTHCHECK/listener port divergence + empty-`PORT` footgun** — FIXED: probe now uses `os.environ.get('PORT') or '8000'`; regression `test_dockerfile_healthcheck_is_empty_port_safe`. — the Dockerfile `HEALTHCHECK` now reads `os.environ.get('PORT','8000')` (default applies only when *missing*, not empty) while `CMD` hardcodes `--port 8000`. With `PORT=""` the listener's `${PORT:-8000}` binds 8000 but the probe builds `http://127.0.0.1:/healthz` → malformed URL → false-unhealthy. Make probe and listener consistent and empty-safe: `os.environ.get('PORT') or '8000'`. [Dockerfile:39-45]
+- [x] [Review][Patch] **LOW — new tests assert weak substrings / one-directional parity** — FIXED: `test_start_command_honors_railway_port` now parses the `sh -c '…'` wrapper and asserts the exact `--port ${PORT:-8000}` form instead of substring-anywhere. — `test_start_command_honors_railway_port` only checks `"sh -c"`/`"${PORT"` appear (passes for a broken command); the `.env.example` parity check is one-directional (`expected - documented`) and keys off any `NAME=` line regardless of value. Strengthen the startCommand assertion and consider flagging stray/extra documented keys. [tests/test_deploy_config.py]
+- [x] [Review][Defer] **Concurrent seed race on the Volume** — check-then-seed spans two connections (non-atomic) and `seed()` opens a *deferred* `BEGIN` (not `BEGIN IMMEDIATE`); a redeploy overlap or future second writer on one `/data/app.db` could clobber-reload or `SQLITE_BUSY` crash-loop. Pre-existing seed semantics (Story 1.3); reinforces the existing deferred-work item "Concurrent seed/reset vs startup init" owned by the Epic-6 reset story. [app/db/seed.py / app/main.py] — deferred, pre-existing
+- [x] [Review][Defer] **Silent off-Volume seeding if the mount is missing** — `init_db`'s `mkdir(parents=True, exist_ok=True)` happily creates `/data/app.db` on the ephemeral container FS when the Railway Volume mount is absent/misconfigured, masking the misconfig and silently losing data across redeploys (the exact failure AC-1 guards against). Can't hard-assert a mount without breaking the legitimate local `data/app.db` path; mitigated by the documented operator step in railway-deployment.md. [app/db/connection.py:68] — deferred, operator-deploy concern
 
 ## Project Structure Notes
 

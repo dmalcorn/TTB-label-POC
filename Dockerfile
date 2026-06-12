@@ -37,9 +37,12 @@ EXPOSE 8000
 
 # Liveness probe hits the pure in-memory route — no network, no DB. Reads $PORT
 # (Railway injects it; defaults to 8000 for local/compose) so the probe targets
-# the same port the server binds — see railway.toml's $PORT reconciliation.
+# the same port the server binds — see railway.toml's $PORT reconciliation. Use
+# `or '8000'` (not get's default) so an empty `PORT=""` also falls back — the
+# default only applies when the var is *absent*, and an empty value would build a
+# malformed `http://127.0.0.1:/healthz` and false-fail an otherwise healthy boot.
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-    CMD python -c "import os,urllib.request,sys; p=os.environ.get('PORT','8000'); sys.exit(0 if urllib.request.urlopen(f'http://127.0.0.1:{p}/healthz', timeout=2).status==200 else 1)"
+    CMD python -c "import os,urllib.request,sys; p=os.environ.get('PORT') or '8000'; sys.exit(0 if urllib.request.urlopen(f'http://127.0.0.1:{p}/healthz', timeout=2).status==200 else 1)"
 
 # Serve the app factory. Host 0.0.0.0 so the port is reachable from outside the
 # container; startup performs zero outbound calls (proven by `--network none`).

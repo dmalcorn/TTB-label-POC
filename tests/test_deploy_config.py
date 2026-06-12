@@ -56,10 +56,31 @@ def test_start_command_honors_railway_port() -> None:
     # reaches uvicorn literally and crashes (observed on the first 1.6 deploy). The
     # command must be shell-wrapped so $PORT expands (AC-1, $PORT reconciliation).
     start = _railway_config()["deploy"]["startCommand"]
-    assert "sh -c" in start  # the fix: force shell expansion of $PORT
-    assert "${PORT" in start  # expanded PORT reference, not a literal
-    assert "app.main:app" in start
-    assert "--port 8000" not in start  # no hardcoded port on the Railway path
+    # Structural, not substring-anywhere: must actually be `sh -c '<uvicorn ...>'`.
+    assert start.startswith("sh -c "), f"startCommand must be shell-wrapped: {start!r}"
+    inner = start[len("sh -c ") :].strip().strip("'\"")
+    assert inner.startswith("uvicorn app.main:app"), f"unexpected start command: {inner!r}"
+    assert "--port ${PORT:-8000}" in inner  # expanded PORT ref with local fallback
+    assert "--port 8000" not in inner  # no hardcoded port on the Railway path
+
+
+def test_start_command_trusts_railway_proxy_headers() -> None:
+    # Railway terminates TLS at its edge; without trusting forwarded headers the
+    # Story 1.5 access cookie ships WITHOUT `Secure` in prod (deferred-work item
+    # owned by Story 1.6). The startCommand must enable proxy-header trust.
+    start = _railway_config()["deploy"]["startCommand"]
+    assert "--proxy-headers" in start
+    assert "--forwarded-allow-ips" in start
+
+
+def test_dockerfile_healthcheck_is_empty_port_safe() -> None:
+    # The probe must fall back to 8000 for BOTH an absent and an empty `PORT`.
+    # `get('PORT', '8000')` only covers absent; an empty value builds a malformed
+    # URL and false-fails. The fix uses `get('PORT') or '8000'`.
+    dockerfile = (REPO_ROOT / "Dockerfile").read_text(encoding="utf-8")
+    assert "os.environ.get('PORT') or '8000'" in dockerfile
+    assert "os.environ.get('PORT','8000')" not in dockerfile
+    assert "os.environ.get('PORT', '8000')" not in dockerfile
 
 
 # ── AC-4: .env.example documents every Settings field ────────────────────────
@@ -96,6 +117,31 @@ def test_seed_if_empty_populates_an_empty_db(tmp_path) -> None:
     with connect(db_path) as conn:
         count = conn.execute("SELECT COUNT(*) FROM submissions").fetchone()[0]
     assert count > 0, "an empty Volume DB must be seeded on startup"
+
+
+def test_seed_if_empty_boots_degraded_on_seed_failure(tmp_path, monkeypatch, caplog) -> None:
+    # Boot-degraded posture (code review 2026-06-12): a seed failure must NOT
+    # propagate out of startup — a reachable empty-DB demo beats a Railway
+    # ON_FAILURE crash-loop. The failure is logged; the empty DB lets the next
+    # clean boot retry.
+    import logging
+
+    import app.main as main
+
+    db_path = tmp_path / "app.db"
+    init_db(db_path)
+
+    def _boom(_db_path) -> None:
+        raise RuntimeError("corrupt fixture")
+
+    monkeypatch.setattr(main, "seed", _boom)
+
+    with caplog.at_level(logging.ERROR):
+        main._seed_if_empty(db_path)  # must not raise
+
+    with connect(db_path) as conn:
+        assert conn.execute("SELECT COUNT(*) FROM submissions").fetchone()[0] == 0
+    assert any("Seed-if-empty failed" in r.message for r in caplog.records)
 
 
 def test_seed_if_empty_is_a_noop_when_data_present(tmp_path) -> None:

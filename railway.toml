@@ -16,7 +16,16 @@ dockerfilePath = "Dockerfile"
 # Railway. The service var PORT=8000 pins it to the domain's targetPort (8000) so
 # the edge and the listener agree (the $PORT-mismatch 404 trap). The Dockerfile
 # CMD keeps 8000 for local/compose.
-startCommand = "sh -c 'uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}'"
+#
+# `--proxy-headers --forwarded-allow-ips=*`: Railway terminates TLS at its edge
+# and forwards plain HTTP from a non-loopback internal IP. Without trusting the
+# forwarded headers, uvicorn's default `forwarded_allow_ips=127.0.0.1` ignores
+# `X-Forwarded-Proto: https`, so `request.url.scheme` stays "http" and the Story
+# 1.5 access cookie ships WITHOUT `Secure` in production. Trusting the proxy
+# makes the scheme reflect the real https hop so the cookie is `Secure` on
+# Railway. (Local/compose has no proxy → scheme is genuinely http → no `Secure`,
+# which is correct.) Closes the deferred-work.md item assigned to Story 1.6.
+startCommand = "sh -c 'uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000} --proxy-headers --forwarded-allow-ips=*'"
 # Pure in-memory liveness route (no DB, no network), exempt from the Story 1.5
 # token gate (AC-3) — Railway's probe gets 200 without a token.
 healthcheckPath = "/healthz"
