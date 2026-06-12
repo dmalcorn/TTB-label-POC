@@ -159,9 +159,10 @@ side-by-side (vertical-stacked) discrepancy display.
 | `ocr_extracted_at` | OCR Run Timestamp | Timestamp (ISO 8601, UTC). | When this OCR extraction ran. |
 
 > **Note:** field-level discrepancy flags (application value vs. OCR value) are a
-> derived comparison, not stored input fields. Whether they are persisted or
-> computed at display time is defined in
-> [`database-schema.md`](./database-schema.md). TODO: confirm storage decision.
+> derived comparison, not stored input fields. They are **persisted** — written by the
+> analysis job to the `field_comparisons` table (one row per app-field vs. extracted
+> value, with `match_status` / similarity), not recomputed at display time. See
+> [`database-schema.md`](./database-schema.md) §1.5 / §5.
 
 ---
 
@@ -183,7 +184,7 @@ model ID, full model ID, and timestamps**").
 | `model_name` | Model Name | String (e.g. "Claude Opus 4.8", "GPT", "Gemini"). Not null. | Human-friendly name of the model used ([`discussion-points.md`](../ref-docs/discussion-points.md) §4). |
 | `model_id` | Model ID | String (short id, e.g. `opus-4-8`). Not null. | The short/family model identifier. |
 | `full_model_id` | Full Model ID | String (fully-qualified id, e.g. `claude-opus-4-8`). Not null. | The exact, fully-qualified model identifier used for the call — the reproducible "what ran" ([`discussion-points.md`](../ref-docs/discussion-points.md) §4). |
-| `provider` | Provider | String (e.g. `anthropic`, `openai`, `google`), nullable. | The model vendor. TODO: confirm enum for the engines actually benchmarked. |
+| `provider` | Provider | Enum: `anthropic` \| `openai` \| `google` \| `local`, nullable. | The model vendor — the locked LLM roster (Anthropic Claude / OpenAI GPT / Google Gemini) plus an optional local VLM (architecture.md D6). |
 | `prompt_tokens` | Prompt Tokens | Integer, nullable. | Input token count for the call (cost analysis input). |
 | `completion_tokens` | Completion Tokens | Integer, nullable. | Output token count for the call. |
 | `total_tokens` | Total Tokens | Integer, nullable. | Sum of prompt + completion tokens; feeds LLM-cost-per-1,000-verifications analysis ([`discussion-points.md`](../ref-docs/discussion-points.md) §6). |
@@ -218,7 +219,7 @@ Two distinct concepts, kept separate per
 | `engine_verdict_reasons` | Verdict Reasons | Text / JSON list, nullable. | Human-readable list of which checks passed/failed (e.g. missing Government Warning, ABV mismatch) backing the verdict; drives the UI checklist and discrepancy highlights. |
 | `status` | Lifecycle Status | Enum (lifecycle): `RECEIVED` \| `PROCESSING` \| `READY_FOR_REVIEW` \| `IN_REVIEW` \| `DECIDED`. Default `RECEIVED`. | The submission's **lifecycle** state through the POC pre-compute and review pipeline (NOT a TTB disposition). Authoritative DDL: [`database-schema.md`](./database-schema.md) §3.1. |
 | `disposition` | Disposition | Enum (disposition): `APPROVED` (Approved) \| `NEEDS_CORRECTION` (Needs Correction) \| `REJECTED` (Rejected). Nullable; set only when `status = DECIDED`. | The **Label Specialist's final decision**, the three real TTB dispositions. Mirrors TTB's real terms, not invented "Pass/Fail" ([`Research-Findings.md`](../ref-docs/Research-Findings.md) §7; [`discussion-points.md`](../ref-docs/discussion-points.md) §8; [`database-schema.md`](./database-schema.md) §3.1). |
-| `specialist_id` | Label Specialist | String / FK, nullable. | Identifier of the reviewing Label Specialist assigned to or who decided the submission. POC may use a token/demo identity ([`discussion-points.md`](../ref-docs/discussion-points.md) §3). TODO. |
+| `specialist_id` | Label Specialist | String / FK, nullable. | Identifier of the reviewing Label Specialist who decided the submission. The POC has no user accounts/roles — access is a single shared token gate (`ACCESS_TOKEN`), so this is a demo/token identity ([`discussion-points.md`](../ref-docs/discussion-points.md) §3; architecture.md Auth). |
 | `decision_notes` | Decision Notes | Text, nullable. | Free-text rationale the Label Specialist records, especially the specified issues for a `NEEDS_CORRECTION` return. |
 | `correction_due_at` | Correction Deadline | Timestamp (ISO 8601, UTC), nullable. | The 30-day deadline when status is `NEEDS_CORRECTION`; auto-rejected if not corrected ([`Research-Findings.md`](../ref-docs/Research-Findings.md) §7). |
 | `processing_ms` | Engine Processing Time (ms) | Integer milliseconds, nullable. | Total pre-compute pipeline time (OCR + analysis) for this submission, supporting the "displays instantly / ~5s" claim ([`discussion-points.md`](../ref-docs/discussion-points.md) §5). |
@@ -248,6 +249,6 @@ Two distinct concepts, kept separate per
 **Open TODOs gathered above:**
 1. Confirm whether `PNG` is accepted in addition to JPG/TIFF for the POC ([§2](#2-label-image-fields)).
 2. Confirm `label_width_in` / `label_height_in` are actually captured in STORRd (scale reference for type-size checks) ([§2](#2-label-image-fields)).
-3. Decide whether field-level discrepancy flags are persisted or computed at display ([§3](#3-ocr-extracted-fields)).
-4. Confirm `provider` enum and per-model `cost_usd` pricing source for the benchmarked LLMs ([§4](#4-llm--benchmark-stat-fields)).
-5. Confirm `specialist_id` identity model for the POC (token/demo vs. real) ([§5](#5-engine--disposition-fields)).
+3. **Resolved:** field-level discrepancy flags are **persisted** in the `field_comparisons` table by the analysis job ([§3](#3-ocr-extracted-fields)).
+4. `provider` enum **resolved** (`anthropic` \| `openai` \| `google` \| `local`); per-model `cost_usd` **pricing source still open** for the benchmarked LLMs ([§4](#4-llm--benchmark-stat-fields)).
+5. **Resolved:** single shared token gate (`ACCESS_TOKEN`), no user accounts — `specialist_id` is a demo/token identity ([§5](#5-engine--disposition-fields)).

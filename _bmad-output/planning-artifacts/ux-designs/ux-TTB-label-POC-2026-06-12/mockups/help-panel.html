@@ -1,0 +1,308 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TTB Label Review — Help</title>
+<style>
+/*
+  GOVERNING SPINE SECTIONS (fully offline; inline CSS only; no JS; no network):
+  - DESIGN.md > Colors            (Treasury navy #112E51, civic green #2E5B46, verdict palette pass/review/fail, base #F0F0F0, ink #1B1B1B)
+  - DESIGN.md > Typography        (Public Sans body >=16px; Roboto Mono fallback; display 22px/700)
+  - DESIGN.md > Shapes            (squared corners; pill only on status chips)
+  - DESIGN.md > Components        (USWDS Search, Accordion, Tag; status = icon+word+color)
+  - EXPERIENCE.md > Information Architecture  (Help panel: searchable local KB + inline "Why?" context; one-click [?] in header)
+  - EXPERIENCE.md > Voice and Tone (plain, federal, calm; authority returns to human; limitations stated plainly)
+  - EXPERIENCE.md > State Patterns (empty / "no results" calm state, not an error)
+  - EXPERIENCE.md > Accessibility Floor (color never alone — icon+word+color; body >=16px; keyboard path documented)
+  - EXPERIENCE.md > Interaction Primitives (keyboard power path: N, A/C/R, arrows, ?, Esc)
+  - .decision-log.md (KB seeded from ruleset + non-goals; verdict-vs-disposition vocabularies)
+*/
+
+:root{
+  --navy:#112E51; --navy-dark:#0B1D35; --blue:#205493;
+  --green:#2E5B46;
+  --base:#F0F0F0; --surface:#FFFFFF; --ink:#1B1B1B; --ink-muted:#5C5C5C; --border:#DCDEE0;
+  --pass:#2E8540; --pass-bg:#ECF3EC;
+  --review:#B8860B; --review-bg:#FAF3D1;
+  --fail:#B50909; --fail-bg:#F4E3DB;
+}
+*{box-sizing:border-box;}
+html,body{margin:0;padding:0;}
+body{
+  background:#33373b;
+  font-family:'Public Sans','Helvetica Neue',Arial,sans-serif;
+  font-size:16px; line-height:1.5; color:var(--ink);
+  padding:32px; display:flex; justify-content:center;
+}
+
+/* ---- Browser device frame (large monitor) ---- */
+.device{
+  width:1440px; max-width:100%;
+  background:var(--surface);
+  border:1px solid #1b1b1b;
+  box-shadow:0 18px 50px rgba(0,0,0,.45);
+}
+.browser-bar{
+  display:flex; align-items:center; gap:8px;
+  background:#e4e6e8; border-bottom:1px solid #c9ccce;
+  padding:10px 14px;
+}
+.dot{width:12px;height:12px;border-radius:999px;display:inline-block;}
+.dot.r{background:#ec6a5e;} .dot.y{background:#f3bf4f;} .dot.g{background:#61c554;}
+.url{
+  flex:1; margin-left:10px; background:#fff; border:1px solid #c9ccce;
+  border-radius:2px; padding:6px 12px; font-size:13px; color:#5c5c5c;
+  font-family:'Roboto Mono','Courier New',monospace;
+}
+
+/* ---- App stage (dimmed Review screen hint behind the panel) ---- */
+.stage{position:relative; height:860px; overflow:hidden; background:var(--base);}
+
+/* muted backdrop suggesting the underlying Review screen */
+.backdrop{position:absolute; inset:0; filter:grayscale(.4); opacity:.55;}
+.bd-header{height:56px; background:var(--navy);}
+.bd-banner{height:54px; background:#7A4D00;}
+.bd-body{display:flex; gap:16px; padding:20px;}
+.bd-img{flex:1; height:560px; background:#d4d6d8; border:1px solid var(--border);}
+.bd-col{flex:1; display:flex; flex-direction:column; gap:14px;}
+.bd-card{height:96px; background:#fff; border:1px solid var(--border);}
+.bd-card.tall{height:150px;}
+.scrim{position:absolute; inset:0; background:rgba(11,29,53,.42);}
+
+/* ---- Slide-over Help panel anchored right ---- */
+.panel{
+  position:absolute; top:0; right:0; bottom:0;
+  width:520px; background:var(--surface);
+  border-left:4px solid var(--navy);
+  box-shadow:-12px 0 32px rgba(0,0,0,.30);
+  display:flex; flex-direction:column;
+}
+.panel-head{
+  background:var(--navy); color:#fff;
+  padding:18px 24px; display:flex; align-items:center; justify-content:space-between;
+}
+.panel-head h1{font-size:22px; font-weight:700; margin:0; letter-spacing:.01em;}
+.panel-head .sub{font-size:14px; color:#cdd6e0; margin-top:2px;}
+.close-btn{
+  background:transparent; color:#fff; border:1px solid #4d6a8c;
+  width:36px; height:36px; font-size:18px; line-height:1; border-radius:2px;
+}
+.panel-body{padding:24px; overflow:auto;}
+
+/* search box */
+.search-label{font-size:16px; font-weight:700; color:var(--ink); margin:0 0 8px;}
+.search-wrap{display:flex; border:1px solid var(--border);}
+.search-input{
+  flex:1; border:0; padding:14px 16px; font-size:18px; font-family:inherit; color:var(--ink);
+  background:#fff; min-height:48px;
+}
+.search-input::placeholder{color:#767676;}
+.search-go{
+  background:var(--navy); color:#fff; border:0; padding:0 22px; font-size:16px; font-weight:700;
+  min-height:48px; cursor:default;
+}
+.search-hint{font-size:14px; color:var(--ink-muted); margin:8px 2px 0;}
+
+.section{margin-top:28px;}
+.section h2{
+  font-size:14px; font-weight:700; text-transform:uppercase; letter-spacing:.06em;
+  color:var(--ink-muted); margin:0 0 12px; border-bottom:1px solid var(--border); padding-bottom:6px;
+}
+
+/* browsable KB list (so low-search-comfort users scan, not type) */
+.kb-list{list-style:none; margin:0; padding:0;}
+.kb-item{
+  border:1px solid var(--border); border-left:4px solid var(--blue);
+  background:#fff; padding:14px 16px; margin-bottom:10px; display:flex; gap:12px; align-items:flex-start;
+}
+.kb-q{font-size:17px; font-weight:700; color:var(--navy); margin:0;}
+.kb-a{font-size:15px; color:var(--ink); margin:6px 0 0; line-height:1.5;}
+.kb-chev{color:var(--blue); font-size:20px; font-weight:700; line-height:1.2; flex:0 0 auto;}
+
+/* verdict vocabulary explainer (icon + word + color) */
+.verdict-grid{display:flex; flex-direction:column; gap:10px;}
+.vrow{display:flex; align-items:center; gap:14px; border:1px solid var(--border); padding:12px 14px; background:#fff;}
+.vtag{
+  display:inline-flex; align-items:center; gap:8px;
+  border-radius:999px; padding:6px 16px; font-size:16px; font-weight:700; flex:0 0 auto; min-width:128px;
+  justify-content:center;
+}
+.vtag .ic{font-size:16px;}
+.vtag.pass{background:var(--pass-bg); color:var(--pass); border:1px solid var(--pass);}
+.vtag.review{background:var(--review-bg); color:var(--review); border:1px solid var(--review);}
+.vtag.fail{background:var(--fail-bg); color:var(--fail); border:1px solid var(--fail);}
+.vdesc{font-size:15px; color:var(--ink); line-height:1.45;}
+.vdesc b{color:var(--ink);}
+
+.note{
+  background:var(--review-bg); border-left:4px solid var(--review);
+  padding:12px 14px; font-size:15px; color:var(--ink); margin-top:14px; line-height:1.5;
+}
+
+/* keyboard shortcuts */
+.kbd-list{list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:8px;}
+.kbd-list li{display:flex; align-items:center; gap:12px; font-size:15px;}
+kbd{
+  font-family:'Roboto Mono','Courier New',monospace; font-size:14px;
+  background:#f0f0f0; border:1px solid #adadad; border-bottom-width:2px;
+  padding:3px 9px; border-radius:2px; min-width:30px; text-align:center; color:var(--ink);
+}
+
+/* ---- "No search results" calm state ---- */
+.empty-demo{margin-top:34px;}
+.empty-demo .frame-label{
+  font-size:13px; text-transform:uppercase; letter-spacing:.06em; color:var(--ink-muted);
+  margin:0 0 8px;
+}
+.empty{
+  border:1px dashed var(--border); background:#fafafa; padding:28px 22px; text-align:center;
+}
+.empty .ico{
+  width:48px; height:48px; border-radius:999px; background:var(--navy); color:#fff;
+  display:inline-flex; align-items:center; justify-content:center; font-size:24px; font-weight:700;
+  margin-bottom:12px;
+}
+.empty h3{font-size:18px; font-weight:700; color:var(--ink); margin:0 0 6px;}
+.empty p{font-size:15px; color:var(--ink-muted); margin:4px auto 0; max-width:360px; line-height:1.5;}
+.empty .examples{
+  margin-top:16px; font-size:14px; color:var(--blue); text-align:left; display:inline-block;
+}
+.empty .examples b{display:block; color:var(--ink-muted); font-weight:700; margin-bottom:6px; text-transform:uppercase; letter-spacing:.05em; font-size:12px;}
+.empty .examples span{display:block; padding:3px 0;}
+</style>
+</head>
+<body>
+<div class="device">
+  <!-- browser chrome -->
+  <div class="browser-bar">
+    <span class="dot r"></span><span class="dot y"></span><span class="dot g"></span>
+    <span class="url">https://label-review.ttb.local/review/2026-0613-SPIRITS-0042</span>
+  </div>
+
+  <div class="stage">
+    <!-- dimmed hint of the underlying Review screen -->
+    <div class="backdrop" aria-hidden="true">
+      <div class="bd-header"></div>
+      <div class="bd-banner"></div>
+      <div class="bd-body">
+        <div class="bd-img"></div>
+        <div class="bd-col">
+          <div class="bd-card tall"></div>
+          <div class="bd-card"></div>
+          <div class="bd-card"></div>
+          <div class="bd-card"></div>
+        </div>
+      </div>
+    </div>
+    <div class="scrim" aria-hidden="true"></div>
+
+    <!-- Help slide-over -->
+    <aside class="panel" role="dialog" aria-label="Help">
+      <div class="panel-head">
+        <div>
+          <h1>Help</h1>
+          <div class="sub">Search the local knowledge base, or browse below.</div>
+        </div>
+        <button class="close-btn" title="Close (Esc)" aria-label="Close help">&times;</button>
+      </div>
+
+      <div class="panel-body">
+        <!-- Single prominent search -->
+        <p class="search-label">Ask a question</p>
+        <div class="search-wrap">
+          <input class="search-input" type="text" placeholder="Ask a question…" aria-label="Ask a question">
+          <button class="search-go">Search</button>
+        </div>
+        <p class="search-hint">Everything here is on this server — no internet, nothing leaves the workstation.</p>
+
+        <!-- Browsable KB (scan, don't only type) -->
+        <div class="section">
+          <h2>Common questions</h2>
+          <ul class="kb-list">
+            <li class="kb-item">
+              <div>
+                <p class="kb-q">What exactly must the Government Warning say?</p>
+                <p class="kb-a">The full text is fixed by 27 CFR §16.21. We compare the label, word for word, to that regulation — not to anything the maker typed. The character diff shows exactly where the wording differs.</p>
+              </div>
+              <span class="kb-chev" aria-hidden="true">&rsaquo;</span>
+            </li>
+            <li class="kb-item">
+              <div>
+                <p class="kb-q">Why didn't the tool check the font size?</p>
+                <p class="kb-a">Font size is measured on the physical label, not the photo — there's no scale in an image. So we say so plainly and leave it for your eyes, rather than guessing a pass or fail.</p>
+              </div>
+              <span class="kb-chev" aria-hidden="true">&rsaquo;</span>
+            </li>
+            <li class="kb-item">
+              <div>
+                <p class="kb-q">The names differ only in capitalization — is that a real mismatch?</p>
+                <p class="kb-a">Usually not. Capitalization differs; the text otherwise matches. We mark that as an amber "check," not a red mismatch, and leave the call to you.</p>
+              </div>
+              <span class="kb-chev" aria-hidden="true">&rsaquo;</span>
+            </li>
+            <li class="kb-item">
+              <div>
+                <p class="kb-q">What's the difference between Needs Correction and Rejected?</p>
+                <p class="kb-a">Needs Correction sends the application back to the maker to fix and resubmit. Rejected closes it out. Both need a note so the maker knows the reason — you decide which fits.</p>
+              </div>
+              <span class="kb-chev" aria-hidden="true">&rsaquo;</span>
+            </li>
+          </ul>
+        </div>
+
+        <!-- Verdict vocabulary: icon + word + color -->
+        <div class="section">
+          <h2>What PASS, REVIEW and FAIL mean</h2>
+          <p class="search-hint" style="margin-top:0;margin-bottom:12px;">These are the engine's <b>suggestions</b>. The disposition — Approve, Needs Correction, Reject — is always your decision.</p>
+          <div class="verdict-grid">
+            <div class="vrow">
+              <span class="vtag pass"><span class="ic" aria-hidden="true">✓</span>PASS</span>
+              <span class="vdesc">Checked automatically and matched. Nothing for you to chase — confirm if you like.</span>
+            </div>
+            <div class="vrow">
+              <span class="vtag review"><span class="ic" aria-hidden="true">⚠</span>REVIEW</span>
+              <span class="vdesc">Needs your eyes. Either a soft difference (like capitalization) or something a photo can't confirm. Your call.</span>
+            </div>
+            <div class="vrow">
+              <span class="vtag fail"><span class="ic" aria-hidden="true">✕</span>FAIL</span>
+              <span class="vdesc">A clear mismatch against the rule or the regulation. The differing text is highlighted so you can see what's wrong.</span>
+            </div>
+          </div>
+          <p class="note">Color is never the whole story — every status carries an icon and a word as well as a color.</p>
+        </div>
+
+        <!-- Keyboard power path -->
+        <div class="section">
+          <h2>Keyboard shortcuts (optional)</h2>
+          <ul class="kbd-list">
+            <li><kbd>N</kbd> Next Submission</li>
+            <li><kbd>A</kbd> <kbd>C</kbd> <kbd>R</kbd> Approve · Needs Correction · Reject</li>
+            <li><kbd>&larr;</kbd> <kbd>&rarr;</kbd> Move between label image faces</li>
+            <li><kbd>?</kbd> Open Help &nbsp;·&nbsp; <kbd>Esc</kbd> Close this panel</li>
+          </ul>
+          <p class="search-hint" style="margin-top:12px;">The mouse path does everything on its own — shortcuts are extra, never required.</p>
+        </div>
+
+        <!-- SECOND section: "no search results" calm state -->
+        <div class="empty-demo">
+          <p class="frame-label">No-results state</p>
+          <div class="empty">
+            <div class="ico" aria-hidden="true">?</div>
+            <h3>No matches yet for that.</h3>
+            <p>Try fewer words, or browse the common questions above. If it's about a specific check, open its “Why?” note on the Review screen.</p>
+            <div class="examples">
+              <b>You could try</b>
+              <span>· Government Warning wording</span>
+              <span>· capitalization difference</span>
+              <span>· why a check says “couldn't verify”</span>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </aside>
+  </div>
+</div>
+</body>
+</html>

@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TTB Label Review — Access</title>
+<style>
+/*
+  SPINE SECTIONS GOVERNING THIS SCREEN
+  EXPERIENCE.md > Information Architecture (Token gate — lightweight access, NO login ceremony, clean denial, no data leakage)
+  EXPERIENCE.md > State Patterns (Token absent / invalid — clean denial, no data leakage, plain "access token required")
+  EXPERIENCE.md > Voice and Tone (plain, federal, calm; never alarming)
+  EXPERIENCE.md > Accessibility Floor (body >=16px, targets >=48px, visible focus, keyboard-complete)
+  DESIGN.md > Colors (Treasury navy primary #112E51; base #F0F0F0; ink #1B1B1B)
+  DESIGN.md > Typography (Public Sans; body >=16px; display 22px/700)
+  DESIGN.md > Layout & Spacing (centered, generous whitespace; one obvious action)
+  DESIGN.md > Shapes (squared corners 2/4/8)
+  DESIGN.md > Components (Button-primary: navy fill, white, radius-md, >=48px; USWDS Text Input as-is)
+*/
+
+:root{
+  --primary:#112E51;
+  --primary-dark:#0B1D35;
+  --primary-light:#205493;
+  --secondary:#2E5B46;
+  --base:#F0F0F0;
+  --surface:#FFFFFF;
+  --ink:#1B1B1B;
+  --ink-muted:#5C5C5C;
+  --border:#DCDEE0;
+  --radius-sm:2px;
+  --radius-md:4px;
+  --radius-lg:8px;
+}
+
+*{box-sizing:border-box;}
+html,body{margin:0;padding:0;}
+
+body{
+  font-family:"Public Sans","Source Sans Pro",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  font-size:16px;
+  line-height:1.5;
+  color:var(--ink);
+  background:#cfd3d6;
+  padding:32px 16px;
+}
+
+/* ---------- browser device frame ---------- */
+.device{
+  max-width:880px;
+  margin:0 auto 40px auto;
+  background:var(--surface);
+  border:1px solid #b5babd;
+  border-radius:var(--radius-lg);
+  overflow:hidden;
+  box-shadow:0 8px 28px rgba(0,0,0,.18);
+}
+.device__chrome{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  padding:10px 14px;
+  background:#e6e8ea;
+  border-bottom:1px solid #c4c8cb;
+}
+.device__dots{display:flex;gap:7px;}
+.device__dot{width:12px;height:12px;border-radius:999px;background:#c4c8cb;}
+.device__url{
+  flex:1;
+  margin-left:8px;
+  background:var(--surface);
+  border:1px solid var(--border);
+  border-radius:var(--radius-sm);
+  padding:6px 12px;
+  font-size:14px;
+  color:var(--ink-muted);
+}
+.device__viewport{
+  background:var(--base);
+  min-height:440px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  padding:56px 24px;
+}
+
+.state-label{
+  max-width:880px;
+  margin:0 auto 10px auto;
+  font-size:14px;
+  font-weight:700;
+  letter-spacing:.04em;
+  text-transform:uppercase;
+  color:var(--ink-muted);
+}
+
+/* ---------- centered card ---------- */
+.card{
+  width:100%;
+  max-width:440px;
+  background:var(--surface);
+  border:1px solid var(--border);
+  border-radius:var(--radius-lg);
+  padding:40px 36px 36px 36px;
+  text-align:center;
+}
+.seal{
+  width:56px;height:56px;
+  margin:0 auto 18px auto;
+  border-radius:999px;
+  background:var(--primary);
+  color:#fff;
+  display:flex;align-items:center;justify-content:center;
+  font-size:11px;font-weight:700;text-align:center;line-height:1.05;
+  letter-spacing:.02em;
+  border:2px solid var(--primary-light);
+}
+.card__title{
+  font-size:22px;
+  font-weight:700;
+  margin:0 0 6px 0;
+}
+.card__sub{
+  font-size:16px;
+  color:var(--ink-muted);
+  margin:0 0 28px 0;
+}
+
+.field{text-align:left;margin-bottom:18px;}
+.field__label{
+  display:block;
+  font-size:16px;
+  font-weight:600;
+  margin-bottom:6px;
+}
+.field__input{
+  width:100%;
+  font-family:inherit;
+  font-size:16px;
+  min-height:48px;
+  padding:10px 14px;
+  border:1px solid #565c65;
+  border-radius:var(--radius-sm);
+  background:var(--surface);
+  color:var(--ink);
+}
+.field__input:focus-visible{
+  outline:4px solid var(--primary-light);
+  outline-offset:0;
+  border-color:var(--primary);
+}
+.field__input.is-error{
+  border:2px solid #B50909;
+}
+
+.btn-enter{
+  width:100%;
+  min-height:48px;
+  font-family:inherit;
+  font-size:18px;
+  font-weight:700;
+  color:#fff;
+  background:var(--primary);
+  border:none;
+  border-radius:var(--radius-md);
+  cursor:pointer;
+  margin-top:4px;
+}
+.btn-enter:hover{background:var(--primary-dark);}
+.btn-enter:focus-visible{
+  outline:4px solid var(--primary-light);
+  outline-offset:3px;
+}
+
+.helper{
+  font-size:15px;
+  color:var(--ink-muted);
+  margin:20px 0 0 0;
+  line-height:1.45;
+}
+
+/* clean denial — calm, no data leakage, not alarming */
+.denial{
+  text-align:left;
+  border-left:4px solid #B50909;
+  background:#f7ecea;
+  border-radius:var(--radius-sm);
+  padding:14px 18px;
+  margin:0 0 24px 0;
+}
+.denial__head{
+  display:flex;align-items:center;gap:8px;
+  font-size:16px;
+  font-weight:700;
+  color:#1B1B1B;
+  margin-bottom:4px;
+}
+.denial__ico{
+  width:22px;height:22px;flex:0 0 22px;
+  border-radius:999px;
+  background:#B50909;color:#fff;
+  display:flex;align-items:center;justify-content:center;
+  font-size:14px;font-weight:700;line-height:1;
+}
+.denial__body{
+  font-size:15px;
+  color:var(--ink-muted);
+  margin:0;
+}
+</style>
+</head>
+<body>
+
+<!-- ============ STATE 1: TOKEN ENTRY ============ -->
+<p class="state-label">State 1 — Token entry</p>
+<div class="device" role="region" aria-label="Access token entry">
+  <div class="device__chrome">
+    <div class="device__dots"><span class="device__dot"></span><span class="device__dot"></span><span class="device__dot"></span></div>
+    <div class="device__url">https://ttb-label-review.gov/</div>
+  </div>
+  <div class="device__viewport">
+
+    <main class="card">
+      <div class="seal" aria-hidden="true">U.S.<br>TREAS</div>
+      <h1 class="card__title">TTB Label Review</h1>
+      <p class="card__sub">Enter your access token to begin.</p>
+
+      <form onsubmit="return false;">
+        <div class="field">
+          <label class="field__label" for="token1">Access token</label>
+          <input class="field__input" id="token1" type="text" autocomplete="off"
+                 placeholder="Paste your token" autofocus>
+        </div>
+        <button type="submit" class="btn-enter">Enter</button>
+      </form>
+
+      <p class="helper">Your token was sent with your assignment. No username or password &mdash; just paste the token and select Enter.</p>
+    </main>
+
+  </div>
+</div>
+
+<!-- ============ STATE 2: CLEAN DENIAL ============ -->
+<p class="state-label">State 2 — Denial (token absent / invalid, no data leakage)</p>
+<div class="device" role="region" aria-label="Access denied">
+  <div class="device__chrome">
+    <div class="device__dots"><span class="device__dot"></span><span class="device__dot"></span><span class="device__dot"></span></div>
+    <div class="device__url">https://ttb-label-review.gov/</div>
+  </div>
+  <div class="device__viewport">
+
+    <main class="card">
+      <div class="seal" aria-hidden="true">U.S.<br>TREAS</div>
+      <h1 class="card__title">TTB Label Review</h1>
+
+      <div class="denial" role="status">
+        <div class="denial__head">
+          <span class="denial__ico" aria-hidden="true">&#33;</span>
+          Access token required.
+        </div>
+        <p class="denial__body">We couldn't verify that token. Check it and try again, or use the link from your assignment.</p>
+      </div>
+
+      <form onsubmit="return false;">
+        <div class="field">
+          <label class="field__label" for="token2">Access token</label>
+          <input class="field__input is-error" id="token2" type="text" autocomplete="off"
+                 placeholder="Paste your token" aria-invalid="true" autofocus>
+        </div>
+        <button type="submit" class="btn-enter">Enter</button>
+      </form>
+
+      <p class="helper">No username or password &mdash; just paste the token and select Enter.</p>
+    </main>
+
+  </div>
+</div>
+
+</body>
+</html>

@@ -41,7 +41,7 @@ image mechanics, §7 dispositions), and TTB Form 5100.31 (`ref-docs/f510031.pdf`
 - [`approach.md`](approach.md) — overall architecture, the pre-compute pipeline, and the
   deterministic-vs-LLM check strategy that populate these tables.
 
-**Portability:** DDL is written to run on **SQLite** (the likely POC default) and
+**Portability:** DDL is written to run on **SQLite** (the locked POC engine — architecture.md D1) and
 **PostgreSQL** with minimal change. Where the two diverge (enums, JSON, timestamps,
 identity columns), the SQLite-friendly form is shown inline and the Postgres variant is noted
 in a comment or a `TODO`.
@@ -577,8 +577,8 @@ onto `submissions` and flips `status` to `READY_FOR_REVIEW`. By the time the Lab
 
 ## 6. Open choices (TODO)
 
-- **TODO(enums on Postgres):** native `ENUM` types vs. `TEXT + CHECK`. **Recommendation:**
-  `TEXT + CHECK` for the POC — portable across SQLite/Postgres, greppable, trivially seeded.
+- **Resolved (architecture.md D1):** `TEXT + CHECK` for the POC; native Postgres `ENUM` is the
+  Phase-2 scale path — portable across SQLite/Postgres, greppable, trivially seeded.
 - **TODO(model normalization):** inline model columns on `llm_results` vs. an `llm_models`
   reference table. **Recommendation:** inline for the POC; normalize in phase 2 as the
   benchmark matrix grows.

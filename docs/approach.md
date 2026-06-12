@@ -1,7 +1,12 @@
 # Approach — TTB COLA Label Specialist POC
 
-**Status:** Central planning document (pre-implementation). · **Last updated:** 2026-06-11
+**Status:** Central planning document (pre-implementation). · **Last updated:** 2026-06-12
 **Audience:** TTB reviewers and the POC engineering team.
+
+> **Stack & deployment decisions are now locked** in
+> [`../_bmad-output/planning-artifacts/architecture.md`](../_bmad-output/planning-artifacts/architecture.md)
+> (Core Architectural Decisions D1–D8). Where this document originally listed open choices, the
+> resolved decisions are recorded inline below; **architecture.md is the source of authority.**
 
 This is the central "Approach" document for the TTB **Certificate of Label Approval (COLA)**
 **Label Specialist** proof-of-concept. It ties together the design decisions captured in the
@@ -98,8 +103,8 @@ Five principles drive every design choice below:
    │                                                                                     │
    │   ┌────────────┐      ┌──────────────────┐        ┌───────────────────────────┐    │
    │   │  Web UI    │◄────►│   App server      │◄──────►│   Mock COLA database       │   │
-   │   │ (USWDS,    │ HTTP │ (Python: FastAPI/ │  SQL   │  submissions, label_images │   │
-   │   │  self-     │      │  Flask, read path)│        │  ocr_results, llm_results, │   │
+   │   │ (USWDS,    │ HTTP │ (Python FastAPI,  │  SQL   │  submissions, label_images │   │
+   │   │  self-     │      │  read path)       │        │  ocr_results, llm_results, │   │
    │   │  hosted)   │      └─────────┬─────────┘        │  field_comparisons,        │   │
    │   └────────────┘                │                  │  checklist_items,          │   │
    │     "Next Submission"           │ enqueue /        │  audit_events              │   │
@@ -131,15 +136,17 @@ Five principles drive every design choice below:
 
 **Components:**
 
-- **Web UI** — server-rendered or thin SPA, referencing **USWDS** patterns; all assets
-  (CSS/JS/fonts/icons) **self-hosted**, no CDN. Lightweight token auth protects the public
-  demo URL (auth is explicitly not a POC feature, per the brief). Read-only: it serves
-  pre-computed results and records the Label Specialist's disposition.
-- **App server** — a **Python** web service (FastAPI or Flask — see [§8](#8-python-vs-bash-recommendation)).
-  Talks only to the local DB and local workers. No outbound internet calls.
-- **Mock COLA database** — SQLite (likely POC default) or PostgreSQL; the schema and the three
-  field categories (APPLICATION / OCR-EXTRACTED / FUTURE) are in
-  [`database-schema.md`](database-schema.md).
+- **Web UI** — **server-rendered (Jinja2)** with **USWDS** patterns; all assets
+  (CSS/JS/fonts/icons) **self-hosted**, no CDN — **no SPA, no build step** (architecture.md D8).
+  Lightweight token auth protects the public demo URL (auth is explicitly not a POC feature, per
+  the brief). Read-only: it serves pre-computed results and records the Label Specialist's disposition.
+- **App server** — a **Python / FastAPI** web service (architecture.md D2; FastAPI chosen over
+  Flask for async background-job friendliness and bundled Pydantic v2 validation). Talks only to
+  the local DB and local workers. No outbound internet calls.
+- **Mock COLA database** — **SQLite** (file on a Railway Volume, single service; architecture.md
+  D1, chosen over Postgres / web-worker-split). The schema is kept **Postgres-portable** (TEXT +
+  CHECK enums) so a future migration is low-friction. The three field categories (APPLICATION /
+  OCR-EXTRACTED / FUTURE) are in [`database-schema.md`](database-schema.md).
 - **Background workers** — the pre-compute pipeline: OpenCV enhancement → OCR (Tesseract +
   PaddleOCR) → LLM extraction + benchmark-stat capture → analysis/verification. They write
   `ocr_results`, `llm_results`, `field_comparisons`, `checklist_items`, roll up the engine
@@ -157,9 +164,12 @@ Five principles drive every design choice below:
   not a separate walled-off harness; the firewall control is the OCR-only toggle-off, not
   exclusion of LLMs from the deployment.)
 
-> **TODO (deployment topology).** Web framework (FastAPI vs. Flask) and DB (SQLite vs.
-> PostgreSQL) are open. **Recommendation:** FastAPI + SQLite for the POC (async background-job
-> friendliness; zero-config DB), portable to PostgreSQL via the CHECK-constrained-enum schema.
+> **Deployment topology — DECIDED (architecture.md D1/D2 + Deployment).** **FastAPI + SQLite**
+> (single Railway service; SQLite file on a Railway Volume), schema kept Postgres-portable via the
+> CHECK-constrained-enum design. **Dev:** Docker Desktop (`docker build` / `compose.yaml`).
+> **Deploy:** Railway Pro, built from a single **Dockerfile** (not Nixpacks — it bakes the native
+> OCR deps + pinned weights + vendored USWDS + seeded fixtures). Postgres + a web/worker split is
+> the documented **Phase-2** scale path.
 
 ---
 
@@ -348,12 +358,11 @@ the multi-engine timing data is itself a procurement deliverable.
 - **Per-engine timing.** Each engine runs as its **own background job** on each image, recording
   `latency_ms` and whether it ran CPU-only (government infra has no guaranteed GPU — benchmark
   CPU mode too). Engines can run **in parallel** per image.
-- **Deployment shape — TODO.** It can run **in-process** (a Python module with adapters) or as a
-  **separate HTTP service** (localhost only — still zero outbound calls).
-  **Recommendation:** start **in-process** with a clean adapter interface for the POC, and
-  extract it to a localhost microservice only if engine isolation, language/runtime separation
-  (PaddleOCR's heavier deps), or independent scaling justifies it. The uniform interface means
-  this is a deployment decision, not a redesign.
+- **Deployment shape — DECIDED (architecture.md D5): in-process.** Engines run behind one
+  **in-process uniform adapter interface** (a Python module with adapters), not a separate service.
+  Extraction to a localhost microservice is deferred to **Phase 2**, only if engine isolation,
+  language/runtime separation (PaddleOCR's heavier deps), or independent scaling justifies it. The
+  uniform interface means that later move is a deployment change, not a redesign.
 
 Whether in-process or a service, it makes **no outbound calls** — models are pinned and shipped
 offline ([`outbound-calls-inventory.md`](outbound-calls-inventory.md), TODO-2).
@@ -397,7 +406,7 @@ the system improves it in place. (`unpaper` is an optional complement for scanne
 | **Data handling** | Native DB drivers, JSON, dataframes; clean reads/writes to the schema | Brittle text munging; no real DB/JSON story |
 | **Testability** | `pytest`, mockable units, CI-friendly | Hard to unit-test; mostly integration scripts |
 | **Maintainability** | Typed, structured, readable for a team that inherits it | Fragile past a few dozen lines; poor error handling |
-| **Web app** | FastAPI/Flask serve the read-only UI directly | Not a web-app language |
+| **Web app** | FastAPI serves the read-only UI directly | Not a web-app language |
 
 Bash is fine for a one-line glue script, but the POC's substance — OCR orchestration, the
 verification engine, the pre-compute workers, the benchmark harness, and the web server — all
@@ -437,20 +446,25 @@ trivial setup/run shims documented in the README.
 
 ---
 
-## 10. Open Choices (TODO summary)
+## 10. Resolved Choices (decision summary)
 
-- **TODO (web framework / DB).** FastAPI vs. Flask; SQLite vs. PostgreSQL.
-  **Recommendation:** FastAPI + SQLite for the POC, portable to PostgreSQL.
-- **TODO (OCR service shape).** In-process adapters vs. localhost HTTP microservice.
-  **Recommendation:** in-process behind a uniform interface; extract later if justified.
-- **TODO (class/type validity confidence).** Class/type field-matches application ↔ OCR like
-  brand name; the open question is how strictly to judge the *regulatory validity* of the
-  designation. **Recommendation:** the field-match drives the verdict; flag REVIEW only when
-  the designation isn't a recognized class/type.
-- **TODO (queue buckets).** Splitting the queue into easy/hard for junior/senior staff.
-  **Recommendation:** derive from `engine_verdict` at query time, not a new column.
-- **TODO (LangChain local-only flags).** Final env-var names that force local tracing and
-  disable cloud telemetry — see [`outbound-calls-inventory.md`](outbound-calls-inventory.md)
-  TODO-3.
-- **TODO (PP-OCRv5).** Add as a third OCR engine. **Recommendation:** yes, as a local-friendly,
-  high-accuracy comparator in the benchmark.
+These were open during early planning and are now **locked in
+[`../_bmad-output/planning-artifacts/architecture.md`](../_bmad-output/planning-artifacts/architecture.md)**:
+
+- **Web framework / DB — DECIDED:** **FastAPI + SQLite**, single Railway service, SQLite file on a
+  Railway Volume (D1/D2). Schema kept Postgres-portable; Postgres + a web/worker split is the
+  Phase-2 scale path.
+- **Deployment — DECIDED:** **Docker Desktop** for dev; **Railway Pro** deploy built from a single
+  **Dockerfile**. Background workers are **in-process APScheduler** in the one service (D3).
+- **OCR service shape — DECIDED:** **in-process** uniform adapter interface (D5); extract to a
+  localhost service only in Phase 2 if justified.
+- **Class/type validity — DECIDED:** **hybrid** check (rules + LLM-on-ambiguity) with the **LLM
+  capped at REVIEW** (FR-16 / `class_type.py`); the application ↔ OCR field-match drives the
+  verdict, and REVIEW is flagged when the designation isn't a recognized class/type.
+- **Queue buckets — DEFERRED to Phase 2** (needs benchmark-calibration data). When built, derive
+  from `engine_verdict` at query time — no new column.
+- **LLM / tracing flags — DECIDED:** `LLM_ENABLED`, `LLM_PROVIDER`, `LLM_BASE_URL`,
+  `LANGCHAIN_TRACING_ENABLED` (architecture.md Env/config). `LLM_ENABLED=false` is the zero-egress
+  OCR-only configuration (FR-12).
+- **PP-OCRv5 — OPTIONAL:** confirmed as an optional local-friendly comparator alongside Tesseract +
+  PaddleOCR (D5), not a blocker for Phase 1.

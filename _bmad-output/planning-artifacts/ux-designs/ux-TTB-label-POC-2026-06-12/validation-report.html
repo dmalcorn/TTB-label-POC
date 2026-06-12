@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>UX Design Validation: TTB Label Review</title>
+<style>
+  :root {
+    --bg: #fafaf9;
+    --surface: #ffffff;
+    --border: #e7e5e4;
+    --text: #1c1917;
+    --muted: #78716c;
+    --verdict-strong: #16a34a;
+    --verdict-adequate: #65a30d;
+    --verdict-thin: #d97706;
+    --verdict-broken: #dc2626;
+    --sev-low: #64748b;
+    --sev-medium: #ca8a04;
+    --sev-high: #ea580c;
+    --sev-critical: #dc2626;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, system-ui, sans-serif; background: var(--bg); color: var(--text); line-height: 1.6; font-size: 15px; }
+  .container { max-width: 960px; margin: 0 auto; padding: 32px 24px 64px; }
+  header.report-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 24px; padding-bottom: 16px; border-bottom: 1px solid var(--border); margin-bottom: 24px; }
+  .title h1 { margin: 0; font-size: 22px; font-weight: 600; letter-spacing: -0.01em; }
+  .title .subtitle { color: var(--muted); font-size: 13px; margin-top: 4px; font-family: ui-monospace, "SF Mono", Menlo, monospace; }
+  .resolved-banner { background: rgba(22,163,74,0.1); border: 1px solid var(--verdict-strong); color: #14532d; border-radius: 8px; padding: 12px 18px; margin-bottom: 20px; font-size: 14px; font-weight: 500; }
+  .synthesis { background: var(--surface); border: 1px solid var(--border); border-left: 3px solid var(--muted); border-radius: 8px; padding: 18px 22px; margin-bottom: 24px; font-size: 15.5px; }
+  .synthesis p { margin: 0 0 10px; }
+  .synthesis p:last-child { margin-bottom: 0; }
+  .dimension-summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; margin-bottom: 24px; }
+  .dim-card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; }
+  .dim-card .dim-name { font-size: 13px; color: var(--muted); margin-bottom: 6px; }
+  .dim-card .dim-verdict { font-size: 14px; font-weight: 600; }
+  section.dimension, section.reviewer-section { margin-bottom: 14px; }
+  section.dimension details, section.reviewer-section details { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+  section summary { padding: 14px 20px; cursor: pointer; user-select: none; list-style: none; display: flex; align-items: center; gap: 12px; }
+  section summary::-webkit-details-marker { display: none; }
+  section summary::before { content: "▸"; display: inline-block; color: var(--muted); transition: transform 0.15s ease; }
+  section details[open] summary::before { transform: rotate(90deg); }
+  section summary h2 { display: inline; margin: 0; font-size: 16px; font-weight: 600; letter-spacing: -0.005em; flex: 1; }
+  .verdict-pill { font-size: 11px; padding: 3px 10px; border-radius: 999px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: white; }
+  .verdict-strong { background: var(--verdict-strong); }
+  .verdict-adequate { background: var(--verdict-adequate); }
+  .verdict-thin { background: var(--verdict-thin); }
+  .verdict-broken { background: var(--verdict-broken); }
+  .dim-body { padding: 4px 20px 18px; }
+  .dim-judgment { color: var(--text); font-size: 14.5px; }
+  .dim-judgment p { margin: 0 0 10px; }
+  .findings-list { padding: 0 20px 4px; }
+  article.finding { padding: 14px 0; border-top: 1px solid var(--border); }
+  article.finding:first-child { border-top: none; }
+  article.finding header { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 6px; }
+  .badge { font-size: 10.5px; padding: 3px 8px; border-radius: 4px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; line-height: 1.4; }
+  .badge-sev-low { background: rgba(100, 116, 139, 0.12); color: var(--sev-low); }
+  .badge-sev-medium { background: rgba(202, 138, 4, 0.14); color: var(--sev-medium); }
+  .badge-sev-high { background: rgba(234, 88, 12, 0.14); color: var(--sev-high); }
+  .badge-sev-critical { background: rgba(220, 38, 38, 0.14); color: var(--sev-critical); }
+  .badge-resolved { background: rgba(22,163,74,0.14); color: #16a34a; }
+  .finding-title { margin: 0; font-size: 15px; font-weight: 500; flex: 1; min-width: 200px; }
+  .finding-location { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 12.5px; color: var(--muted); }
+  .finding-note, .finding-fix { margin-top: 6px; font-size: 14px; }
+  .finding-fix strong { color: var(--muted); font-weight: 500; }
+  .reviewer-source { font-size: 12px; color: var(--muted); font-family: ui-monospace, "SF Mono", Menlo, monospace; }
+  .mechanical { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 16px 20px; margin-top: 24px; font-size: 14px; }
+  .mechanical h3 { margin: 0 0 10px; font-size: 14px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+  .mechanical ul { margin: 0; padding-left: 20px; }
+  .mechanical li { margin-bottom: 4px; color: var(--text); }
+  footer.report-footer { margin-top: 40px; padding-top: 16px; border-top: 1px solid var(--border); font-size: 12px; color: var(--muted); font-family: ui-monospace, "SF Mono", Menlo, monospace; }
+  footer .meta { display: flex; gap: 24px; flex-wrap: wrap; }
+</style>
+</head>
+<body>
+  <div class="container">
+
+    <header class="report-header">
+      <div class="title">
+        <h1>TTB Label Review — UX Design Validation Report</h1>
+        <div class="subtitle">_bmad-output/planning-artifacts/ux-designs/ux-TTB-label-POC-2026-06-12/{DESIGN,EXPERIENCE}.md</div>
+      </div>
+    </header>
+
+    <div class="resolved-banner">✓ All critical and high findings (and most medium/low) were resolved in the spines during this Finalize run. See the per-finding "RESOLVED" badges and the decision log for details. Reviewer files preserved verbatim for audit.</div>
+
+    <div class="synthesis">
+      <p>The spine pair is <strong>strong and ship-ready as a downstream contract</strong>. A consumer (architecture, story-dev) can source-extract cleanly: every <code>{token}</code> resolves, every domain component carries both a visual row (DESIGN.md) and a behavioral row (EXPERIENCE.md), all five source paths resolve, and all three load-bearing journeys (UJ-1..UJ-3) map to complete Key Flows. Canonical section order and required defaults are intact.</p>
+      <p>The accessibility lens materially sharpened the picture: two <strong>load-bearing verdict colors failed WCAG AA</strong> on their own tints (REVIEW amber 2.91:1, PASS green 4.09:1) — a real defect since downstream code mirrors the hexes. The edge-case lens surfaced three <strong>critical behavioral gaps</strong> (undefined verdict roll-up precedence, no undo/correct path after a recorded disposition, undefined disposition-persistence-failure). All criticals and highs were fixed in-spine this run: verdict foregrounds darkened to clear AA (with an explicit contrast table added), the roll-up precedence rule stated, undo + save-failure + double-submit handling added, and the accessibility floor hardened (keyboard-shortcut safety, aria-live, diff text equivalent, modal focus, Notes validation).</p>
+    </div>
+
+    <div class="dimension-summary">
+      <div class="dim-card"><div class="dim-name">Flow coverage</div><div class="dim-verdict" style="color: var(--verdict-strong)">Strong</div></div>
+      <div class="dim-card"><div class="dim-name">Token completeness</div><div class="dim-verdict" style="color: var(--verdict-strong)">Strong</div></div>
+      <div class="dim-card"><div class="dim-name">Component coverage</div><div class="dim-verdict" style="color: var(--verdict-strong)">Strong</div></div>
+      <div class="dim-card"><div class="dim-name">State coverage</div><div class="dim-verdict" style="color: var(--verdict-strong)">Strong</div></div>
+      <div class="dim-card"><div class="dim-name">Visual reference coverage</div><div class="dim-verdict" style="color: var(--verdict-strong)">Clean</div></div>
+      <div class="dim-card"><div class="dim-name">Bloat &amp; overspecification</div><div class="dim-verdict" style="color: var(--verdict-strong)">Strong</div></div>
+      <div class="dim-card"><div class="dim-name">Inheritance discipline</div><div class="dim-verdict" style="color: var(--verdict-strong)">Strong</div></div>
+      <div class="dim-card"><div class="dim-name">Shape fit</div><div class="dim-verdict" style="color: var(--verdict-strong)">Strong</div></div>
+      <div class="dim-card"><div class="dim-name">Accessibility (508/AA)</div><div class="dim-verdict" style="color: var(--verdict-adequate)">Adequate (post-fix)</div></div>
+      <div class="dim-card"><div class="dim-name">Edge-case coverage</div><div class="dim-verdict" style="color: var(--verdict-adequate)">Adequate (post-fix)</div></div>
+    </div>
+
+    <section class="dimension"><details><summary><h2>1. Flow coverage</h2><span class="verdict-pill verdict-strong">Strong</span></summary>
+      <div class="dim-body"><div class="dim-judgment"><p>UJ-1..UJ-3 each map to a Key Flow with named protagonist, numbered steps, climax, and failure path. (PRD runs FR-1..FR-28 with UJ-1..UJ-3; flows validated against the real UJ set.)</p></div></div>
+      <div class="findings-list"><article class="finding"><header><span class="badge badge-sev-low">low</span><h3 class="finding-title">Flow 3 (evaluator) has no failure beat</h3><span class="finding-location">EXPERIENCE.md Key Flows</span></header><div class="finding-note">Defensible — an evaluator walk-through has no user-error branch. <strong>Accepted, not changed.</strong></div></article></div>
+    </details></section>
+
+    <section class="dimension"><details><summary><h2>2. Token completeness</h2><span class="verdict-pill verdict-strong">Strong</span></summary>
+      <div class="dim-body"><div class="dim-judgment"><p>All color tokens carry hex; all <code>{colors.*}</code>/<code>{rounded.*}</code> references resolve.</p></div></div>
+      <div class="findings-list"><article class="finding"><header><span class="badge badge-resolved">resolved</span><span class="badge badge-sev-medium">medium</span><h3 class="finding-title">AA contrast ratios not stated for the domain combos USWDS doesn't warrant</h3><span class="finding-location">DESIGN.md Colors</span></header><div class="finding-note">Verdict fg-on-tint and the three banners are team additions, not USWDS tokens.</div><div class="finding-fix"><strong>Fix applied:</strong> added an explicit Contrast table to DESIGN.md with computed ratios + targets for every domain combo.</div></article></div>
+    </details></section>
+
+    <section class="dimension"><details><summary><h2>3. Component coverage</h2><span class="verdict-pill verdict-strong">Strong</span></summary>
+      <div class="dim-body"><div class="dim-judgment"><p>Every domain component is dual-rowed (visual + behavioral) with real rules.</p></div></div>
+      <div class="findings-list"><article class="finding"><header><span class="badge badge-resolved">resolved</span><span class="badge badge-sev-low">low</span><h3 class="finding-title">Gov Warning card &amp; Benchmark table had no dedicated DESIGN visual row</h3><span class="finding-location">DESIGN.md Components</span></header><div class="finding-note">Covered by inheritance, but inference rather than explicit.</div><div class="finding-fix"><strong>Fix applied:</strong> added explicit inheritance notes (GW card uses field-card tokens in a regulation-vs-label layout; Benchmark = USWDS Table, verdict palette kept off-surface).</div></article></div>
+    </details></section>
+
+    <section class="dimension"><details><summary><h2>4. State coverage</h2><span class="verdict-pill verdict-strong">Strong</span></summary>
+      <div class="dim-body"><div class="dim-judgment"><p>All six IA surfaces walked. Review surface thorough; Benchmark/Help state rows were thin — now added.</p></div></div>
+      <div class="findings-list"><article class="finding"><header><span class="badge badge-resolved">resolved</span><span class="badge badge-sev-medium">medium</span><h3 class="finding-title">Benchmark Report had no State Patterns rows</h3><span class="finding-location">EXPERIENCE.md State Patterns</span></header><div class="finding-note">Promoted to a first-class surface but its state matrix was thinner than Review.</div><div class="finding-fix"><strong>Fix applied:</strong> added Benchmark no-data state and Help no-results state.</div></article></div>
+    </details></section>
+
+    <section class="dimension"><details><summary><h2>5. Visual reference coverage</h2><span class="verdict-pill verdict-strong">Clean</span></summary>
+      <div class="dim-body"><div class="dim-judgment"><p>At review time mocks were pending (parallel render); no spine referenced a missing file. Five mocks have since been rendered to <code>mockups/</code> and linked inline in both spines, with spines-win-on-conflict stated.</p></div></div>
+    </details></section>
+
+    <section class="dimension"><details><summary><h2>6. Bloat &amp; overspecification</h2><span class="verdict-pill verdict-strong">Strong</span></summary>
+      <div class="dim-body"><div class="dim-judgment"><p>DESIGN.md carries editorial voice appropriately; EXPERIENCE.md prose is tight and behavioral. No pixel specs where tokens suffice; the few px values are genuine domain constraints (older-eyes type floor, 48px target floor).</p></div></div>
+    </details></section>
+
+    <section class="dimension"><details><summary><h2>7. Inheritance discipline</h2><span class="verdict-pill verdict-strong">Strong</span></summary>
+      <div class="dim-body"><div class="dim-judgment"><p>All five sources resolve; UJ/component names verbatim and consistent across both files.</p></div></div>
+      <div class="findings-list"><article class="finding"><header><span class="badge badge-resolved">resolved</span><span class="badge badge-sev-medium">medium</span><h3 class="finding-title">Non-canonical token shorthand <code>{colors.spirits/wine/beer}</code></h3><span class="finding-location">EXPERIENCE.md Component Patterns</span></header><div class="finding-note">A naive resolver won't expand the slash form.</div><div class="finding-fix"><strong>Fix applied:</strong> split into three valid refs <code>{colors.spirits} / {colors.wine} / {colors.beer}</code>.</div></article></div>
+    </details></section>
+
+    <section class="dimension"><details><summary><h2>8. Shape fit</h2><span class="verdict-pill verdict-strong">Strong</span></summary>
+      <div class="dim-body"><div class="dim-judgment"><p>DESIGN.md sections in canonical order; EXPERIENCE.md has all required defaults plus correctly-triggered Inspiration and correctly-omitted Responsive (desktop-only).</p></div></div>
+    </details></section>
+
+    <section class="reviewer-section"><details open><summary><h2>Accessibility review (508 / WCAG AA)</h2><span class="reviewer-source">review-accessibility.md</span></summary>
+      <div class="dim-body"><div class="dim-judgment"><p>Strong intent (color+icon+word, sized-up type, ≥48px targets, no-timeout, keyboard path, USWDS baseline), but the blanket "brand layer holds ratios" claim was provably false for two verdict colors, and several behavioral a11y commitments were asserted without specification. All resolved this run.</p></div></div>
+      <div class="findings-list">
+        <article class="finding"><header><span class="badge badge-resolved">resolved</span><span class="badge badge-sev-critical">critical</span><h3 class="finding-title">REVIEW verdict text fails AA — 2.91:1</h3><span class="finding-location">colors.review #B8860B on #FAF3D1</span></header><div class="finding-note">Below 4.5:1 and even the 3:1 graphic floor; the amber left-bar also barely differed from its tint.</div><div class="finding-fix"><strong>Fix applied:</strong> review darkened to <code>#7A5900</code> (~5.6:1); fixes text and bar at once.</div></article>
+        <article class="finding"><header><span class="badge badge-resolved">resolved</span><span class="badge badge-sev-critical">critical</span><h3 class="finding-title">PASS verdict text fails AA — 4.09:1</h3><span class="finding-location">colors.pass #2E8540 on #ECF3EC</span></header><div class="finding-note">Small UI text needs 4.5:1; the most-rendered state.</div><div class="finding-fix"><strong>Fix applied:</strong> pass darkened to <code>#216E29</code> (~5.0:1).</div></article>
+        <article class="finding"><header><span class="badge badge-resolved">resolved</span><span class="badge badge-sev-high">high</span><h3 class="finding-title">Blanket "USWDS holds AA" masked unverified custom tokens</h3><span class="finding-location">EXPERIENCE.md Accessibility Floor</span></header><div class="finding-fix"><strong>Fix applied:</strong> over-claim softened; explicit contrast table added; "passes target" framed as a token-acceptance gate.</div></article>
+        <article class="finding"><header><span class="badge badge-resolved">resolved</span><span class="badge badge-sev-high">high</span><h3 class="finding-title">A/C/R shortcuts could fire destructively without a focus-safe guard</h3><span class="finding-location">Interaction Primitives</span></header><div class="finding-fix"><strong>Fix applied:</strong> letter shortcuts inert in text inputs/modals; confirm gate is focus-trapped; buttons are the canonical SR path.</div></article>
+        <article class="finding"><header><span class="badge badge-resolved">resolved</span><span class="badge badge-sev-high">high</span><h3 class="finding-title">aria-live for dynamic post-load changes unspecified</h3><span class="finding-location">Accessibility Floor</span></header><div class="finding-fix"><strong>Fix applied:</strong> polite live region for N-of-M + roll-up; Enhance and LLM-degraded notices announce.</div></article>
+        <article class="finding"><header><span class="badge badge-resolved">resolved</span><span class="badge badge-sev-high">high</span><h3 class="finding-title">Character-diff had no non-visual / non-color equivalent</h3><span class="finding-location">Gov Warning + Field card</span></header><div class="finding-fix"><strong>Fix applied:</strong> SR text equivalent naming the difference; perceptible treatment (bold + ≥3:1 bg + marker); forced-colors survival required.</div></article>
+        <article class="finding"><header><span class="badge badge-resolved">resolved</span><span class="badge badge-sev-high">high</span><h3 class="finding-title">Notes field validation/error messaging accessibility unspecified</h3><span class="finding-location">Notes field / soft-gate</span></header><div class="finding-fix"><strong>Fix applied:</strong> associated label, aria-invalid, focus move, plain-language announced error — never color-only.</div></article>
+        <article class="finding"><header><span class="badge badge-resolved">resolved</span><span class="badge badge-sev-medium">medium</span><h3 class="finding-title">Beer-gold banner is one edit from white-on-gold failure</h3><span class="finding-location">beverage-banner-beer</span></header><div class="finding-fix"><strong>Fix applied:</strong> DESIGN.md records the dark-ink-only constraint with the 3.25:1 white-on-gold figure as the reason.</div></article>
+        <article class="finding"><header><span class="badge badge-resolved">resolved</span><span class="badge badge-sev-medium">medium</span><h3 class="finding-title">Modal/Help focus trap &amp; return unspecified</h3><span class="finding-location">Accessibility Floor</span></header><div class="finding-fix"><strong>Fix applied:</strong> trap on open, focus to heading, return focus to trigger on close; checklist/chevron activation moves focus to target.</div></article>
+        <article class="finding"><header><span class="badge badge-resolved">resolved</span><span class="badge badge-sev-medium">medium</span><h3 class="finding-title">Chevron current-vs-upcoming risked color-alone</h3><span class="finding-location">Step Indicator</span></header><div class="finding-fix"><strong>Fix applied:</strong> current step carries a literal "step N of M" / "current" marker, not contrast alone.</div></article>
+      </div>
+    </details></section>
+
+    <section class="reviewer-section"><details open><summary><h2>Edge-case audit</h2><span class="reviewer-source">review-edge-cases.md</span></summary>
+      <div class="dim-body"><div class="dim-judgment"><p>State coverage strong on the happy path and anticipated failures; 24 gaps clustered in boundary quantities, post-commit/persistence, and demo/operational collisions. All criticals + highs and most mediums resolved this run.</p></div></div>
+      <div class="findings-list">
+        <article class="finding"><header><span class="badge badge-resolved">resolved</span><span class="badge badge-sev-critical">critical</span><h3 class="finding-title">Verdict roll-up rule never stated</h3><span class="finding-location">Suggested-verdict Alert</span></header><div class="finding-fix"><strong>Fix applied:</strong> precedence stated — any FAIL→FAIL, else any REVIEW/can't-verify→REVIEW, else PASS.</div></article>
+        <article class="finding"><header><span class="badge badge-resolved">resolved</span><span class="badge badge-sev-critical">critical</span><h3 class="finding-title">No undo/correct path after a disposition records</h3><span class="finding-location">State Patterns</span></header><div class="finding-fix"><strong>Fix applied:</strong> brief "Recorded — Undo" affordance to reverse a mis-click within session; finality stated after dismissal.</div></article>
+        <article class="finding"><header><span class="badge badge-resolved">resolved</span><span class="badge badge-sev-critical">critical</span><h3 class="finding-title">Disposition persistence failure undefined</h3><span class="finding-location">State Patterns</span></header><div class="finding-fix"><strong>Fix applied:</strong> save-failure stays on Review, retains Notes/ticks, honest retry; never returns to Queue unconfirmed.</div></article>
+        <article class="finding"><header><span class="badge badge-resolved">resolved</span><span class="badge badge-sev-high">high</span><h3 class="finding-title">Cold-start: items present but none ready read as empty</h3><span class="finding-location">Queue states</span></header><div class="finding-fix"><strong>Fix applied:</strong> distinct "submissions are being prepared" copy vs. truly-empty.</div></article>
+        <article class="finding"><header><span class="badge badge-resolved">resolved</span><span class="badge badge-sev-high">high</span><h3 class="finding-title">Double-submit on a disposition</h3><span class="finding-location">Disposition action bar</span></header><div class="finding-fix"><strong>Fix applied:</strong> bar disables on first activation until record + transition complete.</div></article>
+        <article class="finding"><header><span class="badge badge-resolved">resolved</span><span class="badge badge-sev-high">high</span><h3 class="finding-title">Demo reset while an item is open</h3><span class="finding-location">State Patterns</span></header><div class="finding-fix"><strong>Fix applied:</strong> graceful "this item was reset — returning to Queue", discards in-progress disposition.</div></article>
+        <article class="finding"><header><span class="badge badge-resolved">resolved</span><span class="badge badge-sev-high">high</span><h3 class="finding-title">Gov Warning entirely absent (NOT_FOUND ≠ diff)</h3><span class="finding-location">Gov Warning card</span></header><div class="finding-fix"><strong>Fix applied:</strong> distinct absent-FAIL copy, no diff against empty string.</div></article>
+        <article class="finding"><header><span class="badge badge-resolved">resolved</span><span class="badge badge-sev-high">high</span><h3 class="finding-title">Field NOT_FOUND vs MISMATCH undistinguished</h3><span class="finding-location">Field comparison card</span></header><div class="finding-fix"><strong>Fix applied:</strong> NOT_FOUND state added (OCR side empty, plain note, verdict per mandatory/conditional).</div></article>
+        <article class="finding"><header><span class="badge badge-resolved">resolved</span><span class="badge badge-sev-high">high</span><h3 class="finding-title">Tick-state across full browser reload</h3><span class="finding-location">State Patterns</span></header><div class="finding-fix"><strong>Fix applied:</strong> ticks + Notes survive full reload, not just navigate-away.</div></article>
+        <article class="finding"><header><span class="badge badge-resolved">resolved</span><span class="badge badge-sev-medium">medium</span><h3 class="finding-title">Image bounds (0 / 10), decode failure, Enhance on clean photo</h3><span class="finding-location">Image panel</span></header><div class="finding-fix"><strong>Fix applied:</strong> 0-image honest state; per-face decode-error placeholder; Enhance omitted when preprocessing is a no-op; pager handles single + max.</div></article>
+        <article class="finding"><header><span class="badge badge-resolved">resolved</span><span class="badge badge-sev-medium">medium</span><h3 class="finding-title">All-REVIEW, OCR-garbage, blank application value, chevron renumber</h3><span class="finding-location">State Patterns / chevron</span></header><div class="finding-fix"><strong>Fix applied:</strong> all-REVIEW copy; OCR-unreadable REVIEW state; blank-application REVIEW state; step-④ clean renumber.</div></article>
+        <article class="finding"><header><span class="badge badge-resolved">resolved</span><span class="badge badge-sev-low">low</span><h3 class="finding-title">Concurrent/multi-user not stated</h3><span class="finding-location">Foundation</span></header><div class="finding-fix"><strong>Fix applied:</strong> single-user POC + no item-locking stated in Foundation.</div></article>
+        <article class="finding"><header><span class="badge badge-sev-low">low</span><h3 class="finding-title">Token expiry mid-session; multi-image OCR-candidate selection</h3><span class="finding-location">edge report</span></header><div class="finding-note"><strong>Accepted / Phase-2:</strong> noted in the edge report; engine-detail and session-policy, not blocking for the POC spine.</div></article>
+      </div>
+    </details></section>
+
+    <div class="mechanical">
+      <h3>Mechanical notes</h3>
+      <ul>
+        <li>Sources frontmatter: all 5 paths resolve (prd, addendum, brief, ux_notes, domain_research).</li>
+        <li>Token resolution: all <code>{colors.*}</code>/<code>{rounded.*}</code> resolve; the slash-shorthand was split into three valid refs.</li>
+        <li>review (#7A5900) and beer (#B8860B) are now distinct hexes (the prior same-hex ambiguity is moot after the contrast fix).</li>
+        <li>Component name and verdict-icon (✓/⚠/✕ ↔ PASS/REVIEW/FAIL) consistency holds across both files.</li>
+        <li>PRD actually runs FR-1..FR-28 with UJ-1..UJ-3 (the brief's "FR-1..FR-12" was stale); flows validated against the real UJ set.</li>
+      </ul>
+    </div>
+
+    <footer class="report-footer">
+      <div class="meta">
+        <span>Rubric: review-rubric.md · Accessibility: review-accessibility.md · Edge cases: review-edge-cases.md</span>
+        <span>Generated: 2026-06-12</span>
+      </div>
+    </footer>
+  </div>
+</body>
+</html>

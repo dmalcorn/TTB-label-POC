@@ -36,10 +36,13 @@ above-and-beyond breakdown.
 
 ## Key design decisions
 
-- **Firewall-safe / local-first.** The deployed app makes **no outbound cloud API calls**
-  (the TTB network blocks them). OCR runs locally (Tesseract + PaddleOCR); image enhancement
-  is local (OpenCV); cloud LLMs are used **only** in a separate, offline benchmark harness.
-  Proof: [`docs/outbound-calls-inventory.md`](docs/outbound-calls-inventory.md).
+- **Firewall-safe / local-first.** OCR (Tesseract + PaddleOCR), image enhancement (OpenCV), the
+  rules engine, and tracing run **locally, with no telemetry egress**. The LLM layer models a
+  **government-internal endpoint**: the deployed app *may* call cloud LLM APIs (OpenAI / Gemini /
+  Anthropic) as a stand-in for in-firewall services, and is **toggleable off** (`LLM_ENABLED=false`)
+  to a provable **zero-egress, OCR-only** configuration. Every call is classified
+  `none` / `local` / `models-internal-endpoint` in
+  [`docs/outbound-calls-inventory.md`](docs/outbound-calls-inventory.md).
 - **Speed via pre-compute.** OCR and analysis run in **background jobs on submission**, so the
   "Next Submission" screen loads instantly — addressing the abandoned 5–10-minute pilot the
   brief describes. See [`docs/approach.md`](docs/approach.md).
@@ -82,8 +85,10 @@ Plus: [regulatory rules](docs/regulatory-rules-distilled-spirits.md),
 ## Setup & run
 
 > ⚠️ **Status: planning phase.** The documentation and design are complete; application code is
-> the next step. The commands below are the **intended** setup and will be finalized when the
-> implementation lands (tracked as a `TODO` here and in [`docs/tools-used.md`](docs/tools-used.md)).
+> the next step. The deployed target is a **Docker image on Railway Pro** (dev: **Docker Desktop**),
+> so `docker compose up` will be the canonical run path; the `venv` commands below are the intended
+> local-Python flow and will be finalized when the implementation lands (tracked as a `TODO` here
+> and in [`docs/tools-used.md`](docs/tools-used.md)).
 
 ```bash
 # (intended — pending implementation)

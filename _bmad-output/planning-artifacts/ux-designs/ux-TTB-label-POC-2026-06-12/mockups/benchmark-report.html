@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TTB Label Review — Benchmark Report</title>
+<style>
+/*
+  GOVERNING SPINE SECTIONS (fully offline; inline CSS only; no JS; no network):
+  - DESIGN.md > Colors            (Treasury navy #112E51, civic green #2E5B46 accent, verdict greens, base #F0F0F0, ink #1B1B1B)
+  - DESIGN.md > Typography        (Public Sans body >=16px; Roboto Mono for numeric/raw figures; display 22px/700)
+  - DESIGN.md > Shapes            (squared corners; pill only on status chips)
+  - DESIGN.md > Components        (USWDS Header, Alert/callout, Table used as-is; status = icon+word+color)
+  - EXPERIENCE.md > Information Architecture (Benchmark Report: evaluator-only procurement study; OCR engines + LLM models side-by-side)
+  - EXPERIENCE.md > Component Patterns (Benchmark comparison table: rows = engines/models, columns = accuracy/latency/cost-per-1,000/CPU-only; Recommendations callout above; read-only, sortable-looking)
+  - EXPERIENCE.md > Voice and Tone (plain, federal, calm; honesty stated plainly, not buried)
+  - EXPERIENCE.md > Accessibility Floor (color never alone — icon+word+color; body >=16px)
+  - Spine honesty rule (.decision-log / EXPERIENCE Voice): indicative figures from a seeded fixture set; published API prices proxy internal model cost.
+  Read-only surface — no decision controls.
+*/
+
+:root{
+  --navy:#112E51; --navy-dark:#0B1D35; --blue:#205493;
+  --green:#2E5B46; --green-bg:#EAF1EE;
+  --base:#F0F0F0; --surface:#FFFFFF; --ink:#1B1B1B; --ink-muted:#5C5C5C; --border:#DCDEE0;
+  --pass:#2E8540; --pass-bg:#ECF3EC;
+  --review:#B8860B; --review-bg:#FAF3D1;
+  --fail:#B50909; --fail-bg:#F4E3DB;
+}
+*{box-sizing:border-box;}
+html,body{margin:0;padding:0;}
+body{
+  background:#33373b;
+  font-family:'Public Sans','Helvetica Neue',Arial,sans-serif;
+  font-size:16px; line-height:1.5; color:var(--ink);
+  padding:32px; display:flex; justify-content:center;
+}
+.device{
+  width:1440px; max-width:100%;
+  background:var(--base);
+  border:1px solid #1b1b1b;
+  box-shadow:0 18px 50px rgba(0,0,0,.45);
+}
+.browser-bar{
+  display:flex; align-items:center; gap:8px;
+  background:#e4e6e8; border-bottom:1px solid #c9ccce; padding:10px 14px;
+}
+.dot{width:12px;height:12px;border-radius:999px;display:inline-block;}
+.dot.r{background:#ec6a5e;} .dot.y{background:#f3bf4f;} .dot.g{background:#61c554;}
+.url{
+  flex:1; margin-left:10px; background:#fff; border:1px solid #c9ccce; border-radius:2px;
+  padding:6px 12px; font-size:13px; color:#5c5c5c; font-family:'Roboto Mono','Courier New',monospace;
+}
+
+/* USWDS-style utility header */
+.app-header{
+  background:var(--navy); color:#fff; padding:0 32px;
+  display:flex; align-items:center; justify-content:space-between; height:60px;
+}
+.app-header .brand{font-size:20px; font-weight:700; letter-spacing:.01em;}
+.app-header .brand .tag{font-weight:400; color:#aebccd; font-size:15px; margin-left:10px;}
+.app-header nav{display:flex; gap:6px; align-items:center;}
+.app-header nav a{
+  color:#dbe2ea; text-decoration:none; font-size:15px; padding:8px 14px; border-radius:2px;
+}
+.app-header nav a.active{background:var(--navy-dark); color:#fff; font-weight:700;}
+.app-header .evaluator-badge{
+  font-size:12px; text-transform:uppercase; letter-spacing:.06em; font-weight:700;
+  background:#1f4673; color:#cfe0f2; padding:4px 10px; border-radius:2px; margin-left:8px;
+}
+
+.page{padding:32px 40px 48px;}
+
+/* Title + intro */
+.title{font-size:30px; font-weight:700; color:var(--ink); margin:0 0 6px;}
+.subtitle{font-size:17px; color:var(--ink-muted); margin:0 0 4px;}
+.intro{
+  font-size:17px; color:var(--ink); max-width:920px; line-height:1.55; margin:14px 0 0;
+}
+
+/* Recommendations callout (civic green) */
+.reco{
+  background:var(--green-bg); border:1px solid #cfe0d8; border-left:6px solid var(--green);
+  padding:20px 24px; margin:28px 0 0;
+}
+.reco h2{
+  font-size:18px; font-weight:700; color:var(--green); margin:0 0 10px;
+  display:flex; align-items:center; gap:10px;
+}
+.reco h2 .ic{
+  width:24px;height:24px;border-radius:999px;background:var(--green);color:#fff;
+  display:inline-flex;align-items:center;justify-content:center;font-size:15px;font-weight:700;flex:0 0 auto;
+}
+.reco ul{margin:0; padding-left:22px;}
+.reco li{font-size:16px; color:var(--ink); margin:6px 0; line-height:1.5;}
+.reco li b{color:var(--navy);}
+
+/* Section heading */
+.sec-h{
+  font-size:22px; font-weight:700; color:var(--ink); margin:36px 0 6px;
+}
+.sec-sub{font-size:15px; color:var(--ink-muted); margin:0 0 16px;}
+
+/* Comparison table (USWDS-style, sortable-looking) */
+.table-wrap{background:var(--surface); border:1px solid var(--border); overflow:hidden;}
+table{width:100%; border-collapse:collapse; font-size:16px;}
+caption{text-align:left; padding:14px 18px; font-size:14px; color:var(--ink-muted); border-bottom:1px solid var(--border);}
+thead th{
+  background:#f4f6f8; color:var(--navy); text-align:left; font-weight:700; font-size:15px;
+  padding:14px 16px; border-bottom:2px solid var(--navy); vertical-align:bottom;
+}
+thead th.num{text-align:right;}
+thead th .sort{color:var(--ink-muted); font-weight:400; font-size:12px; display:block; margin-top:2px;}
+.sort-arrow{color:var(--navy); font-weight:700;}
+.group-row td{
+  background:var(--navy); color:#fff; font-weight:700; font-size:13px; letter-spacing:.06em;
+  text-transform:uppercase; padding:8px 16px;
+}
+tbody td{padding:14px 16px; border-bottom:1px solid var(--border); vertical-align:middle;}
+tbody tr:last-child td{border-bottom:0;}
+.model{font-weight:700; color:var(--ink); font-size:16px;}
+.model small{display:block; font-weight:400; color:var(--ink-muted); font-size:13px; margin-top:2px;}
+td.num{text-align:right; font-family:'Roboto Mono','Courier New',monospace; font-size:16px;}
+.best{background:var(--pass-bg);}
+.best td.num, .best .model{}
+
+/* CPU flag = icon + word + color (never color alone) */
+.flag{display:inline-flex; align-items:center; gap:6px; font-size:14px; font-weight:700;}
+.flag.yes{color:var(--pass);}
+.flag.no{color:var(--review);}
+.flag .ic{font-size:14px;}
+
+.pill{
+  display:inline-block; font-size:12px; font-weight:700; padding:2px 8px; border-radius:999px;
+  margin-left:6px; vertical-align:middle;
+}
+.pill.rec{background:var(--green-bg); color:var(--green); border:1px solid var(--green);}
+
+/* Honesty note */
+.honesty{
+  background:var(--review-bg); border:1px solid #e6d79a; border-left:6px solid var(--review);
+  padding:16px 20px; margin:18px 0 0; font-size:15px; color:var(--ink); line-height:1.55;
+}
+.honesty .h{
+  font-weight:700; color:#8a6608; display:flex; align-items:center; gap:8px; margin-bottom:6px; font-size:15px;
+}
+.honesty .h .ic{font-size:15px;}
+.honesty ul{margin:8px 0 0; padding-left:20px;}
+.honesty li{margin:4px 0;}
+
+/* legend */
+.legend{display:flex; gap:24px; flex-wrap:wrap; margin:14px 2px 0; font-size:14px; color:var(--ink-muted);}
+.legend span{display:inline-flex; align-items:center; gap:6px;}
+.legend .sw{width:14px; height:14px; display:inline-block; border:1px solid var(--border);}
+.legend .sw.best{background:var(--pass-bg);}
+
+.footer-meta{
+  margin-top:30px; padding-top:16px; border-top:1px solid var(--border);
+  font-size:14px; color:var(--ink-muted); display:flex; justify-content:space-between; flex-wrap:wrap; gap:8px;
+  font-family:'Roboto Mono','Courier New',monospace;
+}
+</style>
+</head>
+<body>
+<div class="device">
+  <div class="browser-bar">
+    <span class="dot r"></span><span class="dot y"></span><span class="dot g"></span>
+    <span class="url">https://label-review.ttb.local/benchmark</span>
+  </div>
+
+  <!-- Utility header -->
+  <header class="app-header">
+    <div class="brand">TTB Label Review<span class="tag">Procurement Benchmark</span></div>
+    <nav>
+      <a href="#">Queue</a>
+      <a href="#" class="active">Benchmark Report</a>
+      <a href="#">Help</a>
+      <span class="evaluator-badge">Evaluator build</span>
+    </nav>
+  </header>
+
+  <div class="page">
+    <h1 class="title">OCR &amp; LLM Benchmark Report</h1>
+    <p class="subtitle">Evaluator view · read-only</p>
+    <p class="intro">
+      This is a procurement study, not a live control. It lays the candidate OCR engines and language models
+      side by side on the four things that decide the buy: field-level accuracy, latency, cost per 1,000 verifications,
+      and whether each can run CPU-only inside the firewall. Nothing here records a decision — it's here so you can
+      compare the options on the same footing.
+    </p>
+
+    <!-- Recommendations callout -->
+    <section class="reco">
+      <h2><span class="ic" aria-hidden="true">✓</span>Recommendations</h2>
+      <ul>
+        <li><b>OCR baseline: PaddleOCR (PP-OCRv5).</b> Highest field accuracy of the CPU-only engines and fast enough for the ~5s readiness budget; Tesseract stays as a zero-dependency fallback.</li>
+        <li><b>Language model for the judgment checks: Claude.</b> Best accuracy on the soft/normalized comparisons (capitalization, wording) at acceptable latency; the screen still works OCR-only if the model is config-off or unreachable.</li>
+        <li><b>Keep the deterministic checks deterministic.</b> The Government Warning (27 CFR §16.21) is an exact text compare — it does not depend on a model and stays out of the LLM cost line entirely.</li>
+      </ul>
+    </section>
+
+    <!-- Comparison table -->
+    <h2 class="sec-h">Side-by-side comparison</h2>
+    <p class="sec-sub">OCR engines and language models on the same four measures. Rows can be sorted by any column.</p>
+
+    <div class="table-wrap">
+      <table>
+        <caption>Field-accuracy, latency, cost, and CPU-only flag across candidate engines and models.</caption>
+        <thead>
+          <tr>
+            <th scope="col">Engine / Model <span class="sort">click to sort</span></th>
+            <th scope="col" class="num">Field accuracy <span class="sort">% correct <span class="sort-arrow">▾</span></span></th>
+            <th scope="col" class="num">Latency <span class="sort">ms / item</span></th>
+            <th scope="col" class="num">Cost / 1,000 <span class="sort">USD</span></th>
+            <th scope="col">CPU-only</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr class="group-row"><td colspan="5">OCR engines</td></tr>
+          <tr class="best">
+            <td class="model">PaddleOCR (PP-OCRv5)<small>self-hosted, vendored<span class="pill rec">Recommended</span></small></td>
+            <td class="num">96.4</td>
+            <td class="num">410</td>
+            <td class="num">$0.00</td>
+            <td><span class="flag yes"><span class="ic" aria-hidden="true">✓</span>Yes</span></td>
+          </tr>
+          <tr>
+            <td class="model">Tesseract 5<small>self-hosted, vendored · fallback</small></td>
+            <td class="num">89.1</td>
+            <td class="num">280</td>
+            <td class="num">$0.00</td>
+            <td><span class="flag yes"><span class="ic" aria-hidden="true">✓</span>Yes</span></td>
+          </tr>
+
+          <tr class="group-row"><td colspan="5">Language models (judgment checks)</td></tr>
+          <tr class="best">
+            <td class="model">Claude<small>API · price proxies internal cost<span class="pill rec">Recommended</span></small></td>
+            <td class="num">97.8</td>
+            <td class="num">1,240</td>
+            <td class="num">$3.10</td>
+            <td><span class="flag no"><span class="ic" aria-hidden="true">⚠</span>No — API</span></td>
+          </tr>
+          <tr>
+            <td class="model">GPT<small>API · price proxies internal cost</small></td>
+            <td class="num">96.9</td>
+            <td class="num">1,520</td>
+            <td class="num">$4.50</td>
+            <td><span class="flag no"><span class="ic" aria-hidden="true">⚠</span>No — API</span></td>
+          </tr>
+          <tr>
+            <td class="model">Gemini<small>API · price proxies internal cost</small></td>
+            <td class="num">95.7</td>
+            <td class="num">1,080</td>
+            <td class="num">$2.40</td>
+            <td><span class="flag no"><span class="ic" aria-hidden="true">⚠</span>No — API</span></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="legend">
+      <span><span class="sw best"></span>Recommended in its group (best accuracy on the same measure)</span>
+      <span><span class="flag yes"><span class="ic" aria-hidden="true">✓</span>Yes</span> = runs CPU-only inside the firewall</span>
+      <span><span class="flag no"><span class="ic" aria-hidden="true">⚠</span>No — API</span> = needs an outbound model call</span>
+    </div>
+
+    <!-- Honesty note -->
+    <div class="honesty">
+      <div class="h"><span class="ic" aria-hidden="true">⚠</span>How to read these numbers</div>
+      These figures are <b>indicative, not audited.</b> Honesty is a feature here, so the caveats are stated plainly rather than buried:
+      <ul>
+        <li>Accuracy and latency come from a <b>seeded fixture set</b> of sample labels, not the full production corpus — treat them as illustrative ballparks for comparison, not guarantees.</li>
+        <li>For the language models, <b>published API prices stand in for internal model cost</b> — we don't host these models, so the list price is the closest honest proxy we have.</li>
+        <li>The OCR engines are self-hosted and vendored, so their per-1,000 cost is compute only and shown as <b>$0.00</b> in this study (no per-call charge).</li>
+        <li>Latency is per item on CPU-only reference hardware; the ~5s readiness budget is met by pre-computing in the background, so model latency does not block the specialist.</li>
+      </ul>
+    </div>
+
+    <div class="footer-meta">
+      <span>fixture set: seed-2026-06-12 · 240 sample labels</span>
+      <span>generated 2026-06-12 · offline · no outbound calls</span>
+    </div>
+  </div>
+</div>
+</body>
+</html>

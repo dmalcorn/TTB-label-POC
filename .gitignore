@@ -1,8 +1,11 @@
-# --- BMad working folders & tooling (not part of the deliverable repo) ---
+# --- AI / factory tooling & reference templates (not part of the deliverable) ---
+# Note: _bmad/ is the BMad framework install (manifests, scripts, config) — tooling,
+# so ignored. _bmad-output/ (planning artifacts — architecture.md, PRD, brief, UX)
+# is intentionally NOT ignored — it is a deliverable.
 _bmad/
-_bmad-output/
 .claude/
 .agents/
+targetsetup/
 
 # --- Python ---
 .venv/

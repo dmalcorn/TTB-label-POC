@@ -81,7 +81,7 @@ The POC is intentionally **two screens plus support surfaces** — minimal, per 
   │  (1) QUEUE / "Get Next" screen                                      │
   │      - Big "Next Submission" button (serves next item directly)     │
   │      - Optional: pick next by type (Wine / Spirits / Beer)          │
-  │      - Optional: pick bucket (Likely-compliant / Troublesome)       │
+  │      - Bucket (Likely-compliant / Troublesome) [Phase 2]            │
   │      - Small stats strip (how many waiting, avg time-to-decision)   │
   └───────────────┬────────────────────────────────────────────────────┘
                   │  serves the next submission directly (no list)
@@ -123,9 +123,9 @@ review screen.
   │                        │      ▶  NEXT SUBMISSION       │   ← single, huge  │
   │                        └──────────────────────────────┘     primary action│
   │                                                                            │
-  │     Pick a type (optional):   [ Any ▾ ]  Wine · Spirits · Beer            │
-  │     Pick a queue (optional):  ( ) Any   ( ) Likely compliant  ( ) Needs   │
-  │                                                       a closer look        │
+  │     Pick a type (optional):  [ Any | Wine | Spirits | Beer ]              │
+  │     Pick a queue:  [ Phase 2 - reserved. Needs verdict-confidence         │
+  │                    calibration data; v1 ships the type filter only ]       │
   │                                                                            │
   │     ── Today ────────────────────────────────────────────────────────     │
   │     38 waiting   ·   12 reviewed by you   ·   avg 4.6s to load             │
@@ -140,23 +140,23 @@ review screen.
   required. (P2)
 - **Optional: select next by application type** (Wine / Spirits / Beer) — lets an
   agent specialize, since required checks differ by type. Presented as an
-  *optional* dropdown so the default path stays a single click.
+  *optional* segmented control so the default path stays a single click.
   ([discussion-points.md](../ref-docs/discussion-points.md) §8, "consider".)
-- **Optional: two-bucket queue** — *Likely compliant* vs. *Needs a closer look*
-  (the internal "very-likely-compliant vs. troublesome" split). Junior staff pull
-  the easy bucket; senior staff pull the complex one. Plain-language labels, not
-  "junior/senior." ([discussion-points.md](../ref-docs/discussion-points.md) §8,
-  "consider".) The bucket is assigned by the pre-compute engine from the count and
-  severity of REVIEW/FAIL flags — see [approach.md](./approach.md).
+- **Two-bucket queue — DEFERRED TO PHASE 2 (EXPERIENCE.md — IA):** *Likely compliant* vs. *Needs a
+  closer look* (the internal "very-likely-compliant vs. troublesome" split). The locked UX defers
+  this from v1 — it needs verdict-confidence calibration from benchmark data that doesn't exist yet;
+  the Queue screen reserves space and a comment marker for it but ships **Next Submission +
+  beverage-type filter only**. If/when shipped, it uses plain-language labels (task-language, not
+  "junior/senior" — see U6) and is assigned by the pre-compute engine from the count and severity of
+  REVIEW/FAIL flags — see [approach.md](./approach.md).
 - **Stats strip** is informational only (supports the throughput story / the ~5s
   claim), not interactive — nothing to hunt through.
 
-> **TODO — session start / "first item on login":** [discussion-points.md](../ref-docs/discussion-points.md)
-> §8 flags how a session reaches its first label as OPEN.
-> **Recommendation:** on login, land on the Queue screen and **auto-focus** the
-> Next Submission button (Enter triggers it) — but do **not** auto-open a
-> submission. One deliberate click gives the agent control and avoids "the screen
-> jumped at me," which matters for low-tech-comfort users (P1).
+> **Decided (EXPERIENCE.md — Interaction Primitives, U1):** on login, land on the Queue screen and
+> **auto-focus** the Next Submission button (Enter triggers it) — but do **not** auto-open a
+> submission. One deliberate click gives the agent control and avoids "the screen jumped at me,"
+> which matters for low-tech-comfort users (P1). The locked UX states this as "Auto-focus, never
+> auto-act."
 
 ---
 
@@ -268,7 +268,7 @@ value, and the check is fully **deterministic** (PASS/FAIL). Render it as a
   ┌─ Government Warning  (checked against 27 CFR §16.21) ───────┐
   │  Required: “GOVERNMENT WARNING: (1) According to the …”     │
   │  On label (OCR): “GOVERNMENT WARNING: (1) According to…”    │
-  │  ⚠ REVIEW — caps/bold of “GOVERNMENT WARNING:” needs a look │
+  │  ✗ FAIL — “GOVERNMENT WARNING:” set in title case, not caps │
   │  ▸ Why?  27 CFR Part 16 — exact wording + caps/bold token   │
   └────────────────────────────────────────────────────────────┘
 ```
@@ -288,36 +288,34 @@ the stacked comparison + checklist on the right, chevron on top, action bar on
 the bottom.
 
 ```
-┌──────────────────────────────────────────────────────────────────────────────────────┐
-│ [seal] TTB Label Review                              Agent: J. Park   [ search?] │ utility header
-├──────────────────────────────────────────────────────────────────────────────────────┤
-│  🥃  DISTILLED SPIRITS        TTB ID 26-12345        Suggested verdict: ⚠ REVIEW       │ bev-type + verdict
-├──────────────────────────────────────────────────────────────────────────────────────┤
-│   ① Identity ▸▸ ② Mandatory text ▸▸ ③ Gov. Warning ▸▸ ④ Conditional ▸▸ ⑤ Decide        │ CHEVRON (step 3 of 5)
+┌────────────────────────────────────────────────────────────────────────────────────────┐
+│ [seal] TTB Label Review              Agent: J. Park        [ search ]                  │
+├────────────────────────────────────────────────────────────────────────────────────────┤
+│ DISTILLED SPIRITS     TTB ID 26-12345     Suggested verdict:  REVIEW                   │
+├────────────────────────────────────────────────────────────────────────────────────────┤
+│ Chevron (step 3/5):  Identity > Mandatory text > Gov. Warning > Conditional > Decide   │
 ├───────────────────────────────────┬────────────────────────────────────────────────────┤
-│   LABEL IMAGE(S)                  │   FIELD COMPARISON (vertical stacked)               │
-│  ┌─────────────────────────────┐  │  ┌─ Brand Name ───────────────────────────────┐    │
-│  │                             │  │  │ Application:   OLD TOM DISTILLERY            │    │
-│  │      [front label img]      │  │  │ On label (OCR): OLD TOM DISTILLERY    ✓ match│    │
-│  │                             │  │  └─────────────────────────────────────────────┘    │
-│  └─────────────────────────────┘  │  ┌─ Alcohol Content ──────────────────────────┐    │
-│  ◂ 1 of 3 ▸   [ front | back | + ] │  │ Application:   45% Alc./Vol. (90 Proof)      │    │
-│  [ zoom + ]  [ enhance: deskew ]  │  │ On label (OCR): 45% Alc/Vol 90 Proof  ⚠ check│    │
-│                                   │  └─────────────────────────────────────────────┘    │
-│   CHECKLIST (guides your review)  │ ┃┌─ Net Contents ─────────────────────────────┐    │
-│   ☑ Brand name present & matches  │ ┃│ Application:   750 mL                        │    │
-│   ☑ ABV present & in field of view│ ┃│ On label (OCR): 700 mL              ✕ mismatch│   │
-│   ◻ Class/type valid (verify)     │ ┃└─────────────────────────────────────────────┘    │
-│   ◻ Gov. Warning exact (verify)   │  ┌─ Class/Type ───────────────────────────────┐    │
-│   ◻ Net contents = std of fill    │  │ Application:   KY Straight Bourbon           │    │
-│                                   │  │ On label (OCR): KY Straight Bourbon   ✓ match│   │
-│   ◻ Name/address present          │  └─────────────────────────────────────────────┘    │
-│   — 2 of 6 done —                 │  ┌─ Gov. Warning (checked against §16.21) ────┐    │
-│                                   │  │ ⚠ REVIEW — caps/bold needs a look           │    │
-│                                   │  └─────────────────────────────────────────────┘    │
+│ LABEL IMAGE(S)                    │ FIELD COMPARISON — problems first                  │
+│ ┌───────────────────────────┐     │ ┌─ Gov. Warning  vs 27 CFR §16.21 ─────────┐       │
+│ │                           │     │ │ ✗ FAIL — "GOVERNMENT WARNING:" in title  │       │
+│ │    [ front label img ]    │     │ │   case, not all-caps; maker must fix     │       │
+│ │                           │     │ └──────────────────────────────────────────┘       │
+│ └───────────────────────────┘     │ ┌─ Net Contents ───────────────────────────┐       │
+│ < 1 of 3 >   [front|back|+]       │ │ App 750 mL · OCR 700 mL     ✗ mismatch   │       │
+│ [ zoom + ] [ enhance:deskew ]     │ └──────────────────────────────────────────┘       │
+│                                   │ ┌─ Alcohol Content ────────────────────────┐       │
+│ CHECKLIST (guides review)         │ │ App 45%(90pf) · OCR 45% 90pf   ⚠ check   │       │
+│ [x] Brand name matches            │ └──────────────────────────────────────────┘       │
+│ [x] ABV in field of view          │ ── Verified automatically ──────────────────       │
+│ [ ] Class/type valid              │ ┌─ Brand Name ─────────────────────────────┐       │
+│ [ ] Gov. Warning exact            │ │ OLD TOM DISTILLERY = on-label  ✓ match   │       │
+│ [ ] Net contents = std fill       │ └──────────────────────────────────────────┘       │
+│ [ ] Name/address present          │ ┌─ Class/Type ─────────────────────────────┐       │
+│ — 2 of 6 done —                   │ │ KY Straight Bourbon = label    ✓ match   │       │
+│                                   │ └──────────────────────────────────────────┘       │
 ├───────────────────────────────────┴────────────────────────────────────────────────────┤
-│  Notes: [_________________________________]      [ ✓ Approve ] [ ↩ Needs Correction ] [ ✕ Reject ] │ action bar
-└──────────────────────────────────────────────────────────────────────────────────────┘
+│ Notes: [____________________]    [ Approve ]   [ Needs Correction ]   [ Reject ]       │
+└────────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
 **Layout notes:**
@@ -363,10 +361,9 @@ eyes." The POC turns that paper into a guided, in-screen checklist
 — it preserves Jenny's pain instead of relieving it, and gives the agent no time
 savings.
 
-> **TODO — checklist persistence:** should tick state persist if an agent navigates
-> away mid-review? **Recommendation:** yes, persist per-submission tick state with
-> the pre-computed record so a returning agent resumes where they left off; clear it
-> only on disposition. Confirm in [approach.md](./approach.md).
+> **Decided (EXPERIENCE.md — Smart checklist + State Patterns, U3):** yes — persist per-submission
+> tick state with the pre-computed record so a returning agent resumes where they left off, across
+> navigate-away **and a full browser reload**; clear it only on disposition.
 
 ---
 
@@ -396,10 +393,10 @@ in a **chevron-style status bar** (step N of M + overall progress). USWDS has a
   *how far is left* (P1 — orientation without hunting).
 - The current step is high-contrast; done steps carry a ✓; upcoming steps are muted.
 
-> **TODO — single review vs. multi-step wizard:** for the POC, all field cards are
-> visible simultaneously and the chevron is an orientation/progress indicator, not a
-> paginated wizard. **Recommendation:** keep it single-page with the chevron as a
-> progress map — pagination would add the "hunting/clicking" we're trying to remove.
+> **Decided (EXPERIENCE.md — Chevron / Step Indicator, U4):** for the POC, all field cards are
+> visible simultaneously and the chevron is a single-page progress **map**, not a paginated wizard —
+> clicking a step scrolls (and moves focus) to that field group; pagination would add the
+> "hunting/clicking" we're trying to remove.
 
 ---
 
@@ -425,9 +422,9 @@ help, **searchable**, with a **knowledge base** of answers.
 - **Knowledge base as a browsable list** under the search box (top FAQs), so a
   low-search-comfort agent (Dave) can scan rather than type.
 
-> **TODO — KB content ownership:** the KB is only as good as its seeded answers.
-> **Recommendation:** seed it from the regulatory ruleset doc + the documented
-> non-goals so it ships useful on day one; mark it as a living doc.
+> **Decided (EXPERIENCE.md — Help panel + Voice and Tone, U5):** the KB ships as **local, searchable**
+> content seeded from the regulatory ruleset + the documented non-goals, so it's useful on day one; it
+> remains a living doc (ownership cadence is an operational note, not a UX-screen control).
 
 ---
 
@@ -493,18 +490,19 @@ Beyond what USWDS gives for free (P1, half the team is 50+):
 
 ---
 
-## 12. Open UX Questions (TODO register)
+## 12. Resolved UX Questions (decision register)
 
-Consolidated from the inline TODOs above, each with a recommendation:
+Consolidated from the inline questions above — all now **decided** in the locked UX design
+([EXPERIENCE.md](../_bmad-output/planning-artifacts/ux-designs/ux-TTB-label-POC-2026-06-12/EXPERIENCE.md)):
 
-| # | Open question (source) | Recommendation |
+| # | Question (source) | Decision |
 |---|---|---|
-| U1 | How does a session start / reach the first label? ([discussion-points.md](../ref-docs/discussion-points.md) §8) | Land on Queue, auto-focus **Next Submission** (Enter triggers), but require one click to open a submission — don't auto-open. |
-| U3 | Checklist tick-state persistence on navigate-away (§7) | Persist per-submission with the pre-computed record; clear on disposition. |
-| U4 | Chevron as wizard vs. progress map (§8) | Single-page review; chevron is an orientation/progress map, not a paginating wizard. |
-| U5 | Knowledge-base content ownership (§9) | Seed from the regulatory ruleset + documented non-goals; treat as a living doc. |
-| U6 | Two-bucket queue labeling — does exposing "junior/senior" routing feel hierarchical to agents? (§3) | Use task-language ("Likely compliant" / "Needs a closer look"), never staff seniority labels in the UI. |
-| U7 | Disposition reason requirement — is a note mandatory for Needs Correction / Reject? | Recommend **yes** (the maker needs a reason); make the Notes field required for those two dispositions, optional for Approve. Confirm with stakeholder. |
+| U1 | How does a session start / reach the first label? ([discussion-points.md](../ref-docs/discussion-points.md) §8) | **Decided (Interaction Primitives):** Land on Queue, auto-focus **Next Submission** (Enter triggers), but require one click to open — don't auto-open ("auto-focus, never auto-act"). |
+| U3 | Checklist tick-state persistence on navigate-away (§7) | **Decided (Smart checklist + State Patterns):** Persist per-submission with the pre-computed record across navigate-away **and full browser reload**; clear on disposition. |
+| U4 | Chevron as wizard vs. progress map (§8) | **Decided (Chevron / Step Indicator):** Single-page review; chevron is a progress map (clicking a step scrolls + moves focus), not a paginating wizard. |
+| U5 | Knowledge-base content ownership (§9) | **Decided (Help panel + Voice and Tone):** Ship a local, searchable KB seeded from the regulatory ruleset + documented non-goals; living doc (ownership cadence is an operational note). |
+| U6 | Two-bucket queue labeling — does exposing "junior/senior" routing feel hierarchical to agents? (§3) | **Decided (IA):** Use task-language ("Likely compliant" / "Needs a closer look"), never staff seniority labels. Note: the two-bucket queue itself is **deferred to Phase 2** (gated on calibration data); v1 ships Next Submission + beverage-type filter only. |
+| U7 | Disposition reason requirement — is a note mandatory for Needs Correction / Reject? | **Decided (Notes field):** **Yes** — Notes is **required** for Needs Correction and Reject (soft-gate blocks the record until filled), **optional** for Approve. |
 
 ---
 

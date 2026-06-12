@@ -1,0 +1,573 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>TTB Label Review — Review Workspace (Distilled Spirits, Suggested REVIEW)</title>
+<style>
+/* ============================================================================
+   GOVERNING SPINE SECTIONS (offline static mock — no JS, no network)
+   ----------------------------------------------------------------------------
+   DESIGN.md:
+     - Colors (Treasury navy #112E51 primary, civic green #2E5B46 secondary,
+       verdict palette pass/review/fail + tints, spirits banner #7A4D00)
+     - Typography (Public Sans body 16px, comparison-value 19px, ocr-raw mono
+       17px, banner word 28px/700, display 22px/700)
+     - Shapes (sm 2 / md 4 / lg 8 px squared corners; pill 999px on status chips)
+     - Elevation & Depth (Disposition bar subtle top-shadow)
+     - Components (button-primary >=48px, disposition buttons outline,
+       verdict-tag pass/review/fail, field-card match/mismatch/soft,
+       beverage-banner-spirits, suggested-verdict Alert)
+   EXPERIENCE.md:
+     - Foundation (desktop large-monitor only; ~1440 content)
+     - Component Patterns (Beverage banner, Chevron/Step Indicator,
+       Field comparison card, Government Warning card, Smart checklist,
+       Suggested-verdict Alert, Image panel + Enhance toggle, Notes,
+       Disposition action bar)
+     - State Patterns (Match clean / Soft-normalized / Mismatch / Can't verify)
+     - Voice and Tone (advisory copy returns authority to the human;
+       limitations stated plainly)
+     - Key Flows > Flow 2 — Jenny catches a creative Government Warning
+       (this screen IS the REVIEW state of Jenny's gin label)
+     - Accessibility Floor (color never alone: icon + word + color everywhere)
+   .decision-log.md: Treasury-toned palette; Notes required for Correction/Reject.
+   ========================================================================== */
+
+:root{
+  /* Treasury brand layer */
+  --primary:#112E51; --primary-dark:#0B1D35; --primary-light:#205493;
+  --primary-fg:#FFFFFF; --secondary:#2E5B46;
+  --base:#F0F0F0; --surface:#FFFFFF; --ink:#1B1B1B; --ink-muted:#5C5C5C;
+  --border:#DCDEE0;
+  /* Verdict palette (always paired with icon + word) */
+  --pass:#2E8540; --pass-bg:#ECF3EC;
+  --review:#B8860B; --review-bg:#FAF3D1;
+  --fail:#B50909; --fail-bg:#F4E3DB;
+  /* Beverage accent */
+  --spirits:#7A4D00;
+  /* shapes */
+  --sm:2px; --md:4px; --lg:8px; --pill:999px;
+}
+
+*{box-sizing:border-box;}
+html,body{margin:0;padding:0;}
+body{
+  background:#3a3f44;
+  font-family:'Public Sans','Segoe UI',-apple-system,system-ui,Arial,sans-serif;
+  font-size:16px; line-height:1.5; color:var(--ink);
+}
+.mono{font-family:'Roboto Mono','Cascadia Mono','Consolas','Courier New',monospace;}
+
+/* ---- Browser device frame ---- */
+.device{
+  width:1496px; margin:24px auto; background:var(--surface);
+  border-radius:var(--lg); overflow:hidden;
+  box-shadow:0 18px 50px rgba(0,0,0,.45);
+}
+.chrome{
+  background:#e9eaec; border-bottom:1px solid #c9cccf;
+  display:flex; align-items:center; gap:12px; padding:10px 14px;
+}
+.chrome .dots{display:flex; gap:7px;}
+.chrome .dots i{width:12px;height:12px;border-radius:var(--pill);display:block;}
+.chrome .dots i:nth-child(1){background:#ff5f57;}
+.chrome .dots i:nth-child(2){background:#febc2e;}
+.chrome .dots i:nth-child(3){background:#28c840;}
+.chrome .url{
+  flex:1; background:#fff; border:1px solid #d4d6d9; border-radius:var(--sm);
+  padding:6px 12px; color:#3d4147; font-size:13px;
+}
+.chrome .url .lock{color:var(--pass); margin-right:6px;}
+
+/* ---- Utility header ---- */
+.uheader{
+  background:var(--primary); color:var(--primary-fg);
+  display:flex; align-items:center; gap:14px; padding:12px 24px;
+}
+.seal{
+  width:40px;height:40px;border-radius:var(--pill);
+  background:#fff;color:var(--primary);flex:none;
+  display:flex;align-items:center;justify-content:center;
+  font-weight:700;font-size:11px;line-height:1.05;text-align:center;
+  border:2px solid #d9c27a;
+}
+.uheader .title{font-size:18px;font-weight:700;letter-spacing:.01em;}
+.uheader .sub{font-size:13px;color:#cdd6e0;font-weight:400;}
+.uheader .spacer{flex:1;}
+.uheader .help{
+  display:inline-flex;align-items:center;gap:8px;
+  background:rgba(255,255,255,.10);border:1px solid rgba(255,255,255,.35);
+  color:#fff;border-radius:var(--md);padding:8px 14px;font-size:14px;cursor:default;
+}
+.uheader .help .q{
+  width:22px;height:22px;border-radius:var(--pill);background:#fff;color:var(--primary);
+  display:inline-flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;
+}
+
+/* ---- Beverage banner (spirits) ---- */
+.banner{
+  background:var(--spirits); color:#fff;
+  display:flex; align-items:center; gap:16px; padding:14px 24px;
+}
+.banner .glyph{font-size:30px;line-height:1;}
+.banner .word{font-size:28px;font-weight:700;letter-spacing:.02em;}
+.banner .meta{margin-left:auto;font-size:14px;color:#f0e3cf;text-align:right;line-height:1.35;}
+.banner .meta b{color:#fff;font-weight:700;}
+
+/* ---- Chevron / Step indicator ---- */
+.steps{
+  display:flex; background:#fafafa; border-bottom:1px solid var(--border);
+  padding:14px 24px 10px;
+}
+.step{
+  position:relative; flex:1; padding:10px 14px 10px 30px;
+  color:var(--ink-muted); font-size:14px;
+  clip-path:polygon(0 0, calc(100% - 16px) 0, 100% 50%, calc(100% - 16px) 100%, 0 100%, 16px 50%);
+  background:#ececec; margin-right:4px;
+}
+.step:first-child{clip-path:polygon(0 0, calc(100% - 16px) 0, 100% 50%, calc(100% - 16px) 100%, 0 100%); padding-left:18px;}
+.step .n{font-weight:700;margin-right:6px;}
+.step.done{background:#dfe7e2; color:var(--secondary);}
+.step.current{background:var(--primary); color:#fff;}
+.step.current .n{color:#fff;}
+.step.todo{background:#ececec; color:var(--ink-muted);}
+
+/* ---- Suggested verdict Alert (review tint) ---- */
+.alert{
+  margin:18px 24px 4px; border-radius:var(--md);
+  background:var(--review-bg); border-left:6px solid var(--review);
+  padding:14px 18px; display:flex; align-items:flex-start; gap:14px;
+}
+.alert .ic{font-size:24px;color:var(--review);line-height:1.2;}
+.alert .body{font-size:16px;}
+.alert .body .lead{font-weight:700;color:#7a5a06;}
+.alert .body .lead .tag{
+  display:inline-block;vertical-align:middle;margin-left:8px;
+  background:#fff;border:1px solid var(--review);color:var(--review);
+  border-radius:var(--pill);padding:1px 12px;font-size:13px;font-weight:700;
+}
+.alert .body .you{color:#5b4406;}
+
+/* ---- Two column body ---- */
+.work{display:flex; gap:24px; padding:18px 24px 0;}
+.col-left{width:560px; flex:none;}
+.col-right{flex:1; min-width:0;}
+
+/* ---- LEFT: image panel ---- */
+.panel{
+  background:var(--surface); border:1px solid var(--border); border-radius:var(--lg);
+  overflow:hidden; position:sticky; top:18px;
+}
+.panel .ptop{
+  display:flex;align-items:center;gap:10px;
+  padding:10px 14px;border-bottom:1px solid var(--border);background:#fafafa;
+}
+.panel .ptop .role{font-weight:700;font-size:14px;}
+.panel .ptop .pg{font-size:13px;color:var(--ink-muted);}
+.panel .ptop .spacer{flex:1;}
+.zoom button, .pager button{
+  width:34px;height:34px;border:1px solid var(--border);background:#fff;
+  border-radius:var(--sm);font-size:16px;cursor:default;color:var(--ink);
+}
+.pager{display:flex;gap:6px;align-items:center;}
+.pager .lbl{font-size:13px;color:var(--ink-muted);padding:0 4px;}
+
+/* Enhance toggle */
+.enhance{display:flex;border-bottom:1px solid var(--border);background:#fff;}
+.enhance .seg{
+  flex:1;text-align:center;padding:9px 6px;font-size:13px;cursor:default;
+  border-right:1px solid var(--border);color:var(--ink-muted);
+}
+.enhance .seg:last-child{border-right:none;}
+.enhance .seg.on{background:var(--primary);color:#fff;font-weight:700;}
+.enhance .note{
+  font-size:12px;color:var(--ink-muted);padding:6px 14px;background:#fafafa;
+  border-bottom:1px solid var(--border);
+}
+
+.imgwrap{display:flex;gap:0;background:#5d5d5d;}
+.imgpane{flex:1;padding:16px;display:flex;flex-direction:column;align-items:center;}
+.imgpane .cap{color:#e8e8e8;font-size:12px;margin-bottom:10px;letter-spacing:.04em;text-transform:uppercase;}
+.imgpane.orig{filter:none;}
+/* original = glare + slight angle */
+.label-orig{transform:rotate(-3deg) skewX(-4deg);}
+.label-orig .glare{
+  position:absolute;inset:0;border-radius:6px;
+  background:linear-gradient(120deg, rgba(255,255,255,0) 35%, rgba(255,255,255,.55) 50%, rgba(255,255,255,0) 65%);
+  pointer-events:none;
+}
+
+/* The drawn gin label (CSS/SVG, no external image) */
+.glabel{
+  position:relative;width:230px;background:#f4efe2;border:3px solid #2c2117;
+  border-radius:6px;padding:14px 12px;color:#2c2117;text-align:center;
+  font-family:'Public Sans',Georgia,serif;box-shadow:0 6px 16px rgba(0,0,0,.4);
+}
+.glabel .deco{border:1px solid #6b5a3e;border-radius:3px;padding:10px 8px;}
+.glabel .est{font-size:9px;letter-spacing:.18em;color:#6b5a3e;}
+.glabel .brand{font-size:20px;font-weight:800;letter-spacing:.02em;line-height:1.05;margin:6px 0 2px;color:#3a2d1c;}
+.glabel .kind{font-size:11px;letter-spacing:.28em;color:#6b5a3e;margin-bottom:8px;}
+.glabel .rule{height:1px;background:#6b5a3e;margin:8px 4px;}
+.glabel .stats{display:flex;justify-content:space-between;font-size:10px;font-weight:700;color:#3a2d1c;padding:0 4px;}
+.glabel .gw{font-size:6.4px;line-height:1.35;text-align:left;margin-top:9px;color:#2c2117;}
+.glabel .gw b{font-weight:800;}
+.glabel .net{font-size:9px;margin-top:6px;letter-spacing:.05em;color:#6b5a3e;}
+
+/* RIGHT: field cards */
+.section-h{
+  font-size:14px;font-weight:700;color:var(--ink-muted);letter-spacing:.06em;
+  text-transform:uppercase;margin:6px 2px 12px;
+}
+.card{
+  background:var(--surface);border-radius:var(--md);margin-bottom:14px;padding:14px 16px;
+}
+.card .chead{display:flex;align-items:flex-start;gap:10px;margin-bottom:10px;}
+.card .fname{font-weight:700;font-size:16px;}
+.card .cfr{font-size:13px;color:var(--ink-muted);font-weight:400;margin-left:2px;}
+.card .chip{
+  margin-left:auto;border-radius:var(--pill);padding:3px 13px;font-size:13px;font-weight:700;
+  display:inline-flex;align-items:center;gap:6px;white-space:nowrap;
+}
+.chip.pass{background:var(--pass-bg);color:var(--pass);}
+.chip.review{background:var(--review-bg);color:var(--review);border:1px solid #e7d28f;}
+.chip.fail{background:var(--fail-bg);color:var(--fail);}
+
+.card.match{border:1px solid var(--border);}
+.card.mismatch{background:var(--fail-bg);border-left:6px solid var(--fail);}
+.card.soft{background:var(--review-bg);border-left:6px solid var(--review);}
+
+.kv{display:flex;flex-direction:column;gap:8px;}
+.kv .row .k{font-size:12px;color:var(--ink-muted);letter-spacing:.04em;text-transform:uppercase;}
+.kv .row .v{font-size:19px;line-height:1.4;}
+.kv .row .v.mono{font-size:17px;line-height:1.45;}
+
+/* char diff */
+.diff-del{background:#f7c9c0;color:#7a0606;border-radius:2px;padding:0 1px;text-decoration:line-through;}
+.diff-ins{background:#f7c9c0;color:#7a0606;border-radius:2px;padding:0 1px;font-weight:700;}
+.diff-soft{background:#f1e3a8;color:#6b4e06;border-radius:2px;padding:0 1px;}
+
+.note{
+  margin-top:10px;font-size:14px;display:flex;gap:8px;align-items:flex-start;
+}
+.note.fail-n{color:#7a0606;} .note.soft-n{color:#6b4e06;}
+.why{
+  margin-top:10px;font-size:13px;color:var(--primary-light);
+  border-top:1px dashed var(--border);padding-top:8px;cursor:default;
+}
+.why .tri{font-size:11px;margin-right:5px;}
+
+/* Government warning required/onlabel block */
+.gwblock{display:flex;flex-direction:column;gap:10px;}
+.gwblock .lab{font-size:12px;color:var(--ink-muted);letter-spacing:.04em;text-transform:uppercase;}
+.gwblock .lab.req{color:#5b4406;}
+.gwtext{
+  background:#fff;border:1px solid var(--border);border-radius:var(--sm);
+  padding:10px 12px;font-size:14px;line-height:1.5;
+}
+.gwtext.onlabel{background:#fff;border-color:#e3c0b6;}
+
+/* Checklist */
+.checklist{
+  background:var(--surface);border:1px solid var(--border);border-radius:var(--md);
+  margin-top:6px;overflow:hidden;
+}
+.checklist .clhead{
+  display:flex;align-items:center;padding:12px 16px;border-bottom:1px solid var(--border);
+  background:#fafafa;
+}
+.checklist .clhead .t{font-weight:700;font-size:15px;}
+.checklist .clhead .ct{margin-left:auto;font-size:14px;color:var(--secondary);font-weight:700;}
+.cli{display:flex;align-items:center;gap:12px;padding:11px 16px;border-bottom:1px solid #eef0f1;font-size:15px;}
+.cli:last-child{border-bottom:none;}
+.cli .box{
+  width:22px;height:22px;border-radius:var(--sm);flex:none;
+  display:inline-flex;align-items:center;justify-content:center;font-size:14px;font-weight:700;
+}
+.cli.done{color:var(--ink-muted);}
+.cli.done .box{background:#eef0f1;border:1px solid var(--border);color:var(--ink-muted);}
+.cli.usercheck .box{background:var(--secondary);border:1px solid var(--secondary);color:#fff;}
+.cli.usercheck{color:var(--ink);}
+.cli.open .box{background:#fff;border:2px solid var(--review);color:var(--review);}
+.cli.open{color:var(--ink);font-weight:600;}
+.cli.openfail .box{background:#fff;border:2px solid var(--fail);color:var(--fail);}
+.cli .right{margin-left:auto;font-size:13px;display:inline-flex;align-items:center;gap:6px;}
+.cli .right.pass{color:var(--pass);} .cli .right.review{color:var(--review);} .cli .right.fail{color:var(--fail);}
+.cli .machine{font-size:11px;color:var(--ink-muted);text-transform:uppercase;letter-spacing:.04em;}
+
+/* ---- Notes + Disposition bar ---- */
+.commit{
+  margin-top:22px; background:var(--surface);
+  border-top:1px solid var(--border);
+  box-shadow:0 -8px 18px rgba(17,46,81,.10); /* Elevation: persistent commit zone */
+  padding:20px 24px 24px;
+}
+.notes-l{font-weight:700;font-size:15px;margin-bottom:6px;}
+.notes-l .reqd{color:var(--fail);font-weight:700;margin-left:6px;font-size:13px;}
+.notes-hint{font-size:13px;color:var(--ink-muted);margin-bottom:8px;}
+textarea{
+  width:100%;min-height:74px;resize:vertical;font-family:inherit;font-size:16px;
+  border:1px solid #8b8d8f;border-radius:var(--sm);padding:10px 12px;color:var(--ink);
+}
+textarea:focus{outline:3px solid #2491ff;border-color:var(--primary);}
+.dispo{display:flex;gap:14px;margin-top:16px;align-items:center;}
+.btn{
+  min-height:48px;border-radius:var(--md);font-size:16px;font-weight:700;
+  padding:0 26px;cursor:default;display:inline-flex;align-items:center;gap:8px;
+}
+.btn.approve{background:var(--primary);color:#fff;border:2px solid var(--primary);}
+.btn.correct{background:#fff;color:var(--primary);border:2px solid var(--primary);}
+.btn.reject{background:#fff;color:var(--fail);border:2px solid var(--fail);}
+.dispo .hint{margin-left:auto;font-size:13px;color:var(--ink-muted);max-width:300px;text-align:right;}
+.footpad{height:24px;}
+</style>
+</head>
+<body>
+<div class="device">
+
+  <!-- Browser chrome -->
+  <div class="chrome">
+    <div class="dots"><i></i><i></i><i></i></div>
+    <div class="url"><span class="lock">&#128274;</span>https://review.ttb.treas.gov.local/review/SUB-2026-04871</div>
+  </div>
+
+  <!-- Utility header -->
+  <div class="uheader">
+    <div class="seal">TTB<br>SEAL</div>
+    <div>
+      <div class="title">TTB Label Review</div>
+      <div class="sub">Alcohol & Tobacco Tax and Trade Bureau &middot; Label Specialist Workspace</div>
+    </div>
+    <div class="spacer"></div>
+    <div class="help"><span class="q">?</span>Help</div>
+  </div>
+
+  <!-- Beverage banner -->
+  <div class="banner">
+    <span class="glyph">&#127864;</span>
+    <span class="word">DISTILLED SPIRITS</span>
+    <div class="meta">Submission <b>SUB-2026-04871</b> &middot; Gin &middot; 47% ABV<br>Ready in 4.6s &middot; pre-computed</div>
+  </div>
+
+  <!-- Chevron step indicator: step 3 of 5 -->
+  <div class="steps">
+    <div class="step done"><span class="n">&#10003;</span>Identity</div>
+    <div class="step done"><span class="n">&#10003;</span>Mandatory text</div>
+    <div class="step current"><span class="n">3</span>Government Warning</div>
+    <div class="step todo"><span class="n">4</span>Conditional</div>
+    <div class="step todo"><span class="n">5</span>Decide</div>
+  </div>
+
+  <!-- Suggested verdict Alert -->
+  <div class="alert">
+    <span class="ic">&#9888;</span>
+    <div class="body">
+      <div class="lead">Suggested: REVIEW <span class="tag">&#9888; REVIEW</span></div>
+      <div>4 of 6 checks passed automatically; <b>2 need your eyes</b> &mdash; the Government Warning wording and the Brand Name photo.
+      <span class="you">You decide.</span></div>
+    </div>
+  </div>
+
+  <!-- Two-column workspace -->
+  <div class="work">
+
+    <!-- LEFT: image / enhance -->
+    <div class="col-left">
+      <div class="panel">
+        <div class="ptop">
+          <span class="role">Brand (front)</span>
+          <span class="pg">image 1 of 3</span>
+          <span class="spacer"></span>
+          <span class="pager">
+            <button title="Previous face">&#8592;</button>
+            <span class="lbl">Brand &middot; Back &middot; Neck</span>
+            <button title="Next face">&#8594;</button>
+          </span>
+          <span class="zoom" style="margin-left:8px;">
+            <button title="Zoom out">&minus;</button>
+            <button title="Zoom in">+</button>
+          </span>
+        </div>
+
+        <!-- Enhance toggle (original / preprocessed side-by-side) -->
+        <div class="enhance">
+          <div class="seg">Original</div>
+          <div class="seg on">Enhance: Original + Preprocessed</div>
+        </div>
+        <div class="note">Showing local-OpenCV preprocessed image (deskew &middot; glare &middot; contrast) <b>alongside</b> the original &mdash; neither replaces the other.</div>
+
+        <div class="imgwrap">
+          <!-- Original: angled + glare -->
+          <div class="imgpane orig">
+            <div class="cap">Original (as photographed)</div>
+            <div class="label-orig" style="position:relative;">
+              <div class="glabel">
+                <div class="glare"></div>
+                <div class="deco">
+                  <div class="est">EST. 2019 &middot; SMALL BATCH</div>
+                  <div class="brand">STONE'S<br>THROW</div>
+                  <div class="kind">LONDON DRY GIN</div>
+                  <div class="rule"></div>
+                  <div class="stats"><span>47% ALC/VOL</span><span>94 PROOF</span></div>
+                  <div class="rule"></div>
+                  <div class="gw"><b>GOVERNMENT WARNING:</b> (1) ACCORDING TO THE SURGEON GENERAL, WOMEN SHOULD NOT DRINK ALCOHOLIC BEVERAGES DURING PREGNANCY BECAUSE OF THE RISK OF BIRTH DEFECTS. (2) CONSUMPTION OF ALCOHOLIC BEVERAGES IMPAIRS YOUR ABILITY TO DRIVE A CAR OR OPERATE MACHINERY, AND MAY CAUSE HEALTH PROBLEMS.</div>
+                  <div class="net">750 mL</div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <!-- Preprocessed: deskewed, glare removed -->
+          <div class="imgpane">
+            <div class="cap">Preprocessed (deskew &middot; glare)</div>
+            <div style="position:relative;">
+              <div class="glabel">
+                <div class="deco">
+                  <div class="est">EST. 2019 &middot; SMALL BATCH</div>
+                  <div class="brand">STONE'S<br>THROW</div>
+                  <div class="kind">LONDON DRY GIN</div>
+                  <div class="rule"></div>
+                  <div class="stats"><span>47% ALC/VOL</span><span>94 PROOF</span></div>
+                  <div class="rule"></div>
+                  <div class="gw"><b>Government Warning:</b> (1) According to the Surgeon General, women should not drink alcoholic beverages during pregnancy because of the risk of birth defects. (2) Consumption of alcoholic beverages impairs your ability to drive a car or operate machinery, and may cause health problems.</div>
+                  <div class="net">750 mL</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- RIGHT: field cards + checklist -->
+    <div class="col-right">
+      <div class="section-h">Field comparison &mdash; problems first</div>
+
+      <!-- 1. Government Warning FAIL (sorted to top) -->
+      <div class="card mismatch">
+        <div class="chead">
+          <div>
+            <span class="fname">Government Warning</span>
+            <span class="cfr">Required (27 CFR &sect;16.21)</span>
+          </div>
+          <span class="chip fail">&#10007; FAIL</span>
+        </div>
+        <div class="gwblock">
+          <div>
+            <div class="lab req">Required (27 CFR &sect;16.21)</div>
+            <div class="gwtext mono"><b>GOVERNMENT WARNING:</b> (1) According to the Surgeon General&hellip;</div>
+          </div>
+          <div>
+            <div class="lab">On label (OCR)</div>
+            <div class="gwtext onlabel mono"><span class="diff-del">G</span><span class="diff-ins">G</span>overnment <span class="diff-del">WARNING</span><span class="diff-ins">Warning</span>: (1) According to the Surgeon General&hellip;</div>
+          </div>
+        </div>
+        <div class="note fail-n">
+          <span>&#10007;</span>
+          <span>The mandatory signal "<b>GOVERNMENT WARNING:</b>" must appear exactly as written and in capital letters. On the label it is set in title case ("Government Warning:"). This is a substantive wording deviation &mdash; the maker has to fix it.</span>
+        </div>
+        <div class="why"><span class="tri">&#9656;</span>Why? &mdash; 27 CFR &sect;16.21 requires verbatim text; the statement must be conspicuous and the "GOVERNMENT WARNING" lead-in capitalized. Deterministic check (no LLM).</div>
+      </div>
+
+      <!-- 2. Brand Name REVIEW (glare/angle) -->
+      <div class="card soft">
+        <div class="chead">
+          <div>
+            <span class="fname">Brand Name</span>
+            <span class="cfr">27 CFR &sect;5.63</span>
+          </div>
+          <span class="chip review">&#9888; REVIEW</span>
+        </div>
+        <div class="kv">
+          <div class="row"><div class="k">Application value</div><div class="v">Stone's Throw</div></div>
+          <div class="row"><div class="k">On label (OCR)</div><div class="v mono">STONE'S THROW <span style="color:var(--review);font-size:13px;">(low confidence &mdash; glare/angle)</span></div></div>
+        </div>
+        <div class="note soft-n">
+          <span>&#9888;</span>
+          <span>The front photo was shot at an angle with glare, so OCR confidence is low. Use <b>Enhance</b> (left) to read the deskewed image and confirm by eye, then tick this item yourself. We can't auto-pass a low-confidence read.</span>
+        </div>
+        <div class="why"><span class="tri">&#9656;</span>Why? &mdash; Capitalization differs from the application, but that's an incidental case difference, not a wording defect. Surfaced for your judgment, never auto-failed.</div>
+      </div>
+
+      <div class="section-h" style="margin-top:22px;">Verified automatically</div>
+
+      <!-- 3. Class/Type MATCH -->
+      <div class="card match">
+        <div class="chead">
+          <div><span class="fname">Class / Type</span><span class="cfr">27 CFR &sect;5.63</span></div>
+          <span class="chip pass">&#10003; match</span>
+        </div>
+        <div class="kv">
+          <div class="row"><div class="k">Application value</div><div class="v">London Dry Gin</div></div>
+          <div class="row"><div class="k">On label (OCR)</div><div class="v mono">LONDON DRY GIN</div></div>
+        </div>
+      </div>
+
+      <!-- 4. Alcohol content MATCH -->
+      <div class="card match">
+        <div class="chead">
+          <div><span class="fname">Alcohol Content</span><span class="cfr">27 CFR &sect;5.65</span></div>
+          <span class="chip pass">&#10003; match</span>
+        </div>
+        <div class="kv">
+          <div class="row"><div class="k">Application value</div><div class="v">47% ALC/VOL (94 proof)</div></div>
+          <div class="row"><div class="k">On label (OCR)</div><div class="v mono">47% ALC/VOL &middot; 94 PROOF</div></div>
+        </div>
+      </div>
+
+      <!-- 5. Net contents MATCH -->
+      <div class="card match">
+        <div class="chead">
+          <div><span class="fname">Net Contents</span><span class="cfr">27 CFR &sect;5.70</span></div>
+          <span class="chip pass">&#10003; match</span>
+        </div>
+        <div class="kv">
+          <div class="row"><div class="k">Application value</div><div class="v">750 mL</div></div>
+          <div class="row"><div class="k">On label (OCR)</div><div class="v mono">750 mL</div></div>
+        </div>
+      </div>
+
+      <!-- 6. Name & Address MATCH -->
+      <div class="card match">
+        <div class="chead">
+          <div><span class="fname">Name &amp; Address (Bottler)</span><span class="cfr">27 CFR &sect;5.66</span></div>
+          <span class="chip pass">&#10003; match</span>
+        </div>
+        <div class="kv">
+          <div class="row"><div class="k">Application value</div><div class="v">Stone's Throw Distilling Co., Asheville, NC</div></div>
+          <div class="row"><div class="k">On label (OCR)</div><div class="v mono">STONE'S THROW DISTILLING CO. &middot; ASHEVILLE, NC</div></div>
+        </div>
+      </div>
+
+      <!-- Smart checklist -->
+      <div class="checklist">
+        <div class="clhead">
+          <span class="t">Smart checklist &mdash; Distilled Spirits</span>
+          <span class="ct">5 of 6 done</span>
+        </div>
+        <div class="cli done"><span class="box">&#10003;</span>Class / type designation present &amp; matches<span class="right pass">&#10003; PASS <span class="machine">auto</span></span></div>
+        <div class="cli done"><span class="box">&#10003;</span>Alcohol content stated &amp; matches<span class="right pass">&#10003; PASS <span class="machine">auto</span></span></div>
+        <div class="cli done"><span class="box">&#10003;</span>Net contents present &amp; matches<span class="right pass">&#10003; PASS <span class="machine">auto</span></span></div>
+        <div class="cli done"><span class="box">&#10003;</span>Name &amp; address of bottler present<span class="right pass">&#10003; PASS <span class="machine">auto</span></span></div>
+        <div class="cli usercheck"><span class="box">&#10003;</span>Brand name legible &amp; matches application<span class="right review">&#9888; you confirmed</span></div>
+        <div class="cli openfail"><span class="box">&#10007;</span>Government Warning exact wording (&sect;16.21)<span class="right fail">&#10007; FAIL &mdash; needs your call</span></div>
+      </div>
+
+    </div><!-- /col-right -->
+  </div><!-- /work -->
+
+  <!-- Notes + Disposition action bar -->
+  <div class="commit">
+    <div class="notes-l">Notes to the maker <span class="reqd">required for Needs Correction / Reject</span></div>
+    <div class="notes-hint">A correction or rejection needs a plain-language reason the maker can act on.</div>
+    <textarea placeholder="e.g. The mandatory GOVERNMENT WARNING lead-in must appear in capital letters exactly as written in 27 CFR §16.21. On this label it reads &quot;Government Warning:&quot; in title case. Please reset it to all caps and resubmit.">The mandatory GOVERNMENT WARNING lead-in must appear in capital letters exactly as written in 27 CFR §16.21. On this label it reads "Government Warning:" in title case. Please reset the heading to all caps and resubmit.</textarea>
+
+    <div class="dispo">
+      <button class="btn approve">&#10003; Approve</button>
+      <button class="btn correct">&#8617; Needs Correction</button>
+      <button class="btn reject">&#10007; Reject</button>
+      <span class="hint">None pre-selected &mdash; the engine recommends, you record the decision.</span>
+    </div>
+  </div>
+  <div class="footpad"></div>
+
+</div><!-- /device -->
+</body>
+</html>

@@ -96,8 +96,8 @@ formal deliverables and the evaluation criteria.
 | # | Criterion | Source (brief) | How the POC targets it | Status |
 |---|---|---|---|---|
 | E1 | Correctness & completeness of core requirements | [L106](../ref-docs/TTB-take-home-instructions.md) | All four core checks (#1–4) implemented and demonstrable. | Planned |
-| E2 | Code quality & organization | [L107](../ref-docs/TTB-take-home-instructions.md) | Modular pipeline (OCR microservice, swappable engines); clean repo layout. See [discussion-points §5 L110–115](../ref-docs/discussion-points.md). | Planned |
-| E3 | Appropriate technical choices for the scope | [L108](../ref-docs/TTB-take-home-instructions.md) | Local-first stack honoring the firewall constraint; LLM optional; Python recommended (rationale TODO §5). | Designed |
+| E2 | Code quality & organization | [L107](../ref-docs/TTB-take-home-instructions.md) | Modular pipeline (in-process OCR adapters behind one uniform interface, swappable engines); clean repo layout. See [discussion-points §5 L110–115](../ref-docs/discussion-points.md). | Designed |
+| E3 | Appropriate technical choices for the scope | [L108](../ref-docs/TTB-take-home-instructions.md) | Local-first stack honoring the firewall constraint; LLM optional and toggleable; Python end-to-end (FastAPI + Jinja2 + SQLite + APScheduler), locked in the architecture. | Designed |
 | E4 | User experience & error handling | [L109](../ref-docs/TTB-take-home-instructions.md) | USWDS UI, in-UI help/knowledge base, discrepancy highlighting, image-quality fallback. See [discussion-points §9 L211–212](../ref-docs/discussion-points.md). | Planned |
 | E5 | Attention to requirements | [L110](../ref-docs/TTB-take-home-instructions.md) | This traceability doc is the evidence of attention-to-requirements. | Planned |
 | E6 | Creative problem-solving | [L111](../ref-docs/TTB-take-home-instructions.md) | Pre-compute strategy beating the abandoned vendor pilot; checklist reframing of Jenny's printed sheet; queue buckets by type/difficulty. | Planned |
@@ -163,8 +163,9 @@ alignment confirmed.
 ## 5. Open Items / TODO
 
 - **Confirm goal count** in `approach.md` (two goals + strategy is my read; §1).
-- **Python-vs-Bash rationale** for the recommended stack
-  ([discussion-points §5 L112–113](../ref-docs/discussion-points.md)).
+- **Python-vs-Bash rationale write-up** — the stack is **locked** (Python end-to-end: FastAPI +
+  Jinja2 + SQLite + APScheduler, per the architecture); only the `approach.md` rationale prose
+  remains ([discussion-points §5 L112–113](../ref-docs/discussion-points.md)).
 - **`docs/` deliverable files — DONE** (approach, tools-used, assumptions,
   tradeoffs-and-limitations, presearch all on disk; D3).
 - **All-three-types scope — RESOLVED (2026-06-11):** cover beer, wine, and distilled spirits

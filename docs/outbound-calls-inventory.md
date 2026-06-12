@@ -105,9 +105,9 @@ A reviewer (or auditor) can confirm the posture without reading the full codebas
    - `LLM_PROVIDER` / `LLM_BASE_URL` — in production, point at the **internal** model endpoint; in
      the POC, the cloud-provider API that models it. Swapping environments is a config change, not
      a code change. See **TODO-7**.
-   - `LANGCHAIN_TRACING_ENABLED=false` **or** `LANGCHAIN_TRACING_MODE=local`
-     (and `LANGCHAIN_TRACING_V2=false` / no `LANGCHAIN_ENDPOINT` / no `LANGSMITH_API_KEY` set — so
-     **no trace data egresses**, ever). See **TODO-3**.
+   - `LANGCHAIN_TRACING_ENABLED=false` — the pinned master switch for tracing; with no LangSmith/
+     cloud telemetry endpoint configured, **no trace data egresses**, ever (architecture.md
+     Env/config, D6). See **TODO-3**.
 
 2. **The zero-egress smoke test (the headline proof).** Run the deployed app with `LLM_ENABLED=false`
    and **outbound network access blocked at the host** (loopback-only). The full Label Specialist
@@ -133,22 +133,29 @@ A reviewer (or auditor) can confirm the posture without reading the full codebas
   Google Fonts, Font Awesome, or any asset from a CDN.** Bundle and self-host them with the app so
   the UI makes **zero** third-party requests. *(This is the most likely place an accidental
   outbound call would creep in — flag it during UI review.)*
-- **TODO-2 — Pin and ship model weights offline.** PaddleOCR (and any local VLM) typically download
-  weights on first run. Document the build-time download + pinning step so the **runtime** never
-  reaches the network for weights. Verify checksum/version pinning.
-- **TODO-3 — Finalize LangChain local-only config.** Confirm the exact env vars / settings that
-  force local tracing and disable any LangSmith/cloud telemetry, plus the master off-switch.
-  Document them in [`tools-used.md`](./tools-used.md) and in the README.
-- **TODO-4 — Add the zero-egress smoke test to the run instructions.** Provide a documented way to
-  run the app with `LLM_ENABLED=false` and outbound network blocked, confirming the full flow
-  succeeds.
+- **TODO-2 — Pin and ship model weights offline (RESOLVED by the Dockerfile).** PaddleOCR (and any
+  local VLM) typically download weights on first run. The Dockerfile bakes pinned OCR/VLM weights
+  into the image at build time (`COPY models/ models/`), so the **runtime** never reaches the network
+  for weights (architecture.md D7 / Infrastructure). Remaining: verify checksum/version pinning at the
+  dependency-pinning step.
+- **TODO-3 — Document the pinned LangChain local-only config.** The master off-switch is pinned:
+  `LANGCHAIN_TRACING_ENABLED` (set `false` for the OCR-only path); local-only tracing writes to the
+  local DB with no LangSmith/cloud telemetry endpoint configured (architecture.md Env/config, D6).
+  Document this flag in [`tools-used.md`](./tools-used.md) and in the README.
+- **TODO-4 — Add the zero-egress smoke test to the run instructions.** The mechanism is decided:
+  `docker run --network none` with `LLM_ENABLED=false` (architecture.md Infrastructure). Document
+  this command in the README and confirm the full flow succeeds with zero failed outbound connection
+  attempts.
 - **TODO-5 — Confirm DB deployment topology.** Verify the database is local/on-prem with no external
   replication, backup-to-cloud, or telemetry.
 - **TODO-6 — Verify no implicit telemetry from dependencies.** Audit third-party libraries (e.g.
   update-checkers, usage analytics) for any default "phone-home" behavior and disable it.
-- **TODO-7 — Document the endpoint-swap.** Specify how `LLM_BASE_URL` / provider config moves from
-  cloud-API (POC) to internal endpoint (production) with no code change, and record the exact cloud
-  domains the POC contacts so the `models-internal-endpoint` classification is auditable.
+- **TODO-7 — Record the cloud domains contacted.** The endpoint-swap mechanism is decided: the pinned
+  `LLM_PROVIDER` / `LLM_BASE_URL` env vars move provider config from cloud-API (POC) to internal
+  endpoint (production) with no code change, and the only off-host calls originate in
+  `adapters/llm/{openai,google,anthropic}` (architecture.md External boundary, D6). Remaining: record
+  the exact cloud domains the POC contacts at runtime so the `models-internal-endpoint` classification
+  is auditable.
 
 ---
 

@@ -1,0 +1,373 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TTB Label Review — Queue</title>
+<style>
+/*
+  SPINE SECTIONS GOVERNING THIS SCREEN
+  EXPERIENCE.md > Information Architecture (Queue / "Get Next" — one primary action, optional type filter, stats strip, NO list browsing)
+  EXPERIENCE.md > Information Architecture (Deferred to Phase 2 — two-bucket triage = placeholder in IA, NOT a live control)
+  EXPERIENCE.md > Component Patterns (Next Submission button — oldest ready, auto-focused, Enter fires, never auto-opens)
+  EXPERIENCE.md > State Patterns (Empty queue; Empty type queue)
+  EXPERIENCE.md > Voice and Tone (plain, federal, calm; "No submissions waiting right now."; "The wine queue is empty...")
+  EXPERIENCE.md > Interaction Primitives (auto-focus never auto-act; one big obvious button; mouse path sufficient)
+  EXPERIENCE.md > Accessibility Floor (body >=16px, targets >=48px, visible focus, color never alone)
+  DESIGN.md > Colors (Treasury navy primary #112E51; civic green secondary #2E5B46; base #F0F0F0; ink #1B1B1B)
+  DESIGN.md > Typography (Public Sans; body >=16px; display 22px/700)
+  DESIGN.md > Layout & Spacing (Queue = generous whitespace around a single large button — one obvious action)
+  DESIGN.md > Shapes (squared corners 2/4/8; pill only on chips)
+  DESIGN.md > Components (Button-primary: navy fill, white, radius-md, >=48px)
+*/
+
+:root{
+  --primary:#112E51;        /* Treasury navy */
+  --primary-dark:#0B1D35;   /* hover/pressed */
+  --primary-light:#205493;  /* focus accent / links */
+  --secondary:#2E5B46;      /* civic green */
+  --base:#F0F0F0;           /* app canvas */
+  --surface:#FFFFFF;
+  --ink:#1B1B1B;
+  --ink-muted:#5C5C5C;
+  --border:#DCDEE0;
+  --radius-sm:2px;
+  --radius-md:4px;
+  --radius-lg:8px;
+}
+
+*{box-sizing:border-box;}
+
+html,body{margin:0;padding:0;}
+
+body{
+  font-family:"Public Sans","Source Sans Pro",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  font-size:16px;
+  line-height:1.5;
+  color:var(--ink);
+  background:#cfd3d6;
+  padding:32px 16px;
+}
+
+/* ---------- browser device frame ---------- */
+.device{
+  max-width:1120px;
+  margin:0 auto 40px auto;
+  background:var(--surface);
+  border:1px solid #b5babd;
+  border-radius:var(--radius-lg);
+  overflow:hidden;
+  box-shadow:0 8px 28px rgba(0,0,0,.18);
+}
+.device__chrome{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  padding:10px 14px;
+  background:#e6e8ea;
+  border-bottom:1px solid #c4c8cb;
+}
+.device__dots{display:flex;gap:7px;}
+.device__dot{width:12px;height:12px;border-radius:999px;background:#c4c8cb;}
+.device__url{
+  flex:1;
+  margin-left:8px;
+  background:var(--surface);
+  border:1px solid var(--border);
+  border-radius:var(--radius-sm);
+  padding:6px 12px;
+  font-size:14px;
+  color:var(--ink-muted);
+}
+.device__viewport{background:var(--base);}
+
+.state-label{
+  max-width:1120px;
+  margin:0 auto 10px auto;
+  font-size:14px;
+  font-weight:700;
+  letter-spacing:.04em;
+  text-transform:uppercase;
+  color:var(--ink-muted);
+}
+
+/* ---------- utility header ---------- */
+.app-header{
+  display:flex;
+  align-items:center;
+  gap:16px;
+  background:var(--primary);
+  color:#fff;
+  padding:14px 24px;
+}
+.seal{
+  width:40px;height:40px;flex:0 0 40px;
+  border-radius:999px;
+  background:#fff;
+  color:var(--primary);
+  display:flex;align-items:center;justify-content:center;
+  font-size:9px;font-weight:700;text-align:center;line-height:1.05;
+  letter-spacing:.02em;
+  border:2px solid var(--primary-light);
+}
+.app-header__title{
+  font-size:19px;
+  font-weight:700;
+  letter-spacing:.01em;
+}
+.app-header__spacer{flex:1;}
+.app-header__agent{font-size:16px;color:#dfe6ee;}
+.app-header__help{
+  width:40px;height:40px;
+  border:2px solid #ffffff;
+  background:transparent;
+  color:#fff;
+  border-radius:var(--radius-md);
+  font-size:18px;font-weight:700;
+  cursor:default;
+}
+
+/* ---------- queue body ---------- */
+.queue{
+  padding:56px 48px 64px 48px;
+  max-width:840px;
+  margin:0 auto;
+  text-align:center;
+}
+.queue__eyebrow{
+  font-size:16px;
+  color:var(--ink-muted);
+  margin:0 0 8px 0;
+}
+.queue__title{
+  font-size:22px;
+  font-weight:700;
+  margin:0 0 40px 0;
+}
+
+/* huge primary action */
+.btn-next{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  gap:12px;
+  min-height:72px;
+  padding:18px 56px;
+  font-family:inherit;
+  font-size:24px;
+  font-weight:700;
+  letter-spacing:.01em;
+  color:#fff;
+  background:var(--primary);
+  border:none;
+  border-radius:var(--radius-md);
+  cursor:pointer;
+}
+.btn-next:hover{background:var(--primary-dark);}
+/* visible focus ring — Next Submission is auto-focused on Queue load */
+.btn-next.is-focused,
+.btn-next:focus-visible{
+  outline:4px solid var(--primary-light);
+  outline-offset:4px;
+}
+.btn-next:disabled,
+.btn-next.is-disabled{
+  background:#a9aeb1;
+  color:#f0f0f0;
+  cursor:not-allowed;
+}
+.btn-next .ico{font-size:22px;line-height:1;}
+
+/* filter */
+.filter{
+  margin:40px auto 0 auto;
+  max-width:560px;
+}
+.filter__label{
+  display:block;
+  font-size:16px;
+  color:var(--ink-muted);
+  margin-bottom:10px;
+}
+.segmented{
+  display:inline-flex;
+  border:1px solid var(--border);
+  border-radius:var(--radius-md);
+  overflow:hidden;
+  background:var(--surface);
+}
+.segmented__item{
+  font-family:inherit;
+  font-size:16px;
+  padding:12px 22px;
+  min-height:48px;
+  border:none;
+  border-right:1px solid var(--border);
+  background:var(--surface);
+  color:var(--ink);
+  cursor:pointer;
+}
+.segmented__item:last-child{border-right:none;}
+.segmented__item[aria-pressed="true"]{
+  background:var(--primary);
+  color:#fff;
+}
+
+/* deferred Phase-2 placeholder — NOT a live control */
+.deferred{
+  margin:44px auto 0 auto;
+  max-width:640px;
+  border:2px dashed #b9bdc1;
+  border-radius:var(--radius-md);
+  background:transparent;
+  padding:22px 24px;
+  color:var(--ink-muted);
+  text-align:center;
+}
+.deferred__tag{
+  display:inline-block;
+  font-size:13px;
+  font-weight:700;
+  letter-spacing:.06em;
+  text-transform:uppercase;
+  color:var(--ink-muted);
+  margin-bottom:6px;
+}
+.deferred__note{font-size:15px;margin:0;}
+
+/* stats strip — civic green, read-only informational */
+.stats{
+  margin:48px auto 0 auto;
+  max-width:680px;
+  border-left:4px solid var(--secondary);
+  background:#eef3f0;
+  color:var(--ink);
+  border-radius:var(--radius-sm);
+  padding:14px 20px;
+  font-size:16px;
+  text-align:left;
+}
+.stats strong{color:var(--secondary);}
+
+/* empty-state helper text */
+.helper{
+  margin:18px auto 0 auto;
+  max-width:560px;
+  font-size:16px;
+  color:var(--ink-muted);
+}
+.empty-note{
+  margin:14px auto 0 auto;
+  max-width:560px;
+  font-size:15px;
+  color:var(--ink-muted);
+  font-style:italic;
+}
+</style>
+</head>
+<body>
+
+<!-- ============ STATE 1: QUEUE READY ============ -->
+<p class="state-label">State 1 — Queue (submissions waiting)</p>
+<div class="device" role="region" aria-label="Queue screen, submissions waiting">
+  <div class="device__chrome">
+    <div class="device__dots"><span class="device__dot"></span><span class="device__dot"></span><span class="device__dot"></span></div>
+    <div class="device__url">https://ttb-label-review.gov/queue</div>
+  </div>
+  <div class="device__viewport">
+
+    <header class="app-header">
+      <span class="seal" aria-hidden="true">U.S.<br>TREAS</span>
+      <span class="app-header__title">TTB Label Review</span>
+      <span class="app-header__spacer"></span>
+      <span class="app-header__agent">J. Park</span>
+      <button type="button" class="app-header__help" aria-label="Help">?</button>
+    </header>
+
+    <main class="queue">
+      <p class="queue__eyebrow">Ready when you are.</p>
+      <h1 class="queue__title">Pull the next label for review.</h1>
+
+      <!-- ONE huge primary action, auto-focused, visible focus ring -->
+      <button type="button" class="btn-next is-focused" autofocus aria-keyshortcuts="N">
+        <span class="ico" aria-hidden="true">&#9654;</span>
+        Next Submission
+      </button>
+
+      <!-- optional beverage-type filter (segmented control) -->
+      <div class="filter" role="group" aria-label="Pick a type (optional)">
+        <span class="filter__label">Pick a type (optional):</span>
+        <div class="segmented">
+          <button type="button" class="segmented__item" aria-pressed="true">Any</button>
+          <button type="button" class="segmented__item" aria-pressed="false">Wine</button>
+          <button type="button" class="segmented__item" aria-pressed="false">Spirits</button>
+          <button type="button" class="segmented__item" aria-pressed="false">Beer</button>
+        </div>
+      </div>
+
+      <!-- Phase-2 deferred placeholder — visible deferral, clearly NOT a live control -->
+      <div class="deferred" aria-hidden="true">
+        <span class="deferred__tag">Two-bucket triage — Phase 2</span>
+        <p class="deferred__note">"Likely compliant" / "Needs a closer look" arrives once we have calibration data. Reserved here; not yet active.</p>
+      </div>
+
+      <!-- informational stats strip (civic green, read-only) -->
+      <p class="stats">
+        <strong>38 waiting</strong> &middot; 12 reviewed by you today &middot; avg 4.6s to load
+      </p>
+    </main>
+
+  </div>
+</div>
+
+<!-- ============ STATE 2: EMPTY QUEUE ============ -->
+<p class="state-label">State 2 — Empty queue (Next Submission disabled, calm not error)</p>
+<div class="device" role="region" aria-label="Queue screen, empty">
+  <div class="device__chrome">
+    <div class="device__dots"><span class="device__dot"></span><span class="device__dot"></span><span class="device__dot"></span></div>
+    <div class="device__url">https://ttb-label-review.gov/queue</div>
+  </div>
+  <div class="device__viewport">
+
+    <header class="app-header">
+      <span class="seal" aria-hidden="true">U.S.<br>TREAS</span>
+      <span class="app-header__title">TTB Label Review</span>
+      <span class="app-header__spacer"></span>
+      <span class="app-header__agent">J. Park</span>
+      <button type="button" class="app-header__help" aria-label="Help">?</button>
+    </header>
+
+    <main class="queue">
+      <p class="queue__eyebrow">All caught up.</p>
+      <h1 class="queue__title">No submissions waiting right now.</h1>
+
+      <button type="button" class="btn-next is-disabled" disabled aria-disabled="true">
+        <span class="ico" aria-hidden="true">&#9654;</span>
+        Next Submission
+      </button>
+
+      <p class="helper">Nothing in the queue at the moment. New labels appear here as they finish processing &mdash; check back shortly.</p>
+
+      <!-- empty-type variant copy (shown when a beverage filter is set and that queue is empty) -->
+      <p class="empty-note">Filtered by type? &mdash; "The wine queue is empty. Try Any, or check back later."</p>
+
+      <div class="filter" role="group" aria-label="Pick a type (optional)">
+        <span class="filter__label">Pick a type (optional):</span>
+        <div class="segmented">
+          <button type="button" class="segmented__item" aria-pressed="true">Any</button>
+          <button type="button" class="segmented__item" aria-pressed="false">Wine</button>
+          <button type="button" class="segmented__item" aria-pressed="false">Spirits</button>
+          <button type="button" class="segmented__item" aria-pressed="false">Beer</button>
+        </div>
+      </div>
+
+      <p class="stats">
+        <strong>0 waiting</strong> &middot; 12 reviewed by you today &middot; avg 4.6s to load
+      </p>
+    </main>
+
+  </div>
+</div>
+
+</body>
+</html>

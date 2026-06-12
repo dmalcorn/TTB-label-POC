@@ -171,8 +171,8 @@ mode with no telemetry egress** and is **toggleable off** so it never conflicts 
 no-outbound-calls constraint ([`discussion-points.md` §6](../ref-docs/discussion-points.md);
 [`outbound-calls-inventory.md` §2 + TODO-3](./outbound-calls-inventory.md)). In the benchmark
 harness LangChain may also be used to orchestrate the multi-model calls and record `langchain_trace_id`
-([data-dictionary §4](./data-dictionary.md)). Master off-switch and exact env vars: **TODO-3** in the
-outbound-calls inventory.
+([data-dictionary §4](./data-dictionary.md)). Master off-switch (pinned): `LANGCHAIN_TRACING_ENABLED`
+— see **TODO-3** in the outbound-calls inventory.
 
 ---
 
@@ -441,7 +441,8 @@ For each triggered case, run the fallback model on the same task and record:
 - **TODO(PP-OCRv5):** confirm inclusion after an integration spike (§2.1).
 - **TODO(report-format):** finalize report render format; DB write is format-independent (§6).
 - **TODO(fallback-thresholds):** set OCR-confidence / disagreement triggers for the fallback (§8.1).
-- **TODO(LangChain-config):** finalize local-only tracing flags + master off-switch
+- **LangChain-config — RESOLVED:** master off-switch is pinned (`LANGCHAIN_TRACING_ENABLED`; `false`
+  for the OCR-only path); just document it
   ([`outbound-calls-inventory.md` TODO-3](./outbound-calls-inventory.md)).
 - **TODO(CER-storage):** decide whether per-engine CER is persisted (e.g. via `submission_extra_fields`)
   or computed at report time only (§3).

@@ -137,8 +137,9 @@ already-clean image):
 > **Engine-aware note:** Tesseract benefits most from a clean **binarized** image; PaddleOCR /
 > PP-OCRv5 often do better on the **enhanced grayscale/color** image. The pipeline can produce
 > **both an enhanced and a binarized variant** and let each engine consume its preferred input
-> — recorded per `ocr_results` row so the benchmark compares fairly. **`TODO`:** decide whether
-> to persist enhanced image artifacts or regenerate them on demand.
+> — recorded per `ocr_results` row so the benchmark compares fairly. **Resolved (architecture.md
+> D7):** enhanced/binarized artifacts are **persisted to the Railway Volume as files**, referenced
+> by path in `label_images` (seeded fixtures stay read-only, baked into the image).
 
 **Complementary tool (optional `TODO`):** `unpaper` for scanned-sheet cleanup (border removal,
 de-skew of paper scans) where OpenCV alone is awkward. Still fully local.
@@ -208,8 +209,9 @@ the model layer follows the revised firewall posture — see
   RGB on ingest.
 - **`TODO` (CMYK):** add a CMYK→RGB conversion on ingest if any seeded fixture is CMYK (baseline
   is RGB).
-- **`TODO` (artifact persistence):** persist enhanced/binarized image variants vs. regenerate on
-  demand; tie to where OCR reads its input.
+- **Resolved (architecture.md D7):** enhanced/binarized image variants are **persisted to the
+  Railway Volume as files** (referenced by path in `label_images`); the OCR adapters read those
+  files, and demo reset purges them.
 - **`TODO` (per-engine variant routing):** confirm which enhanced variant (binarized vs.
   grayscale/color) each OCR engine consumes, and record it per `ocr_results` row.
 - **`TODO` (unpaper):** evaluate adding `unpaper` for scanned-sheet cleanup alongside OpenCV.
