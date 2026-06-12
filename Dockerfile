@@ -35,10 +35,14 @@ COPY fixtures ./fixtures
 
 EXPOSE 8000
 
-# Liveness probe hits the pure in-memory route — no network, no DB.
+# Liveness probe hits the pure in-memory route — no network, no DB. Reads $PORT
+# (Railway injects it; defaults to 8000 for local/compose) so the probe targets
+# the same port the server binds — see railway.toml's $PORT reconciliation.
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-    CMD python -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/healthz', timeout=2).status==200 else 1)"
+    CMD python -c "import os,urllib.request,sys; p=os.environ.get('PORT','8000'); sys.exit(0 if urllib.request.urlopen(f'http://127.0.0.1:{p}/healthz', timeout=2).status==200 else 1)"
 
 # Serve the app factory. Host 0.0.0.0 so the port is reachable from outside the
 # container; startup performs zero outbound calls (proven by `--network none`).
+# Local/compose default is 8000; on Railway the railway.toml startCommand
+# overrides this CMD to bind the injected $PORT.
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

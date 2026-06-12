@@ -90,33 +90,65 @@ the authoritative source for the data model and rulesets; the architecture recor
 
 ## Setup & run
 
-> ⚠️ **Status: planning phase.** The documentation and design are complete; application code is
-> the next step. The deployed target is a **Docker image on Railway Pro** (dev: **Docker Desktop**),
-> so `docker compose up` will be the canonical run path; the `venv` commands below are the intended
-> local-Python flow and will be finalized when the implementation lands (tracked as a `TODO` here
-> and in [`docs/tools-used.md`](docs/tools-used.md)).
+Everything runs in **Docker** — the same offline-pinned image locally and on Railway. You
+need only **Docker Desktop** and a clone of this repo.
+
+### Run locally (`docker compose`)
 
 ```bash
-# (intended — pending implementation)
-# 1. Create a virtual environment and install dependencies
-python -m venv .venv && . .venv/Scripts/activate   # Windows PowerShell: .venv\Scripts\Activate.ps1
-pip install -r requirements.txt
+# 1. Configure the environment (every var is optional — see .env.example)
+cp .env.example .env          # then set ACCESS_TOKEN to a value of your choice
 
-# 2. Initialize and seed the mock COLA database
-python -m app.seed --from samples/seed-template.csv
-
-# 3. Run the background OCR/analysis workers (pre-compute)
-python -m app.worker
-
-# 4. Start the web app
-python -m app.server            # then open the printed local URL
-
-# 5. (optional, offline) run the OCR/LLM benchmark harness
-python -m benchmark.run --report
+# 2. Build and start the single service
+docker compose up --build     # serves http://localhost:8000
 ```
 
-**Deployed demo:** the public URL will be gated by a **token** so only an evaluator — not the
-public or bots — can access it (authentication is otherwise out of scope per the brief).
+Open <http://localhost:8000>. With `ACCESS_TOKEN` set you'll meet the **token gate** — enter
+the same value at `/access` to reach the app. With `ACCESS_TOKEN` empty/unset the gate is
+disabled (clone-and-run convenience).
+
+**Seeding is automatic.** On startup the app creates the SQLite schema and, *only if the
+database is empty*, loads the seeded mock-COLA corpus from the baked-in `fixtures/` (~30–50
+submissions). A populated database is never re-seeded. To (re)seed manually:
+
+```bash
+docker compose run --rm web python -m app.db.seed
+```
+
+### Offline egress smoke test (NFR-2 / FR-12)
+
+Proves the **zero-egress, OCR-only** boot — build the image, then run it with **no network**
+and confirm it still serves:
+
+```bash
+docker build -t ttb-label-poc .
+docker run --rm --network none -e LLM_ENABLED=false -e ACCESS_TOKEN=demo \
+  -p 8000:8000 ttb-label-poc
+# in another shell:  curl -fsS http://localhost:8000/healthz   ->  {"status":"ok"}
+```
+
+`--network none` strips all connectivity; a clean boot plus `200 /healthz` is the proof that
+startup (schema init + seed) makes no outbound calls.
+
+### Deploy (Railway)
+
+The demo runs as a **single Railway service** built from this **Dockerfile** (not Nixpacks),
+with **automatic HTTPS** on a public URL sitting behind the token gate. A **Railway Volume**
+mounted at `/data` holds the SQLite file and generated images so data survives redeploys
+(Railway's container filesystem is ephemeral); `DATABASE_PATH=/data/app.db` points the app at
+it and the seed-if-empty startup fills a fresh Volume. `railway.toml` pins the build/deploy
+contract; the operational playbook — service identity, env vars, Volume creation, CLI quirks —
+is in **[`docs/railway-deployment.md`](docs/railway-deployment.md)**.
+
+Runtime configuration is entirely env-driven (`.env.example` documents every variable):
+`ACCESS_TOKEN`, `LLM_ENABLED`, `LLM_PROVIDER`, `LLM_BASE_URL`, `LANGCHAIN_TRACING_ENABLED`,
+`DATABASE_PATH`. Absent keys leave features off — the OCR-only path stays fully functional. The
+deployed demo *may* reach cloud LLM APIs (the `models-internal-endpoint` stand-in) when
+`LLM_ENABLED=true`; `LLM_ENABLED=false` is the provable zero-egress configuration.
+
+> The full `docs/` deliverable set is indexed at **[`docs/index.md`](docs/index.md)** (linked
+> under [Documentation](#documentation) above); population of the remaining deliverables
+> completes in Epic 6.
 
 ## USWDS compliance (summary)
 

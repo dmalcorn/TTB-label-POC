@@ -19,7 +19,8 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from app.config import get_settings
-from app.db.connection import init_db
+from app.db.connection import connect, init_db
+from app.db.seed import seed
 from app.web.deps import gate_enabled, has_valid_access, is_exempt
 from app.web.routes_access import router as access_router
 
@@ -29,6 +30,23 @@ from app.web.routes_access import router as access_router
 BASE_DIR = Path(__file__).resolve().parent.parent
 STATIC_DIR = BASE_DIR / "static"
 TEMPLATES_DIR = BASE_DIR / "templates"
+
+
+def _seed_if_empty(db_path: str) -> None:
+    """Populate an empty database with the fixture corpus (Story 1.6, AC-2).
+
+    A fresh Railway Volume starts empty; without this the gated landing would sit
+    on an empty DB. Runs Story 1.3's transactional ``seed()`` ONLY when
+    ``submissions`` has zero rows, so a redeploy never clobbers in-Volume state
+    mid-session (full reset is Epic 6's explicit ``POST /reset``). Bootstrap work
+    at startup like ``init_db`` — never on a request/render path, so the 5-second
+    read contract (AR-5) is intact. Reads baked-in fixtures + writes the local
+    SQLite file only: zero egress, so ``docker run --network none`` still boots.
+    """
+    with connect(db_path) as conn:
+        count = conn.execute("SELECT COUNT(*) FROM submissions").fetchone()[0]
+    if count == 0:
+        seed(db_path)
 
 
 def create_app() -> FastAPI:
@@ -48,6 +66,9 @@ def create_app() -> FastAPI:
         # Local file work only (DDL + WAL) — no network, so this is safe at
         # startup and under `docker run --network none`.
         init_db(settings.database_path)
+        # Fill a fresh (empty) Volume DB with the seeded corpus so the gated
+        # landing never sits on an empty DB (AC-2). Idempotent + startup-only.
+        _seed_if_empty(settings.database_path)
         yield
 
     app = FastAPI(title="TTB Label Review", version="0.1.0", lifespan=lifespan)

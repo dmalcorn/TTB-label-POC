@@ -1,0 +1,32 @@
+# Railway config-as-code for the TTB-label-POC project, `ttb-web` service.
+# Story 1.6 · architecture D1/D7. Build/deploy settings here override the
+# dashboard. See docs/railway-deployment.md for the live project identity.
+
+[build]
+# Dockerfile, NOT Nixpacks — the image bakes native OCR deps (tesseract-ocr,
+# libgl1, libglib2.0-0); Nixpacks would not reproduce them (D1).
+builder = "DOCKERFILE"
+dockerfilePath = "Dockerfile"
+
+[deploy]
+# Honor Railway's injected $PORT (defaults to 8080). The Dockerfile CMD binds
+# 8000 for local/compose; this start command wins on Railway so the edge — which
+# routes to the service's $PORT — and the listener always agree. (No hardcoded
+# port on the Railway path; that was the $PORT-mismatch 404 trap.)
+startCommand = "uvicorn app.main:app --host 0.0.0.0 --port $PORT"
+# Pure in-memory liveness route (no DB, no network), exempt from the Story 1.5
+# token gate (AC-3) — Railway's probe gets 200 without a token.
+healthcheckPath = "/healthz"
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 10
+
+# ── Volume — NOT expressible in railway.toml (Railway limitation) ─────────────
+# Railway volumes are created via dashboard/CLI only, never config-as-code, so
+# the mount cannot live in this file. The SQLite DB + generated images (D7)
+# persist on a Volume mounted at /data, with the service variable
+#   DATABASE_PATH=/data/app.db
+# so data survives redeploys (Railway's container FS is ephemeral). The Volume DB
+# starts empty and is filled by the seed-if-empty startup guard (app/main.py).
+# Provision once with:
+#   railway volume add --mount-path /data --service ttb-web
+# Full details + the other service env vars are in docs/railway-deployment.md.

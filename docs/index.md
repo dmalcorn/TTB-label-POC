@@ -48,6 +48,12 @@ recommendation.
 - [`image-handling.md`](image-handling.md) — supported image types and the local OpenCV
   enhancement pipeline for imperfect images.
 
+## Deployment & operations
+
+- [`railway-deployment.md`](railway-deployment.md) — Railway operating notes for this POC:
+  live project/service identity, CLI auth quirks, `$PORT` reconciliation, the Volume + rename
+  caveats, and the single-attempt-then-verify discipline (Story 1.6).
+
 ## Experience & process
 
 - [`ux-design-notes.md`](ux-design-notes.md) — the Label Specialist UI: Next-Submission queue,
