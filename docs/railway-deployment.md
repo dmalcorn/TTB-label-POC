@@ -122,6 +122,22 @@ baked in). **Our first build already used `DOCKERFILE` and succeeded**, so we're
 don't introduce a Nixpacks/Railpack path. `railway.toml` pinning `builder = "DOCKERFILE"`
 (Story 1.6 AC-1) locks this in.
 
+## Build watch paths (set 2026-06-12)
+
+By default Railway rebuilds on **every** push to `main` — including docs/story-only changes that
+never touch the image. `watchPatterns` is an **allowlist**: a push only rebuilds if a changed
+file matches. Set on the `ttb-web` serviceInstance (via `serviceInstanceUpdate`) to exactly what
+the Dockerfile bakes in, plus the build/deploy config:
+
+```
+app/**  templates/**  static/**  fixtures/**  tests/**
+requirements.txt  pyproject.toml  Dockerfile  railway.toml
+```
+
+So a `docs/**`, `_bmad-output/**`, `README.md`, `.env.example`, or `compose.yaml` change no
+longer triggers a deploy. ⚠️ If you add a **new** top-level path that belongs in the image
+(e.g. a new `COPY` in the Dockerfile), add it here too or its changes won't deploy.
+
 ## Environments, not projects
 
 If a staging/preview env is ever needed, use Railway's **environments** within this one project
