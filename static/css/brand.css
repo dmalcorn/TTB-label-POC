@@ -1,0 +1,182 @@
+/*
+ * TTB Label Review — Treasury brand layer (Story 1.4)
+ *
+ * Loads AFTER /static/uswds/css/uswds.min.css and applies ONLY the brand-layer
+ * delta from DESIGN.md: Treasury navy primary + civic green secondary replacing
+ * USWDS default blue, the squared-corner radii, and a self-hosted Public Sans
+ * body face. Verdict + beverage tokens are declared for later stories but are
+ * NOT used on chrome (DESIGN.md: verdict palette never on chrome/buttons/links).
+ *
+ * Firewall posture: every url() below is same-origin under /static — no CDN,
+ * no Google Fonts. Spine (DESIGN.md) wins over any mockup CSS on conflict.
+ */
+
+/* ---------- Self-hosted Public Sans (DESIGN.md body face) ----------
+ * USWDS ships Public Sans in its dist; the default compiled theme renders
+ * "Source Sans Pro Web". We self-host Public Sans and prefer it for body type,
+ * keeping the vendored Source Sans Pro Web as an offline fallback. */
+@font-face {
+  font-family: "Public Sans";
+  font-style: normal;
+  font-weight: 400;
+  font-display: fallback;
+  src: url("/static/uswds/fonts/public-sans/PublicSans-Regular.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Public Sans";
+  font-style: italic;
+  font-weight: 400;
+  font-display: fallback;
+  src: url("/static/uswds/fonts/public-sans/PublicSans-Italic.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Public Sans";
+  font-style: normal;
+  font-weight: 600;
+  font-display: fallback;
+  src: url("/static/uswds/fonts/public-sans/PublicSans-SemiBold.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Public Sans";
+  font-style: normal;
+  font-weight: 700;
+  font-display: fallback;
+  src: url("/static/uswds/fonts/public-sans/PublicSans-Bold.woff2") format("woff2");
+}
+
+/* ---------- Brand tokens (single source — DESIGN.md front-matter) ---------- */
+:root {
+  /* Treasury brand layer */
+  --brand-primary: #112e51;        /* Treasury navy — header, primary actions */
+  --brand-primary-dark: #0b1d35;   /* hover/pressed */
+  --brand-primary-light: #205493;  /* links, focus accents */
+  --brand-primary-foreground: #ffffff;
+  --brand-secondary: #2e5b46;      /* civic green — secondary/throughput cues */
+  --brand-secondary-foreground: #ffffff;
+  --brand-base: #f0f0f0;           /* app canvas */
+  --brand-surface: #ffffff;        /* cards, panels */
+  --brand-ink: #1b1b1b;            /* body text */
+  --brand-ink-muted: #5c5c5c;      /* secondary/muted text */
+  --brand-border: #dcdee0;         /* quiet card borders */
+
+  /* Squared-corner radii (federal, not consumer-soft) */
+  --brand-radius-sm: 2px;          /* inputs, tags */
+  --brand-radius-md: 4px;          /* cards, buttons */
+  --brand-radius-lg: 8px;          /* modals, image panel */
+  --brand-radius-pill: 999px;      /* status chips ONLY */
+
+  /* Type — Public Sans body (16px floor), Roboto Mono for OCR raw (later stories).
+   * Source Sans Pro Web kept as a self-hosted fallback (still same-origin). */
+  --brand-font-sans: "Public Sans", "Source Sans Pro Web", system-ui, "Helvetica Neue",
+    Helvetica, Arial, sans-serif;
+  --brand-font-mono: "Roboto Mono Web", "Roboto Mono", ui-monospace, monospace;
+
+  /* Verdict palette (engine advice — NOT used on chrome; declared for later stories) */
+  --verdict-pass: #216e29;
+  --verdict-pass-bg: #ecf3ec;
+  --verdict-review: #7a5900;
+  --verdict-review-bg: #faf3d1;
+  --verdict-fail: #b50909;
+  --verdict-fail-bg: #f4e3db;
+
+  /* Beverage-type accents (banner identity — later stories) */
+  --bev-spirits: #7a4d00;
+  --bev-wine: #6b1f3a;
+  --bev-beer: #b8860b;
+}
+
+/* ---------- Body: Public Sans, 16px floor, base canvas ---------- */
+html,
+body {
+  font-family: var(--brand-font-sans);
+  font-size: 16px;
+  line-height: 1.5;
+  color: var(--brand-ink);
+  background-color: var(--brand-base);
+}
+
+/* Keep USWDS form/control type in the brand sans too (shell surface + later screens) */
+.usa-prose,
+input,
+select,
+textarea,
+button,
+.usa-button {
+  font-family: var(--brand-font-sans);
+}
+
+/* ---------- Treasury primary replaces USWDS default blue on the primary register ---------- */
+.usa-button {
+  background-color: var(--brand-primary);
+  border-radius: var(--brand-radius-md);
+}
+.usa-button:hover {
+  background-color: var(--brand-primary-dark);
+}
+a {
+  color: var(--brand-primary-light);
+}
+
+/* ---------- Utility header (composition from mockups/queue.html, spine deltas applied) ----------
+ * Navy bar · round seal · "TTB Label Review" title · spacer · [?] Help control.
+ * Spine deltas vs mockup: [?] target bumped 40px→48px (DESIGN.md ≥48px floor);
+ * the J. Park agent name (placeholder data) is excluded. */
+.app-header {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  background-color: var(--brand-primary);
+  color: #ffffff;
+  padding: 14px 24px;
+}
+.app-header__seal {
+  width: 40px;
+  height: 40px;
+  flex: 0 0 40px;
+  border-radius: var(--brand-radius-pill);
+  background-color: #ffffff;
+  color: var(--brand-primary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 9px;
+  font-weight: 700;
+  text-align: center;
+  line-height: 1.05;
+  letter-spacing: 0.02em;
+  border: 2px solid var(--brand-primary-light);
+}
+.app-header__title {
+  font-size: 19px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+.app-header__spacer {
+  flex: 1;
+}
+.app-header__help {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 48px;
+  min-height: 48px;
+  border: 2px solid #ffffff;
+  background-color: transparent;
+  color: #ffffff;
+  border-radius: var(--brand-radius-md);
+  font-size: 18px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.app-header__help:hover {
+  background-color: var(--brand-primary-dark);
+}
+.app-header__help:focus-visible {
+  outline: 4px solid var(--brand-primary-light);
+  outline-offset: 3px;
+}
+
+/* ---------- App canvas content region ---------- */
+.app-main {
+  padding: 32px 24px;
+}

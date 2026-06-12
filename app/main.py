@@ -11,11 +11,22 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.responses import HTMLResponse
+from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
 
 from app.config import get_settings
 from app.db.connection import init_db
+
+# Project root (parent of the `app/` package): where `static/` and `templates/`
+# live, both locally and in the Docker image (WORKDIR /app). Resolving from the
+# module path keeps the app cwd-independent.
+BASE_DIR = Path(__file__).resolve().parent.parent
+STATIC_DIR = BASE_DIR / "static"
+TEMPLATES_DIR = BASE_DIR / "templates"
 
 
 def create_app() -> FastAPI:
@@ -39,10 +50,28 @@ def create_app() -> FastAPI:
 
     app = FastAPI(title="TTB Label Review", version="0.1.0", lifespan=lifespan)
 
+    # Self-hosted assets (vendored USWDS + brand layer) served same-origin under
+    # /static — no CDN, no Google Fonts (NFR-2/AR-8). Local file serving only.
+    app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+
+    # Server-rendered Jinja2 templates (no SPA, no build step). Template render is
+    # a pure local operation — the 5s read-path contract (AR-5) is unaffected.
+    templates = Jinja2Templates(directory=TEMPLATES_DIR)
+
     @app.get("/healthz")
     def healthz() -> dict[str, str]:
         """Liveness probe. Pure in-memory response — no DB, no network."""
         return {"status": "ok"}
+
+    @app.get("/", response_class=HTMLResponse)
+    def index(request: Request) -> HTMLResponse:
+        """Render the vendored-USWDS app shell.
+
+        Minimal demonstrator for Story 1.4 — pure template render, no DB read, no
+        OCR/inference/model import, no network. Later stories (1.5 token gate, 4.x
+        queue/review) replace the content block with the real screens.
+        """
+        return templates.TemplateResponse(request, "index.html")
 
     return app
 
