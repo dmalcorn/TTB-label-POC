@@ -31,6 +31,9 @@ class Settings(BaseModel):
     llm_provider: str | None = None
     llm_base_url: str | None = None
     langchain_tracing_enabled: bool = False
+    # SQLite database file. Local default for dev; the Railway Volume mount path in
+    # deployment (Story 1.6 wires the mount). Absent ⇒ default, never raises.
+    database_path: str = "data/app.db"
 
     @classmethod
     def from_env(cls) -> Settings:
@@ -40,6 +43,7 @@ class Settings(BaseModel):
             llm_provider=os.getenv("LLM_PROVIDER"),
             llm_base_url=os.getenv("LLM_BASE_URL"),
             langchain_tracing_enabled=_env_bool("LANGCHAIN_TRACING_ENABLED", default=False),
+            database_path=os.getenv("DATABASE_PATH", "data/app.db"),
         )
 
 
