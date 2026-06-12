@@ -1,0 +1,4 @@
+row_id,beverage_type,application_type,source_of_product,brand_name,fanciful_name,class_type_designation,alcohol_content,net_contents,applicant_name_address,plant_registry_no,formula_number,country_of_origin,serial_number,image_filenames,image_types
+1,DISTILLED_SPIRITS,LABEL_APPROVAL,DOMESTIC,OLD TOM DISTILLERY,,Kentucky Straight Bourbon Whiskey,45% Alc./Vol. (90 Proof),750 mL,"Old Tom Distillery, Bardstown, KY",DSP-KY-12345,,,2026-0001,oldtom_front.jpg|oldtom_back.jpg,brand|back
+2,DISTILLED_SPIRITS,LABEL_APPROVAL,IMPORTED,HIGHLAND CASK,Glen Whisper,Single Malt Scotch Whisky,43% Alc./Vol. (86 Proof),700 mL,"Imported by Atlantic Spirits Co., Boston, MA",,,Scotland,2026-0002,highland_front.jpg|highland_neck.jpg|highland_back.jpg,brand|neck|back
+3,DISTILLED_SPIRITS,LABEL_APPROVAL,DOMESTIC,SILVER BIRCH,,Vodka,40% Alc./Vol. (80 Proof),1 L,"Silver Birch Distilling LLC, Portland, OR",DSP-OR-67890,,,2026-0003,silverbirch_front.jpg,brand

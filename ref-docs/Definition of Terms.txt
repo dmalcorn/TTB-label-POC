@@ -1,0 +1,157 @@
+Definition of Terms
+
+Alcohol Content - An accurate statement of the alcohol content must appear on the brand label of all wine and distilled spirits products.  This statement is optional for malt beverages, but if shown must be in the correct format.
+
+Wine Labels – When creating an eApplication please indicate the specific alcohol content or range of alcohol content as it appears on the label.  If you are using “table wine” or “light wine” on your label to meet the alcohol content requirement, either indicate the alcohol content of the wine or enter “table” or “light” in this field.
+
+Malt Beverage Labels - When creating an eApplication please indicate the alcohol content as it appears on the label (if shown).  If alcohol content is not shown on the label this field is optional.
+
+Distilled Spirit Labels - When creating an eApplication please indicate the alcohol content as it appears on the label.
+
+Brand Name - This is the name under which a product is sold.  If the product is not sold under a brand name, the name of the bottler, packer or importer becomes the brand name.
+
+Capacity - This is the actual volume of the container that is required on the COLA for Distinctive Liquor Bottles.
+
+COLA - Certificate of Label Approval.
+
+COLA Status - COLA statuses include "Received," "Needs Correction," "Rejected," "Approved", "Withdrawn", "Saved not submitted", "Surrendered", "Revoked."
+
+When searching by status, select a particular status from the drop down.  If you do not select a status, all statuses will be searched.
+
+Date Completed - This is the date when the COLA application was approved.
+
+When searching by this field, you may either enter the month, day and year e.g., 12/17/2003, or select the appropriate date from the calendars.  If you know the specific date the COLA was approved, use the same date in both the “from” and “to” blocks.  You may also search for a range of time by entering different dates in the “from” and “to” areas.
+
+Date Status Last Updated - This date reflects the last time the status of an eApplication changed, e.g., from “received” to “approved.”
+
+When searching by this field, you may either enter the month, day and year e.g., 8/15/2003, or select the appropriate date from the calendars.  If you know the specific date the status changed, use the same date in both the “from” and “to” blocks.  You may also search for a range of time by entering different dates in the “from” and “to” areas.
+
+Date Submitted - This is the date that the eApplication was submitted to TTB.
+
+When searching by this field, you may either enter the month, day and year e.g., 04/20/2003, or select the appropriate date from the calendars.  If you know the specific date the eApplication was submitted, use the same date in both the “from” and “to” blocks.  You may also search for a range of time by entering different dates in the “from” and “to” areas.
+
+DBA/Trade Name - This is a name you may choose to do business as other than your official corporate or business name.
+
+If you are using a DBA, Assumed Name or Trade Name in the mandatory name and address statement on a label, you must enter it here when filing an eApplication.
+
+You may only use a DBA, Assumed Name or Trade Name on a beverage alcohol label AFTER you obtain approval from the TTB National Revenue Center in Cincinnati, Ohio.  If you have questions about the addition of a DBA or Trade Name, please call the Revenue Center at 1-800-398-2282.
+
+Dimensions - The actual dimensions of the label in inches is collected in order to correctly display the label image in your browser window.  This information is also used during the approval process to understand the true size of very large labels that may have been reduced in size before they were submitted with the eApplication.
+
+Distinctive Liquor Bottle - A distilled spirits container is considered a "Distinctive Liquor Bottle" if: the spirits contents are not visible through the container OR the shape or design of the container is other than that of a “standard” or “traditional” spirits container.
+
+You must submit photos of the front and back of Distinctive Liquor Bottles in Step 3 when submitting an eApplication for Distinctive Liquor Bottle approval.
+
+Fanciful Name - This is a name that may be used in addition to a brand name to further identify a product and is required for malt beverage and distilled spirit specialty products that must be labeled with a statement of composition.  It is optional for other products.
+
+Supply the Fanciful Name if one is used on the label.
+
+For sale in - For Certificates of Exemption, this specifies the state for which the exemption was filed.
+
+Formula - Corresponds with Item 11 on 5100.31 - The term "Formula" encompasses formulas, pre-import approval letters, lab analysis, and submissions formerly known as statements of process (SOP). A Formula is a quantitative list of ingredients and a step-by-step method of manufacture for alcohol beverage products (wine, distilled spirits, malt beverage) requiring approval from TTB prior to production or importation as per Industry Circular 2007-4. TTB's Regulatory Authority for such products may also be found at 27 CFR parts 4, 5, 7, 19, 24, 25, and 26. Please visit http://www.ttb.gov/formulation/index.shtml for more information. For any domestic or imported alcohol beverage products that received TTB formula approval prior to January 10, 2011, please manually enter the TTB ID number, or TTB lab number in the Company Formula #/SOP# text box. A copy of the approved formula, or pre-import approval letter must accompany the label application. If formula approval for any domestic or imported alcohol beverage product was obtained after January 10, 2011 please select the TTB Formula ID number(generated by Formulas Online) from the drop-down list of approved formulas. DO NOT submit your COLA application until AFTER you have obtained formula approval, if required.
+
+Grape Varietals - This must specify each grape varietal (if any) that appears on a wine label
+
+Net Contents - An accurate statement of the net contents of the container must either appear on the label or be blown or branded into the container.
+
+When completing an eApplication, please indicate the size (net contents) of the container(s) on which the label(s) will be used.
+
+You must tell us in STEP 3 if the net contents are blown, branded or embossed in or on the container instead of appearing on the label.
+
+Distilled spirits and wine may only be packaged in the standard container sizes you see in the drop down list.  There is no restriction on container sizes for malt beverages.
+
+One COLA may be used to cover more than one size container.  If this is the case, please indicate all sizes that will be used.  You do not need to supply images of labels that will be used for each size if the only difference is the shape or proportionate size of the label.
+
+Origin - This code indicates the country (or state for domestic products) of origin for each product.  Each country has been assigned a unique origin code.  Enter the origin code if you know it, or use the lookup feature to find it.
+
+Permit Name - The operating name and/or owner name associated with a Plant Registry/Basic Permit/Brewer's Number.
+
+Plant Registry/Basic Permit/Brewer's No. - This is a unique number that is assigned by TTB to each business location.  Examples include BW-NY-123, DSP-KY-89, BR-WI-ABC-567 or VA-I-456.
+
+When submitting an eApplication, please select the location(s) where this product will be bottled/imported.  You may only file eApplication(s) for locations that appear in your “My Profile” section of COLAs Online.
+
+Proprietors of domestic Distilled Spirits Plants and Breweries may obtain one COLA to cover multiple business locations if: the principle place of business is shown in the mandatory name and address statement on the label(s) AND the same label will be used for products bottled at each location.
+
+A COLA must be obtained for each location where a domestic wine is actually bottled (i.e., one COLA may not cover multiple locations).
+
+Beverage alcohol Importers may not use one COLA to cover multiple locations.
+
+When searching from the COLAs Online search screen, you may only search for COLAs filed by the companies that appear in your “My Profile” section of COLAs Online.  Either select one number, or you may select “any” if you are registered to file COLAs on behalf of multiple entities.
+
+Previously Rejected Application - This applies when a COLA application was rejected and you subsequently resubmit it.
+
+If you are completing an eApplication and you submitted these labels in the past and they were rejected, you must supply the TTB ID number of the rejected application.  The TTB ID number is a 14 digit number and can be found on the upper left-hand corner of paper COLAs.  If this is a resubmission of a rejected eApplication, select the correct TTB ID number of the rejected COLA from the drop down list (shows only eApplications rejected in the past 30 days).
+
+Product Class/Type - This code indicates the class and or type designation for a product.  Each product has been assigned a unique class/type code.  Enter the class/type code if you know it, or use the lookup feature to find it.
+
+Product Name - You may search for COLAs by “Brand Name” OR “Fanciful Name” OR both if you select “Either.”
+
+The Brand Name is the name under which a product is sold.  If the product is not sold under a brand name, the name of the bottler, packer or importer becomes the brand name.
+
+The Fanciful Name is a name that may used in addition to a brand name to further identify a product and is required for malt beverage and distilled spirit specialty products that must be labeled with a statement of composition.  It is optional for other products.
+
+Qualifications - These are conditions under which the labels may be used.
+
+Reasons for Correction/Rejection - These are reasons for which the COLA application needs to be corrected.  If the time permitted for corrections passes without any changes from the COLA submitter, the application will automatically be rejected, and these reasons will become the reasons for which the application was rejected.
+
+Received Code - A three digit code number at the sixth, seventh and eighth positions within the TTB ID number that indicates how a label application was received. For instance, if the application was received electronically then the TTB ID # would contain the received code "001" at the sixth, seventh and eighth positions. Other receive codes used are "000" for hand delivered applications, "002" indicates that the application was received by regular USPS mail and "003" indicates that the application was received by an overnight delivery service such as UPS or FEDEX.
+
+Representative ID - Third party COLA filers (consultants, label reps, trade associations, etc.) are given a unique ID number by TTB.  If you wish to limit your search to COLAs that were filed by a particular representative, enter their ID number here.
+
+Serial Number - This is a unique, sequential number assigned by the COLA holder.  The first two digits reflect the calendar year the application was created.  The remaining digits may be a combination of letters and numbers but may not exceed four characters in length.
+
+When creating an eApplication you must assign a sequential and unique number to each application.  COLAs Online automatically assigns the first two characters, which represent the current calendar year.
+
+Source of Product - Indicates if the finished alcohol beverage was produced in the US or somewhere else. For example wine produced in France is imported and whiskey made in Kentucky is domestic.
+
+Special Wording - Any wording appearing on materials firmly affixed to the container other than the labels attached to the application, or any wording embossed on the container.  This field may also contain translations of foreign language text appearing on the labels.
+
+State of Exemption - For Certificates of Exemption, this specifies the state for which the exemption was filed.
+
+Submitted By - This is the person who submitted the eApplication to TTB.
+
+When searching by this field, you may only view eApplications that were submitted by you or by other users that have signing authority for the same companies.  Third party filers may only view eApplications filed by them.
+
+Sulfite Analysis - Any standard wine label that does not contain a sulfite declaration or contains a Sulfite-Free declaration must be submitted to either a TTB laboratory or a TTB-certified laboratory for analysis.
+
+The results of this analysis must be included with the COLA.
+
+TTB ID - This is a unique, 14 digit number assigned by TTB to track each COLA.  The first 5 digits represent the calendar year and Julian date the application was received by TTB. The next 3 digits tell how the application was received (001 = e-filed; 002 & 003 = mailed/overnight; 000 = hand delivered). The last 6 digits is a sequential number that resets for each day and for each received code.
+
+If you know the TTB ID number, this is the best way to search for individual COLAs.  The TTB ID number for eApplications is supplied to the submitter in the “Application Submitted” confirmation message.  The TTB ID number can be found in the upper left-hand corner of paper COLAs.
+
+Type of Application - A Certificate of Label Approval authorizes a product to be sold in interstate commerce and must be obtained BEFORE a domestic product is bottled or BEFORE an imported product is removed from Customs' custody.
+
+A Certificate of Exemption authorizes a product to be sold in the state where it was bottled and must be obtained BEFORE a product is bottled.
+
+When completing an eApplication, select Certificate of Label Approval if this alcohol beverage will be sold within the state where the bottler is located and/or in interstate commerce (i.e., in states other than where the bottler is located).
+
+When completing an eApplication, select Certificate of Exemption from Label Approval if you will only sell this alcohol beverage intrastate (i.e., only within the state where the bottler is located), and you wish to be exempted from the labeling requirements of the Federal Alcohol Administration Act.
+
+Products approved under a Certificate of Exemption MUST be labeled “For sale in (state where bottling takes place) only.”
+
+NOTE: TTB does not issue Certificates of Exemption for Malt Beverages or for products imported in bottles.
+
+Type of Product - Select either Wine, Distilled Spirit or Malt Beverage.
+
+If you are unsure of the classification of a product, please contact the Alcohol Labeling & Formulation Division Customer Service Team at 1-866-927-ALFD or by e-mail at alfd@ttb.treas.gov.
+
+NOTE: Sake is classified as wine for labeling purposes.
+
+Type of Submission - If Distinctive Liquor Bottle is selected, enter the total bottle capacity before closure.
+
+Vendor Code - This code was used in the past to identify organizations who were submitting COLAs.  The Vendor Code is no longer in use, but may be used to search for certain historical COLA records.  Plant Registry/Basic Permit/Brewer's No.  is used to identify the business locations for which the COLA applications are filed.
+
+Vendor Name - No longer in use.  See "Vendor Code" for details.
+
+Wine Appellation - An appellation indicates the origin of the grapes used to make the wine.  Please supply the appellation of origin if it appears on the label.
+
+A wine may be labeled with an appellation of origin that is a country, a state, or a county (or a foreign equivalent) if not less than 75 percent of the wine is produced from grapes grown in the named place.
+
+A wine may be labeled with an appellation of origin that is an approved/recognized viticultural area if not less than 85 percent of the wine is produced from grapes grown in the named viticultural area.
+
+An appellation of origin is generally optional information, however it becomes mandatory if the wine is labeled with: a vintage date (appellation must be smaller than a country), a grape varietal designation, OR an Estate Bottle claim (appellation must then be a viticultural area).
+
+Wine Vintage - A vintage date indicates the year in which the grapes used to make the wine were harvested.  Please supply the vintage date of the wine if one appears on the label.
+
+A vintage date may be used on the label if not less than 95 percent of the wine is produced from grapes grown in that year and must be labeled with an appellation smaller than a country.

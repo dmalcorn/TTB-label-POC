@@ -1,0 +1,22 @@
+# Pre-commit hooks for the TTB label POC.
+# Install once:   pre-commit install
+# Run on demand:  pre-commit run --all-files
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+        exclude: '\.(pdf|png|jpe?g|gif|webp|ico)$'
+      - id: end-of-file-fixer
+        exclude: '\.(pdf|png|jpe?g|gif|webp|ico)$'
+      - id: mixed-line-ending
+        args: [--fix=lf]
+        exclude: '\.(ps1|bat|cmd|pdf|png|jpe?g|gif|webp|ico)$'
+      - id: check-merge-conflict
+      - id: check-case-conflict
+      - id: check-yaml
+      - id: check-toml
+      - id: check-json
+      # Reference PDFs are large by design; cap at 10 MB to catch accidents.
+      - id: check-added-large-files
+        args: [--maxkb=10240]

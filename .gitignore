@@ -1,0 +1,40 @@
+# --- BMad working folders & tooling (not part of the deliverable repo) ---
+_bmad/
+_bmad-output/
+.claude/
+.agents/
+
+# --- Python ---
+.venv/
+venv/
+env/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# --- Secrets / local config ---
+.env
+.env.*
+!.env.example
+*.local
+
+# --- Large reference PDFs (kept locally, not in the repo) ---
+*.pdf
+
+# --- OS / editor cruft ---
+.DS_Store
+Thumbs.db
+*.swp
+*~
+.idea/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
