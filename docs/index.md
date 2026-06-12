@@ -12,6 +12,13 @@ recommendation.
   (mandatory) vs. the **above-and-beyond** features added, plus the project goals.
 - [`approach.md`](approach.md) — the central design: architecture, the pre-compute pipeline,
   the verification engine, processing states, Python-vs-Bash, and phasing.
+- [`architecture.md`](../_bmad-output/planning-artifacts/architecture.md) — the **architecture
+  decision record** and **source of authority** for the locked stack & deployment decisions
+  (D1–D8). Where `approach.md` originally listed open choices, this is where they're resolved;
+  it *references* the data model below rather than copying it.
+- [`approved-tech-stack.md`](../_bmad-output/planning-artifacts/approved-tech-stack.md) — the
+  **version-of-record** list: every library/tool with its web-verified latest version (as of
+  2026-06-12), firewall classification, and license.
 
 ## Regulatory & compliance
 

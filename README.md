@@ -76,6 +76,12 @@ Plus: [regulatory rules](docs/regulatory-rules-distilled-spirits.md),
 [image handling](docs/image-handling.md), and the
 [applicant workflow](docs/applicant-workflow-distilled-spirits.md).
 
+**Architecture decision record (source of authority for stack & deployment):**
+[`_bmad-output/planning-artifacts/architecture.md`](_bmad-output/planning-artifacts/architecture.md)
+— the locked technical decisions (D1–D8: FastAPI + SQLite on Railway, the pre-compute pipeline,
+the engine-agnostic adapters, and the four centralized contracts). The `docs/` set above remains
+the authoritative source for the data model and rulesets; the architecture record references them.
+
 ## Sample data
 
 - [`samples/`](samples/) — sample labels, `seed-template.csv` ground truth, and the

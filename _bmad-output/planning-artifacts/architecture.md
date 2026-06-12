@@ -96,14 +96,15 @@ Python full-stack **monolith**, **containerized** — FastAPI app server, server
 **Rationale for Selection:**
 
 - **Minimal firewall surface + evaluator-readable** — no SPA build chain, no generated client; every dependency deliberate and inventoried (FR-26, NFR-6).
-- **The Dockerfile is the "pinned, offline" artifact** — bakes native deps (`tesseract-ocr`, OpenCV/Paddle libs), pinned model weights (resolves outbound-inventory TODO-2), vendored USWDS assets, and seeded fixture images into one reproducible image that runs identically on Docker Desktop and Railway.
-- **Matches the decided stack** — FastAPI + Jinja2 + SQLite + APScheduler.
+- **The Dockerfile is the "pinned, offline" artifact** — bakes native deps (`tesseract-ocr`, OpenCV/Paddle libs), pinned model weights (resolves [`docs/outbound-calls-inventory.md`](../../docs/outbound-calls-inventory.md) TODO-2), vendored USWDS assets, and seeded fixture images into one reproducible image that runs identically on Docker Desktop and Railway.
+- **Matches the decided stack** — FastAPI + Jinja2 + SQLite + APScheduler (full per-tool rationale, licenses, and local-vs-cloud status in [`docs/tools-used.md`](../../docs/tools-used.md); web-verified version-of-record pins in [`approved-tech-stack.md`](approved-tech-stack.md)).
 
 **Initialization (first implementation story):**
 
 ```dockerfile
 # Dockerfile (sketch) — verified current as of June 2026; exact pins at dependency-pinning step (TODO-LIC)
-FROM python:3.11-slim
+# Versions of record: ../approved-tech-stack.md
+FROM python:3.13-slim
 RUN apt-get update && apt-get install -y --no-install-recommends \
     tesseract-ocr libgl1 libglib2.0-0 && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
@@ -144,13 +145,13 @@ CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
 - **D1 — Database & topology:** SQLite (file on a Railway Volume) in a **single Railway service** (web + in-process worker). *Chosen by Diane over Postgres/split — simplest, keeps local clone-and-run trivial (FR-26), demo-reset = restore seeded file; bursty single-user pre-compute makes CPU contention a non-issue.*
 - **D2 — Web framework:** FastAPI 0.136.x (async background-job friendliness; Pydantic v2 validation bundled).
 - **D3 — Background pipeline runtime:** in-process **APScheduler 3.11.x** sweeping `RECEIVED` submissions; OCR/LLM/analysis run as bounded-concurrency jobs so they never starve the read path.
-- **D4 — Compliance engine:** Rulesets-as-data (per-Beverage-Type) executed by the determinism taxonomy (deterministic / field-match / hybrid / flag-only); CFR citations stored as data.
+- **D4 — Compliance engine:** Rulesets-as-data (per-Beverage-Type) executed by the determinism taxonomy (deterministic / field-match / hybrid / flag-only); CFR citations stored as data. The Ruleset content is authored in [`docs/regulatory-rules-distilled-spirits.md`](../../docs/regulatory-rules-distilled-spirits.md), [`docs/regulatory-rules-wine.md`](../../docs/regulatory-rules-wine.md), [`docs/regulatory-rules-beer.md`](../../docs/regulatory-rules-beer.md), with the cross-type mandatory-element matrix (and the ABV false-reject trap) in [`docs/label-requirements-by-type.md`](../../docs/label-requirements-by-type.md). *Provenance:* each Ruleset traces to TTB's own labeling-checklist PDF in `ref-docs/` (`ds-labeling-checklist.pdf` / `wine-labeling-checklist.pdf` / `malt-beverage-labeling-checklist.pdf`, post-2022 Part 5 renumbering) plus the local 27 CFR Part 4/5/7/16 copies. *Prior-art validation:* the hybrid CV + structured-LLM + hand-coded-rules approach is independently validated by COLAClear (see the landscape in [`docs/presearch.md`](../../docs/presearch.md)).
 
 **Important Decisions (shape architecture):**
 
 - **D5 — OCR extraction layer:** pluggable engines behind one **in-process uniform adapter interface** (`extract(image) -> {text, word_boxes, confidence, latency_ms, engine, version, ran_on_cpu}`); Tesseract + PaddleOCR ship, PP-OCRv5 optional. Extract to a localhost service only if justified later (matches `approach.md` §6).
-- **D6 — LLM/extraction layer:** the *same* adapter pattern for models; provider SDKs (OpenAI/Gemini/Anthropic) + optional local VLM behind one interface; `models-internal-endpoint` classification; `LLM_ENABLED`/`LLM_BASE_URL` config-driven; LangChain for local-only tracing.
-- **D7 — Persistence of derived artifacts:** preprocessed (OpenCV-enhanced) images written to the **Volume** as files, referenced by path in `label_images`; seeded fixture images baked into the Docker image (read-only, no upload).
+- **D6 — LLM/extraction layer:** the *same* adapter pattern for models; provider SDKs (OpenAI/Gemini/Anthropic) + optional local VLM behind one interface; `models-internal-endpoint` classification; `LLM_ENABLED`/`LLM_BASE_URL` config-driven; LangChain for local-only tracing. The accuracy/CER/cost-per-1,000 methodology these stats feed is specified in [`docs/ocr-llm-benchmarking-plan.md`](../../docs/ocr-llm-benchmarking-plan.md).
+- **D7 — Persistence of derived artifacts:** preprocessed (OpenCV-enhanced) images written to the **Volume** as files, referenced by path in `label_images`; seeded fixture images baked into the Docker image (read-only, no upload). The preprocessing pipeline (deskew/perspective/glare/contrast) and supported image types are specified in [`docs/image-handling.md`](../../docs/image-handling.md).
 - **D8 — Frontend:** server-rendered Jinja2 + USWDS components; **progressive-enhancement vanilla JS** only (image zoom/paging, Enhance toggle, checklist→card scroll, keyboard shortcuts) — no SPA, no build step, all assets vendored.
 
 **Deferred Decisions (post-MVP / Phase 2):**
@@ -161,11 +162,19 @@ CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
 
 ### Data Architecture
 
-- **Engine:** SQLite (Python stdlib `sqlite3`), file on a Railway Volume; schema per `docs/database-schema.md` (TEXT + CHECK enums, kept Postgres-portable).
+**Authoritative data model (referenced, not duplicated).** The canonical schema and per-field reference live in their own docs and are **not** copied here — duplication would drift (the failure mode this project already corrected once). This architecture document owns the *decisions that act on* that model; the model itself is owned by:
+
+- [`docs/database-schema.md`](../../docs/database-schema.md) — authoritative table/DDL definitions, relationships, enums, and seeded-vs-computed rules.
+- [`docs/data-dictionary.md`](../../docs/data-dictionary.md) — authoritative per-field reference (common name, specification, definition, category) for every column and `field_key`/`check_key`.
+
+**Architecture-level decisions that govern that model (the deltas this doc adds):**
+
+- **Engine:** SQLite (Python stdlib `sqlite3`), file on a Railway Volume; TEXT + CHECK enums confirmed over native enums (portable, greppable, trivially seedable); kept Postgres-portable for the documented Phase-2 flip.
 - **Schema/seed:** plain SQL DDL + a Python seed script loading the fixture corpus + Ground Truth CSV (no ORM/migration framework for the POC; Alembic noted as scale path). 30–50 seeded Submissions; `label_images` child table (1–10).
 - **Validation:** Pydantic v2 models at the API/read boundary; `field_comparisons`/`checklist_items` written by the analysis job.
 - **Demo reset (FR-27):** transactional re-seed — restore seeded rows, clear `disposition`/`decided_at`, reset `status`, purge generated preprocessed images. Reachable without redeploy.
 - **Concurrency note:** single-writer SQLite is fine for a single-user demo + one background worker; WAL mode enabled for read-during-write safety.
+- **Data provenance (context):** the application-field model and image constraints (JPG/TIFF, ≤750 KB, ≤10 images, "fields arrive clean") mirror the real applicant filing flow — see [`docs/applicant-workflow-distilled-spirits.md`](../../docs/applicant-workflow-distilled-spirits.md).
 
 ### Authentication & Security
 
@@ -176,7 +185,7 @@ CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
 
 ### API & Communication Patterns
 
-- **Style:** primarily **server-rendered HTML routes** (`GET /queue`, `POST /next`, `GET /review/{id}`, `POST /review/{id}/disposition`, `GET /benchmark`, operator `POST /reset`, `POST /enqueue`). A few small read-only JSON endpoints only where progressive-enhancement JS needs them (e.g. live `N of M` checklist state).
+- **Style:** primarily **server-rendered HTML routes** (`GET /queue`, `POST /next`, `GET /review/{id}`, `POST /review/{id}/disposition`, `GET /benchmark`, operator `POST /reset`, `POST /enqueue`). A few small JSON endpoints only where progressive-enhancement JS needs them: the `POST /review/{id}/progress` upsert (live `N of M` tick-state + draft Notes, Addendum A) and `POST /review/{id}/undo`.
 - **Error handling:** honest per-component states surfaced in the UI (pipeline failure, LLM-unavailable degrade-to-OCR, save-failure-retains-work) per EXPERIENCE.md State Patterns — never a silent stall.
 - **The 5s contract:** read routes do **only** a DB read of pre-computed rows; no inference, no OCR, no blocking on the model layer at request time.
 
@@ -229,7 +238,7 @@ CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
 - **Provenance string:** `extracted_source` is exactly `ocr:<engine_name>` or `llm:<model_id>` (e.g. `ocr:paddleocr`, `llm:claude-opus-4-8`).
 - **CFR citation:** `"27 CFR <part>.<section>"` (e.g. `27 CFR 16.21`).
 
-**API routes:** lowercase, no trailing slash, `{id}` path params, HTTP verb carries the action (`GET /queue`, `POST /next`, `GET /review/{id}`, `POST /review/{id}/disposition`, `GET /benchmark`, `POST /reset`, `POST /enqueue`).
+**API routes:** lowercase, no trailing slash, `{id}` path params, HTTP verb carries the action (`GET /queue`, `POST /next`, `GET /review/{id}`, `POST /review/{id}/progress`, `POST /review/{id}/undo`, `POST /review/{id}/disposition`, `GET /benchmark`, `POST /reset`, `POST /enqueue`).
 
 **Python code:** modules/functions/vars `snake_case`; classes `PascalCase`; constants `UPPER_SNAKE`; type hints required; formatted by **ruff** (lint + format), line length 100.
 
@@ -252,12 +261,12 @@ CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
 
 ### Communication Patterns
 
-- **Lifecycle events:** `audit_events.event_type` is a fixed vocabulary (`SEEDED`/`OCR_STARTED`/`OCR_COMPLETED`/`ANALYSIS_COMPLETED`/`READY`/`OPENED`/`DECIDED`); `actor` is `system:<job>` or `Label Specialist`. The append-only `audit_events` timeline is the domain event log — **distinct from** application logging.
-- **Status transitions:** only the pipeline jobs and the read path write `status`, in the fixed order `RECEIVED → PROCESSING → READY_FOR_REVIEW → IN_REVIEW → DECIDED`.
+- **Lifecycle events:** `audit_events.event_type` is a fixed vocabulary (`SEEDED`/`OCR_STARTED`/`OCR_COMPLETED`/`ANALYSIS_COMPLETED`/`READY`/`OPENED`/`DECIDED`/`UNDONE`); `actor` is `system:<job>` or `Label Specialist`. The append-only `audit_events` timeline is the domain event log — **distinct from** application logging.
+- **Status transitions:** only the pipeline jobs and the web layer write `status`, in the forward order `RECEIVED → PROCESSING → READY_FOR_REVIEW → IN_REVIEW → DECIDED`. **Exactly one bounded backward transition exists** — `DECIDED → READY_FOR_REVIEW`, reachable only via `POST /review/{id}/undo` (the brief in-session "Recorded — Undo", Addendum A). No other reversal is permitted.
 
 ### Process Patterns
 
-- **The 5s contract (inviolable):** read/render paths do a DB read only — never OCR, inference, or a model-layer call at request time. All heavy work is pre-computed by the pipeline.
+- **The 5s contract (inviolable):** read/render paths do a DB read only — never OCR, inference, or a model-layer call at request time. All heavy work is pre-computed by the pipeline. *Cheap single-row bookkeeping writes are not "heavy work"* and are permitted on explicit POST actions (never folded into the `GET` render): the `status` lifecycle write, and the `review_progress` upsert / `undo` writes (Addendum A). The prohibition is on heavy work (OCR/inference/model calls), not on all writes.
 - **Degrade, never block:** if the model layer is unreachable/off, affected checks fall back to OCR-only with a visible notice; the screen never blocks on an LLM call (FR-12).
 - **Honest states, never silent:** pipeline failures land in a visible per-check error state; a save failure retains Notes + tick-state and stays on the page (EXPERIENCE.md State Patterns).
 - **Logging:** structured (`logging`), levels used normally; secrets/keys never logged; tracing is LangChain local-only and toggleable (no egress).
@@ -306,7 +315,7 @@ ttb-label-poc/
 │   ├── web/                        # ── Feature 4.1 Review Workspace + 4.6 Demo Access (read path only)
 │   │   ├── deps.py                 # token-gate dependency (FR-25); DB session
 │   │   ├── routes_queue.py         # GET /queue, POST /next, POST /next?type= (FR-1, FR-2)
-│   │   ├── routes_review.py        # GET /review/{id}, POST /review/{id}/disposition (FR-3–7, FR-6)
+│   │   ├── routes_review.py        # GET /review/{id}, POST /review/{id}/{progress,undo,disposition} (FR-3–7, FR-6; Addendum A)
 │   │   ├── routes_benchmark.py     # GET /benchmark (FR-23)
 │   │   ├── routes_ops.py           # POST /reset, POST /enqueue (FR-27, FR-28)
 │   │   └── routes_help.py          # GET /help (FR-8)
@@ -363,11 +372,11 @@ ttb-label-poc/
 ### Architectural Boundaries
 
 - **API boundary:** all routes behind the token-gate dependency (`web/deps.py`); read routes touch only `db/repositories.py` (the 5s contract — no pipeline/adapter imports on the request path).
-- **Pipeline boundary:** `pipeline/` is the *only* writer of `ocr_results`, `llm_results`, `field_comparisons`, `checklist_items`, and `status`/`engine_verdict`. The web layer never invokes the pipeline synchronously (except `POST /enqueue`, which only *inserts a RECEIVED row*; the scheduler picks it up).
+- **Pipeline boundary:** `pipeline/` is the *only* writer of `ocr_results`, `llm_results`, `field_comparisons`, `checklist_items`, and `engine_verdict`. The web layer never invokes the pipeline synchronously (except `POST /enqueue`, which only *inserts a RECEIVED row*; the scheduler picks it up). The web layer owns the *human* writes — `disposition`/`decided_at`/`decision_notes`, the `status` lifecycle transitions, and the `review_progress` scratch row (Addendum A) — which never overlap the pipeline's columns. Human checklist tick-state lives in `review_progress`, **not** in the pipeline-owned `checklist_items`.
 - **Adapter boundary:** `engine/` and `pipeline/` depend on the adapter *protocols* (`adapters/*/base.py`), never on a concrete engine/provider — swap = new file, no schema/caller change (FR-11).
 - **Contract boundary:** `contracts.py` / `normalize.py` / `verdict.py` / `disposition.py` are imported, never duplicated. `disposition.py` has no dependency on `verdict.py` (structural verdict-vs-disposition separation).
 - **Data boundary:** `db/` is the single data-access layer; no raw SQL outside it; SQLite file + generated images live on the Railway Volume.
-- **External boundary:** the *only* off-host calls originate in `adapters/llm/{openai,google,anthropic}.py` (classified `models-internal-endpoint`); everything else is `none`/`local`. `LLM_ENABLED=false` disables that boundary entirely (zero-egress, FR-12).
+- **External boundary:** the *only* off-host calls originate in `adapters/llm/{openai,google,anthropic}.py` (classified `models-internal-endpoint`); everything else is `none`/`local`. `LLM_ENABLED=false` disables that boundary entirely (zero-egress, FR-12). The per-component classification and reviewer verification steps are the deliverable [`docs/outbound-calls-inventory.md`](../../docs/outbound-calls-inventory.md).
 
 ### Requirements → Structure Mapping
 
@@ -415,7 +424,7 @@ ttb-label-poc/
 
 **Important (address in the pipeline story, not blocking):**
 
-- **FR-10 proof requires OCR on *both* image variants.** To show "preprocessed accuracy > original" in the benchmark, `pipeline/run.py` must run OCR on **both** the original and the OpenCV-enhanced image for the degraded-fixture subset (store both `ocr_results` rows). The current data flow OCRs the enhanced image only — added as an explicit pipeline requirement.
+- **FR-10 proof requires OCR on *both* image variants.** To show "preprocessed accuracy > original" in the benchmark, `pipeline/run.py` must run OCR on **both** the original and the OpenCV-enhanced image for the degraded-fixture subset (store both `ocr_results` rows). The current data flow OCRs the enhanced image only — added as an explicit pipeline requirement. (Preprocessing detail: [`docs/image-handling.md`](../../docs/image-handling.md); scoring methodology: [`docs/ocr-llm-benchmarking-plan.md`](../../docs/ocr-llm-benchmarking-plan.md).)
 
 **Watch-items (handled by design; state plainly per NFR-5):**
 
@@ -464,4 +473,28 @@ ttb-label-poc/
 
 **AI Agent Guidelines:** follow the decisions and the four centralized contracts exactly; never put OCR/inference on a read path; never map a verdict to a disposition; keep CFR rules as data; keep assets self-hosted.
 
+**Full deliverable doc set:** [`docs/index.md`](../../docs/index.md) indexes every repo document (rulesets, data model, tools, benchmarking plan, image handling, outbound-call inventory, assumptions, trade-offs, applicant workflow, landscape). This architecture record is the source of authority for stack & deployment decisions; the `docs/` set is authoritative for the data model, rulesets, and domain detail it references.
+
 **First Implementation Priority:** the "init" story — Dockerfile + project skeleton + `db/schema.sql` + `db/seed.py`, then the pre-compute pipeline (with the FR-10 both-variants OCR requirement baked in).
+
+---
+
+## Addendum A — In-Progress Review State & Disposition Undo (Decision #8, 2026-06-12)
+
+**Context.** The UX spine requires the specialist's *manual* checklist tick-state and *draft* Notes to persist **server-side, across navigate-away and a full browser reload**, clearing only on a recorded disposition (EXPERIENCE.md State Patterns "Browser refresh mid-review", Accessibility floor "No work loss", UX-DR-12, Stories 4.6/4.8/4.11); and a brief in-session **"Recorded — Undo"** that voids a just-recorded disposition (EXPERIENCE.md "Disposition recorded", UX-DR-14, Story 4.8). The original record had no storage, no write route, and no reverse transition for any of this. Per "spine wins on conflict," a client-side-only fix is rejected (it contradicts the explicit "server-side" + "full browser reload" wording and the no-work-loss promise). This addendum provisions the minimal server-side mechanism, holding every existing invariant.
+
+**Decision.**
+
+1. **New table `review_progress`** (one row per submission; see `database-schema.md §1.8` and `data-dictionary.md §6.5`). Columns: `submission_id` (UNIQUE FK), `ticked_check_keys` (TEXT — JSON array of the `check_key`s the specialist has *manually* ticked), `draft_notes` (TEXT), `updated_at`. This is a UI *scratch* row, deliberately separate from the pipeline-owned `checklist_items` — so the **"pipeline is the only writer of `checklist_items`" invariant is untouched.** The rendered checklist merges the engine's pre-ticked auto-PASS items (`checklist_items.verdict`) with the human ticks (`review_progress.ticked_check_keys`).
+
+2. **Two new web routes, both small JSON, both off the `GET` render path:**
+   - `POST /review/{id}/progress` — upsert `ticked_check_keys` + `draft_notes` (debounced from the client on tick/notes change). Idempotent; returns the `N of M` count. A cheap single-row write.
+   - `POST /review/{id}/undo` — within-session reversal of the just-recorded disposition: clears `disposition`/`decided_at`/`decision_notes`, transitions `status` `DECIDED → READY_FOR_REVIEW`, and appends an `UNDONE` `audit_event`. The `review_progress` row is still present (see lifecycle), so the reopened item restores the specialist's ticks + notes.
+
+3. **Status gains exactly one bounded backward transition** — `DECIDED → READY_FOR_REVIEW`, reachable *only* through `POST /review/{id}/undo`. The forward order is otherwise unchanged and no other reversal is permitted.
+
+4. **`audit_events.event_type` gains `UNDONE`.**
+
+5. **Lifecycle of `review_progress`:** upserted by `POST …/progress` as the specialist works; read by `GET /review/{id}` to rehydrate ticks + draft Notes on (re)load; retained through a disposition so `POST …/undo` can restore the work; **purged by `POST /reset`** (transactional re-seed). A finalized (un-undone) disposition leaves its row harmless — the item has left the queue and is only re-served after a reset, which purges it. (Normalization note: `ticked_check_keys` is a JSON array because this is ephemeral UI scratch state, not analytical data; a child `review_progress_ticks` table is the obvious normalized alternative if it ever needs querying — out of scope for the POC.)
+
+**Invariants preserved.** 5s contract (heavy work still never on a request path; these are cheap single-row writes on explicit POST actions, same class as the existing `status` write); `checklist_items` remains pipeline-only-writer; the four centralized contracts are untouched (`disposition` still never derived from a verdict); JSON stays `snake_case`. The only deliberate extensions are this one table, two routes, the `UNDONE` audit event, and the single audited backward status transition.

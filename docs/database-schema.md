@@ -1,7 +1,13 @@
 # Database Schema — Mock COLA Submissions (Label Specialist POC)
 
-**Status:** Design document (no application code). · **Last updated:** 2026-06-11
+**Status:** Design document (no application code). · **Last updated:** 2026-06-12
 **Audience:** implementers seeding the mock database and building the read-only Label Specialist POC.
+
+> **This document is the authoritative schema for the data model.** The architecture
+> ([`../_bmad-output/planning-artifacts/architecture.md`](../_bmad-output/planning-artifacts/architecture.md),
+> *Data Architecture*) references it rather than copying it, and records the decisions that govern it
+> (SQLite on a Railway Volume; TEXT + CHECK enums confirmed; Postgres-portable as the Phase-2 flip).
+> Per-field semantics live in the companion [`data-dictionary.md`](data-dictionary.md).
 
 ## Purpose & scope
 
@@ -46,6 +52,17 @@ image mechanics, §7 dispositions), and TTB Form 5100.31 (`ref-docs/f510031.pdf`
 identity columns), the SQLite-friendly form is shown inline and the Postgres variant is noted
 in a comment or a `TODO`.
 
+**Connection setup (required).** Two engine settings the DDL below depends on:
+
+- **`PRAGMA foreign_keys = ON;`** — SQLite disables FK enforcement *per connection* by default.
+  Every seed script and background-job connection must set this, or the `ON DELETE CASCADE` /
+  `SET NULL` rules (and FK validity itself) are silently inert and orphan rows become possible.
+  (Postgres enforces FKs unconditionally — no equivalent needed.)
+- **`PRAGMA journal_mode = WAL;`** — the pre-compute pipeline runs concurrent writers (OCR job +
+  analysis job, [§5](#5-seeded-vs-computed)). SQLite is single-writer; WAL lets one writer and
+  readers proceed concurrently and reduces `SQLITE_BUSY` under those parallel writes. Set once;
+  it persists on the database file.
+
 ---
 
 ## 1. Entity overview (ER description)
@@ -85,6 +102,7 @@ hangs off it:
 | **`field_comparisons`** | one application-field vs extracted-value comparison | The vertical-stacked "app value vs OCR/LLM value" rows the review UI shows, with a match outcome. |
 | **`checklist_items`** | one required check for a submission | The reframed desk-checklist: each mandatory CFR check, its per-check engine verdict, and citation. |
 | **`audit_events`** | one lifecycle/processing event | Append-only timeline (seeded + job-written) for time-to-decision, throughput, and the ~5s claim. |
+| **`review_progress`** | one scratch row per submission | The specialist's *in-progress* manual checklist ticks + draft Notes, persisted server-side so a reload resumes (web-layer-written; §1.8). |
 
 A separate small reference table, **`ocr_engines`** / **`llm_models`** (optional), can
 normalize engine/model identity; for the POC these are kept as plain columns on
@@ -127,6 +145,9 @@ serves.
 | `application_date` | DATE |  | Box 16 — date the applicant filed. SEEDED. |
 | `submitted_at` | TIMESTAMP |  | When the record entered the mock review queue. SEEDED. |
 | `decided_at` | TIMESTAMP |  | When the Label Specialist dispositioned it. NULL until decided. |
+| `specialist_id` | TEXT |  | Who decided — a demo/token identity (the POC has no user accounts; access is a single shared `ACCESS_TOKEN`). NULL until decided. |
+| `decision_notes` | TEXT |  | Free-text rationale, especially the specified issues for a `NEEDS_CORRECTION` return. NULL until decided. |
+| `correction_due_at` | TIMESTAMP |  | 30-day correction deadline; set **only** when `disposition = NEEDS_CORRECTION`. |
 | `processing_ms` | INTEGER |  | Total engine pre-compute time (sum of OCR + analysis), for the ~5s claim. Job-written. |
 | `created_at` | TIMESTAMP | NOT NULL | Row insert time. |
 | `updated_at` | TIMESTAMP | NOT NULL | Last update time. |
@@ -167,12 +188,34 @@ CREATE TABLE submissions (
     application_date        DATE,
     submitted_at            TIMESTAMP,
     decided_at              TIMESTAMP,
-    processing_ms           INTEGER,
+    specialist_id           TEXT,        -- who decided; demo/token identity (no user accounts in the POC)
+    decision_notes          TEXT,        -- rationale; the specified issues for a NEEDS_CORRECTION return
+    correction_due_at       TIMESTAMP,   -- 30-day clock; set only when disposition = NEEDS_CORRECTION
+    processing_ms           INTEGER   CHECK (processing_ms IS NULL OR processing_ms >= 0),
     created_at              TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at              TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+    updated_at              TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    -- Cross-column invariant: a disposition AND a decision time exist IFF the row is DECIDED.
+    -- Blocks a DECIDED row with no disposition, and a disposition/decided_at on a non-DECIDED row.
+    CHECK (
+        (status =  'DECIDED' AND disposition IS NOT NULL AND decided_at IS NOT NULL) OR
+        (status <> 'DECIDED' AND disposition IS NULL     AND decided_at IS NULL)
+    ),
+    -- A correction deadline only makes sense for a NEEDS_CORRECTION disposition.
+    CHECK (correction_due_at IS NULL OR disposition = 'NEEDS_CORRECTION')
 );
 
 CREATE INDEX idx_submissions_queue ON submissions (status, beverage_type, submitted_at);
+
+-- Keep updated_at honest: neither engine updates it on its own (SQLite has no ON UPDATE clause).
+-- Relies on the default PRAGMA recursive_triggers = OFF so the inner UPDATE does not re-fire.
+CREATE TRIGGER trg_submissions_set_updated_at
+AFTER UPDATE ON submissions
+FOR EACH ROW
+BEGIN
+    UPDATE submissions SET updated_at = CURRENT_TIMESTAMP WHERE id = NEW.id;
+END;
+-- TODO(postgres): replace with a BEFORE UPDATE trigger calling a set_updated_at() function
+-- (NEW.updated_at := now(); RETURN NEW); the AFTER-UPDATE re-update above is a SQLite idiom.
 -- TODO(postgres): replace TEXT+CHECK enums with native CREATE TYPE … AS ENUM if deploying on
 -- Postgres; keep CHECK constraints on SQLite. Recommendation: keep CHECK-constrained TEXT for
 -- the POC — it is portable, greppable, and trivially seedable.
@@ -264,16 +307,17 @@ CREATE TABLE ocr_results (
     engine_name      TEXT    NOT NULL,
     engine_version   TEXT,
     extracted_text   TEXT,
-    confidence       REAL,
+    confidence       REAL    CHECK (confidence IS NULL OR confidence BETWEEN 0 AND 1),
     word_boxes       TEXT,           -- JSON; Postgres: JSONB
-    latency_ms       INTEGER,
+    latency_ms       INTEGER CHECK (latency_ms IS NULL OR latency_ms >= 0),
     ran_on_cpu       BOOLEAN DEFAULT 1,
     status           TEXT DEFAULT 'OK' CHECK (status IN ('OK','ERROR')),
     error_text       TEXT,
     created_at       TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
-CREATE INDEX idx_ocr_results_image  ON ocr_results (label_image_id);
-CREATE INDEX idx_ocr_results_engine ON ocr_results (engine_name);
+CREATE INDEX idx_ocr_results_image      ON ocr_results (label_image_id);
+CREATE INDEX idx_ocr_results_engine     ON ocr_results (engine_name);
+CREATE INDEX idx_ocr_results_submission ON ocr_results (submission_id);  -- per-submission roll-up
 -- TODO(postgres): word_boxes -> JSONB for indexed querying. SQLite: store JSON as TEXT.
 ```
 
@@ -298,7 +342,7 @@ The LLM is **optional** (POC + OCR-fallback), so rows here may be absent for a s
 | `is_benchmark_only` | BOOLEAN |  | TRUE = a comparison-only model run (extra models run purely to populate the benchmark table), distinct from the run that fed the displayed extraction/verdict. Both run in the live pipeline; this flag separates "shown to the specialist" from "captured for procurement comparison." |
 | `prompt_tokens` | INTEGER |  | Input tokens — cost analysis. |
 | `completion_tokens` | INTEGER |  | Output tokens — cost analysis. |
-| `total_tokens` | INTEGER |  | Convenience sum. |
+| `total_tokens` | INTEGER (generated) |  | `prompt_tokens + completion_tokens`, **stored generated column** — derived, never written by seeds/jobs. |
 | `latency_ms` | INTEGER |  | Call latency (LangChain-traced, local-only). |
 | `requested_at` / `responded_at` | TIMESTAMP |  | Call start/end timestamps. discussion-points §4. |
 | `result_text` | TEXT |  | Raw model output (or extracted JSON). |
@@ -316,10 +360,11 @@ CREATE TABLE llm_results (
     model_full_id     TEXT,
     provider          TEXT,
     is_benchmark_only BOOLEAN DEFAULT 0,
-    prompt_tokens     INTEGER,
-    completion_tokens INTEGER,
-    total_tokens      INTEGER,
-    latency_ms        INTEGER,
+    prompt_tokens     INTEGER CHECK (prompt_tokens     IS NULL OR prompt_tokens     >= 0),
+    completion_tokens INTEGER CHECK (completion_tokens IS NULL OR completion_tokens >= 0),
+    -- Derived, never inserted: the sum can never drift from its parts. NULL if either part is NULL.
+    total_tokens      INTEGER GENERATED ALWAYS AS (prompt_tokens + completion_tokens) STORED,
+    latency_ms        INTEGER CHECK (latency_ms        IS NULL OR latency_ms        >= 0),
     requested_at      TIMESTAMP,
     responded_at      TIMESTAMP,
     result_text       TEXT,
@@ -350,9 +395,8 @@ meet: an APPLICATION value is compared to an OCR/LLM-EXTRACTED value.
 | `field_key` | TEXT |  | Stable field identifier (e.g. `brand_name`, `alcohol_content`) — joins to [`data-dictionary.md`](data-dictionary.md). |
 | `application_value` | TEXT |  | The APPLICATION-category value (from `submissions`). |
 | `extracted_value` | TEXT |  | The OCR/LLM-EXTRACTED value found on the label. |
-| `extracted_source` | TEXT |  | Provenance: `ocr:tesseract`, `ocr:paddleocr`, `llm:<model_id>`. |
-| `source_ocr_result_id` | INTEGER | FK → ocr_results.id (nullable) | Link to the originating OCR row. |
-| `source_llm_result_id` | INTEGER | FK → llm_results.id (nullable) | Link to the originating LLM row. |
+| `source_ocr_result_id` | INTEGER | FK → ocr_results.id (nullable) | Link to the originating OCR row — the **normalized provenance** (replaces the old free-text `extracted_source`). |
+| `source_llm_result_id` | INTEGER | FK → llm_results.id (nullable) | Link to the originating LLM row. At most one of the two source FKs is set. |
 | `match_status` | TEXT (enum) |  | `MATCH` / `MISMATCH` / `MISSING` / `UNVERIFIABLE`. |
 | `similarity` | REAL |  | Normalized similarity 0–1 (tolerance band guards the "STONE'S THROW" false-mismatch). |
 | `created_at` | TIMESTAMP | NOT NULL | Job write time. |
@@ -364,14 +408,32 @@ CREATE TABLE field_comparisons (
     field_key             TEXT    NOT NULL,
     application_value     TEXT,
     extracted_value       TEXT,
-    extracted_source      TEXT,
+    -- Provenance is NORMALIZED: the source is the referenced ocr_results / llm_results row, not a
+    -- free-text string. Engine/model identity has one source of truth (the source row); the display
+    -- label (`ocr:tesseract`, `llm:<model_id>`) is derived by v_field_comparisons below.
     source_ocr_result_id  INTEGER REFERENCES ocr_results(id) ON DELETE SET NULL,
     source_llm_result_id  INTEGER REFERENCES llm_results(id) ON DELETE SET NULL,
     match_status          TEXT CHECK (match_status IN ('MATCH','MISMATCH','MISSING','UNVERIFIABLE')),
-    similarity            REAL,
-    created_at            TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+    similarity            REAL CHECK (similarity IS NULL OR similarity BETWEEN 0 AND 1),
+    created_at            TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    -- At most one source: a value comes from OCR or from an LLM, never both. Neither = MISSING/UNVERIFIABLE.
+    CHECK (source_ocr_result_id IS NULL OR source_llm_result_id IS NULL)
 );
 CREATE INDEX idx_field_comparisons_submission ON field_comparisons (submission_id);
+
+-- `extracted_source` is DERIVED, not stored: reconstruct the display label by joining the source
+-- row so engine/model identity is never duplicated (and never drifts). The review UI and the
+-- benchmark roll-up read this view instead of a stored column.
+CREATE VIEW v_field_comparisons AS
+SELECT fc.*,
+       CASE
+           WHEN fc.source_ocr_result_id IS NOT NULL THEN 'ocr:' || o.engine_name
+           WHEN fc.source_llm_result_id IS NOT NULL THEN 'llm:' || l.model_id
+           ELSE NULL
+       END AS extracted_source
+FROM field_comparisons fc
+LEFT JOIN ocr_results o ON o.id = fc.source_ocr_result_id
+LEFT JOIN llm_results l ON l.id = fc.source_llm_result_id;
 ```
 
 ---
@@ -424,7 +486,7 @@ substrate (discussion-points §5 RESOLVED) that yields time-to-decision, through
 |---|---|---|---|
 | `id` | INTEGER | PK | Surrogate key. |
 | `submission_id` | INTEGER | FK → submissions.id | Owning submission. |
-| `event_type` | TEXT (enum) |  | `SEEDED` / `OCR_STARTED` / `OCR_COMPLETED` / `ANALYSIS_COMPLETED` / `READY` / `OPENED` / `DECIDED`. |
+| `event_type` | TEXT (enum) |  | `SEEDED` / `OCR_STARTED` / `OCR_COMPLETED` / `ANALYSIS_COMPLETED` / `READY` / `OPENED` / `DECIDED` / `UNDONE`. (`UNDONE` = a just-recorded disposition reversed via the in-session "Recorded — Undo"; §1.8.) |
 | `actor` | TEXT |  | `system:ocr_job`, `system:analysis_job`, or `Label Specialist` (the POC has no real auth — a label only). |
 | `from_status` / `to_status` | TEXT |  | Status transition captured (if any). |
 | `note` | TEXT |  | Free-text detail. |
@@ -436,7 +498,7 @@ CREATE TABLE audit_events (
     submission_id  INTEGER NOT NULL REFERENCES submissions(id) ON DELETE CASCADE,
     event_type     TEXT NOT NULL CHECK (event_type IN
                      ('SEEDED','OCR_STARTED','OCR_COMPLETED','ANALYSIS_COMPLETED',
-                      'READY','OPENED','DECIDED')),
+                      'READY','OPENED','DECIDED','UNDONE')),
     actor          TEXT,
     from_status    TEXT,
     to_status      TEXT,
@@ -445,6 +507,41 @@ CREATE TABLE audit_events (
 );
 CREATE INDEX idx_audit_events_submission ON audit_events (submission_id, occurred_at);
 ```
+
+---
+
+### 1.8 `review_progress`
+
+One **scratch row per submission** holding the Label Specialist's *in-progress* review state so a
+navigate-away or full browser reload resumes exactly where they left off (EXPERIENCE.md "Browser
+refresh mid-review"; no-work-loss). It is **separate from `checklist_items` on purpose**:
+`checklist_items` is written only by the analysis job (the *engine's* per-check verdict and its
+auto-PASS pre-ticks); `review_progress` holds the *human's* manual ticks and *draft* Notes and is
+written only by the web layer. The rendered checklist merges the two. See architecture
+**Addendum A** (Decision #8).
+
+| Column | Type | Key | Purpose |
+|---|---|---|---|
+| `id` | INTEGER | PK | Surrogate key. |
+| `submission_id` | INTEGER | FK → submissions.id, **UNIQUE** | Owning submission (one progress row each). |
+| `ticked_check_keys` | TEXT | NOT NULL DEFAULT `'[]'` | JSON array of the `check_key`s the specialist has **manually** ticked (distinct from the engine's auto-PASS pre-ticks). |
+| `draft_notes` | TEXT |  | In-progress Notes typed before a disposition is recorded; promoted to `submissions.decision_notes` on disposition. |
+| `updated_at` | TIMESTAMP | NOT NULL | Last write (UTC ISO-8601). |
+
+```sql
+CREATE TABLE review_progress (
+    submission_id        INTEGER PRIMARY KEY REFERENCES submissions(id) ON DELETE CASCADE,
+    ticked_check_keys    TEXT      NOT NULL DEFAULT '[]',  -- JSON array of human-ticked check_key values
+    draft_notes          TEXT,
+    updated_at           TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+```
+
+*Writers/lifecycle:* upserted by `POST /review/{id}/progress`; read by `GET /review/{id}` to
+rehydrate ticks + draft Notes; **retained through a disposition** so `POST /review/{id}/undo` can
+restore the work on the `DECIDED → READY_FOR_REVIEW` reversal; **purged by `POST /reset`**
+(transactional re-seed). `submission_id` is the PK (one row per submission), so the upsert is a
+plain `INSERT … ON CONFLICT(submission_id) DO UPDATE`.
 
 ---
 
@@ -557,7 +654,7 @@ The POC **only reads**; nothing is entered through the UI. Each row is either **
 
 | Table | Seeded (fixtures) | Computed by background jobs |
 |---|---|---|
-| `submissions` | All APPLICATION fields, `ttb_id`, `beverage_type`, `application_date`, `submitted_at`, `status='RECEIVED'`. | `status` transitions, `engine_verdict`, `processing_ms`. `disposition`/`decided_at` set when a Label Specialist decides in the read UI. |
+| `submissions` | All APPLICATION fields, `ttb_id`, `beverage_type`, `application_date`, `submitted_at`, `status='RECEIVED'`. | `status` transitions, `engine_verdict`, `processing_ms`. `disposition`/`decided_at`/`specialist_id`/`decision_notes`/`correction_due_at` set when a Label Specialist decides in the read UI. |
 | `label_images` | Filenames + role + dimensions for the 1–10 seeded images. | (none — images are fixtures, no upload in v1). |
 | `ocr_results` | — | **OCR job:** one row per engine per image, with `latency_ms`, text, confidence. |
 | `llm_results` | — | **Analysis job / benchmark harness:** model identity, tokens, latency. |

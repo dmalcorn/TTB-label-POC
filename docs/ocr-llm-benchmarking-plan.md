@@ -161,7 +161,7 @@ Every metric maps to an existing column so the benchmark stores nothing the sche
 | **Estimated cost** | tokens × price | `cost_usd` ([data-dictionary §4](./data-dictionary.md)) | Computed by the analysis program (§7). |
 | **Field-match outcome** | MATCH / MISMATCH / MISSING / UNVERIFIABLE | `field_comparisons.match_status` | The accuracy scoring rule (§4). |
 | **Field similarity** | Normalized 0–1 similarity | `field_comparisons.similarity` | Guards the "STONE'S THROW" false-mismatch (§4). |
-| **Extraction provenance** | Which engine/model produced the value | `field_comparisons.extracted_source` (`ocr:tesseract`, `llm:<model_id>`) | So per-engine accuracy can be rolled up. |
+| **Extraction provenance** | Which engine/model produced the value | `v_field_comparisons.extracted_source` (derived `ocr:tesseract` / `llm:<model_id>` from the source FK) | So per-engine accuracy can be rolled up. |
 | **CER** *(derived)* | Character error rate vs. ground-truth string | Computed at analysis time (not a stored column) | See §4; reported, not persisted, unless promoted to `submission_extra_fields`. |
 
 ### LangChain — local tracing only
@@ -237,7 +237,7 @@ Scoring per field:
    separately.)
 
 > The same scoring rule runs whether the extracted value came from OCR or an LLM
-> (`extracted_source` records which), so OCR and LLM are scored on an identical basis — the only way
+> (the source FK / derived `extracted_source` records which), so OCR and LLM are scored on an identical basis — the only way
 > "which is better" is a fair comparison.
 
 ---
