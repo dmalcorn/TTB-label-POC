@@ -4,7 +4,7 @@ baseline_commit: dc0de45
 
 # Story 1.4: Vendored USWDS app shell & Treasury brand layer
 
-Status: review
+Status: done
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 

@@ -11,7 +11,7 @@ context:
 
 # Story 1.5: Token-gated access and clean denial
 
-Status: review
+Status: done
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -95,6 +95,21 @@ so that I can reach the full demo while the public and bots cannot, and a bad to
   - [x] empty/absent `ACCESS_TOKEN` ⇒ gate open (AC-4); set ⇒ enforced.
   - [x] constant-time `token_matches` unit test + `compare_digest` source assertion.
   - [x] State-1 copy/structure + (in cookie-flow tests) State-2 `role="status"`/`aria-invalid`. **15 tests, all green.**
+
+### Review Findings
+
+_Code review 2026-06-12 (stories 1.4+1.5; Blind Hunter · Edge Case Hunter · Acceptance Auditor). **All ACs PASS** — 1.4 (shell) clean; 1.5 gate enforces correctly (constant-time, no-leakage, exemptions, fail-open-when-unset all verified). Two real defects cross-validated by two layers each; the rest are low/latent. Triaged below._
+
+- [x] [Review][Patch] Non-ASCII token crashes the auth path — `hmac.compare_digest(str, str)` raises `TypeError` when either operand has a code point >127, surfacing as an unhandled **500 on the unauthenticated `POST /access`** (and on every gated request if `ACCESS_TOKEN` itself is non-ASCII). **FIXED:** `token_matches` now compares UTF-8 bytes. Regression: `test_token_matching_tolerates_whitespace_and_non_ascii`. [app/web/deps.py:51-63]
+- [x] [Review][Patch] Pasted token with surrounding whitespace/newline → silent false denial — `token_matches` compared raw values; a token copied with a trailing `\n` never matched. **FIXED:** `.strip()` both operands (covers form + cookie paths uniformly). Regression: same test as above. [app/web/deps.py:51-63]
+- [x] [Review][Patch] Missing State-2 regression assertions — `test_token_gate.py` asserted `role="status"`/`aria-invalid` but not the binding denial **body copy** nor `usa-input--error`. **FIXED:** both asserted in `test_post_wrong_token_denial_401_state2`. [tests/test_token_gate.py]
+- [x] [Review][Defer] `Secure` cookie flag is OFF behind Railway's TLS-terminating proxy — `secure=request.url.scheme=="https"` sees `http` unless uvicorn runs with `--proxy-headers`/`--forwarded-allow-ips` (or `ProxyHeadersMiddleware`). **Owned by Story 1.6 deploy config** — the code is correct once forwarded-proto is trusted. [app/web/routes_access.py:55] — deferred to 1.6
+- [x] [Review][Defer] 303 redirect coerces any non-exempt **non-GET** request into a GET of `/access` (silently masks a future unauthenticated `POST`). Latent — only `GET /` exists today; revisit when a protected non-GET route lands. [app/main.py] — deferred, latent
+- [x] [Review][Defer] Denial path does not clear a stale `ttb_access` cookie (`delete_cookie` on deny would be cleaner). Minor UX; correct outcome today. [app/web/routes_access.py:46] — deferred, cosmetic
+- [x] [Review][Defer] Exemption prefix match is un-normalized (case-variant `/Static`, double-slash `//static`, `/static/..`). Benign now (routes are case-sensitive; `StaticFiles` rejects traversal), but a path-rewriting proxy could change that. [app/web/deps.py:44-48] — deferred, benign today
+- [x] [Review][Defer] `POST /access` buffers an unbounded form body — no length cap on the one unauthenticated body-accepting endpoint (minor DoS surface). [app/web/routes_access.py:41] — deferred, minor
+- [x] [Review][Defer] No `?next=` preservation — a deep-linked unauthenticated user lands on `/` after entry, losing the intended destination. Latent until a third gated route exists. [app/main.py] — deferred, latent UX
+- [x] [Review][Defer] State-2 error icon renders via the USWDS sprite CSS `background-image`, which can drop in forced-colors mode; the word "Access token required." still carries meaning (a11y floor met), so low-risk hardening only. [templates/access.html] — deferred, a11y hardening
 
 ### Project Structure Notes
 

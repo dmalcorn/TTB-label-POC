@@ -86,6 +86,9 @@ def test_post_wrong_token_denial_401_state2(monkeypatch: pytest.MonkeyPatch) -> 
     body = resp.text
     assert 'role="status"' in body
     assert "Access token required." in body
+    # Binding State-2 fidelity: the exact denial body copy and the error input class.
+    assert "We couldn't verify that token." in body
+    assert "usa-input--error" in body
     assert 'aria-invalid="true"' in body
     # Denial must not grant access.
     assert "set-cookie" not in {k.lower() for k in resp.headers}
@@ -180,3 +183,17 @@ def test_token_matching_is_constant_time_and_correct(monkeypatch: pytest.MonkeyP
     assert deps.token_matches("secret", Settings(access_token=None)) is False
     # The compare must use hmac.compare_digest (no == timing oracle).
     assert "compare_digest" in (REPO_ROOT / "app/web/deps.py").read_text(encoding="utf-8")
+
+
+def test_token_matching_tolerates_whitespace_and_non_ascii() -> None:
+    """Pasted-with-newline must still match; a non-ASCII token must not 500."""
+    from app.config import Settings
+    from app.web import deps
+
+    # Trailing/leading whitespace (paste artifact) is stripped on both sides.
+    assert deps.token_matches("secret\n", Settings(access_token="secret")) is True
+    assert deps.token_matches(" secret ", Settings(access_token="secret")) is True
+    # Non-ASCII compares safely (UTF-8 bytes) instead of raising TypeError.
+    s = Settings(access_token="sécret-✓")
+    assert deps.token_matches("sécret-✓", s) is True
+    assert deps.token_matches("wrong", s) is False

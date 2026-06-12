@@ -49,11 +49,18 @@ def is_exempt(path: str) -> bool:
 
 
 def token_matches(submitted: str | None, settings: Settings) -> bool:
-    """Constant-time check of a submitted token against the configured one."""
-    expected = settings.access_token
+    """Constant-time check of a submitted token against the configured one.
+
+    Both sides are stripped (a token pasted with a trailing newline must still
+    match) and compared as UTF-8 bytes: `hmac.compare_digest` raises `TypeError`
+    on `str` operands carrying any non-ASCII code point, which would otherwise
+    500 the unauthenticated `POST /access`.
+    """
+    expected = (settings.access_token or "").strip()
+    submitted = (submitted or "").strip()
     if not expected or not submitted:
         return False
-    return hmac.compare_digest(submitted, expected)
+    return hmac.compare_digest(submitted.encode("utf-8"), expected.encode("utf-8"))
 
 
 def has_valid_access(request: Request, settings: Settings) -> bool:
