@@ -31,6 +31,7 @@ COPY app ./app
 COPY templates ./templates
 COPY static ./static
 COPY tests ./tests
+COPY fixtures ./fixtures
 
 EXPOSE 8000
 

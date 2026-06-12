@@ -96,3 +96,22 @@ CREATE TABLE IF NOT EXISTS label_images (
     UNIQUE (submission_id, position)
 );
 CREATE INDEX IF NOT EXISTS idx_label_images_submission ON label_images (submission_id);
+
+-- ── audit_events ─────────────────────────────────────────────────────────────
+-- Append-only lifecycle/processing timeline (database-schema.md §1.7). The seed
+-- writes one SEEDED row per submission; the pipeline (Epic 2) and web layer write
+-- the rest of the fixed event vocabulary. Added here because Story 1.3 is the
+-- first to need it.
+CREATE TABLE IF NOT EXISTS audit_events (
+    id             INTEGER PRIMARY KEY,
+    submission_id  INTEGER NOT NULL REFERENCES submissions(id) ON DELETE CASCADE,
+    event_type     TEXT NOT NULL CHECK (event_type IN
+                     ('SEEDED','OCR_STARTED','OCR_COMPLETED','ANALYSIS_COMPLETED',
+                      'READY','OPENED','DECIDED','UNDONE')),
+    actor          TEXT,
+    from_status    TEXT,
+    to_status      TEXT,
+    note           TEXT,
+    occurred_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_audit_events_submission ON audit_events (submission_id, occurred_at);
