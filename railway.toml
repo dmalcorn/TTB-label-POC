@@ -9,11 +9,14 @@ builder = "DOCKERFILE"
 dockerfilePath = "Dockerfile"
 
 [deploy]
-# Honor Railway's injected $PORT (defaults to 8080). The Dockerfile CMD binds
-# 8000 for local/compose; this start command wins on Railway so the edge — which
-# routes to the service's $PORT — and the listener always agree. (No hardcoded
-# port on the Railway path; that was the $PORT-mismatch 404 trap.)
-startCommand = "uvicorn app.main:app --host 0.0.0.0 --port $PORT"
+# Honor Railway's injected $PORT. Railway runs startCommand in EXEC form (no
+# shell), so a bare `--port $PORT` reaches uvicorn literally and crashes
+# ("'$PORT' is not a valid integer" — observed on the first 1.6 deploy). Wrapping
+# in `sh -c` forces shell expansion; `${PORT:-8000}` falls back to 8000 off
+# Railway. The service var PORT=8000 pins it to the domain's targetPort (8000) so
+# the edge and the listener agree (the $PORT-mismatch 404 trap). The Dockerfile
+# CMD keeps 8000 for local/compose.
+startCommand = "sh -c 'uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}'"
 # Pure in-memory liveness route (no DB, no network), exempt from the Story 1.5
 # token gate (AC-3) — Railway's probe gets 200 without a token.
 healthcheckPath = "/healthz"

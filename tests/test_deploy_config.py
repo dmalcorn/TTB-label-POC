@@ -52,10 +52,12 @@ def test_healthcheck_path_is_healthz() -> None:
 
 
 def test_start_command_honors_railway_port() -> None:
-    # Railway injects $PORT (defaults to 8080); the listener must follow it so the
-    # edge and the container never disagree (AC-1, the $PORT reconciliation).
+    # Railway runs startCommand in EXEC form (no shell), so a bare `--port $PORT`
+    # reaches uvicorn literally and crashes (observed on the first 1.6 deploy). The
+    # command must be shell-wrapped so $PORT expands (AC-1, $PORT reconciliation).
     start = _railway_config()["deploy"]["startCommand"]
-    assert "$PORT" in start
+    assert "sh -c" in start  # the fix: force shell expansion of $PORT
+    assert "${PORT" in start  # expanded PORT reference, not a literal
     assert "app.main:app" in start
     assert "--port 8000" not in start  # no hardcoded port on the Railway path
 
