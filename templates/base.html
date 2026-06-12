@@ -15,13 +15,16 @@
 <body>
   {# Utility header — inherited by every screen. Composition from mockups/queue.html;
      the J. Park placeholder agent name is excluded (UI fidelity standard). The [?] Help
-     control is present and focusable; its slide-over panel is wired in Story 4.4. #}
+     control is present and focusable; its slide-over panel is wired in Story 4.4.
+     Wrapped in a block so the pre-auth token gate (Story 1.5) can suppress it. #}
+  {% block header %}
   <header class="app-header">
     <span class="app-header__seal" aria-hidden="true">U.S.<br>TREAS</span>
     <span class="app-header__title">TTB Label Review</span>
     <span class="app-header__spacer"></span>
     <button type="button" class="app-header__help" aria-label="Help">?</button>
   </header>
+  {% endblock %}
 
   <main class="app-main" id="main-content">
     {% block content %}{% endblock %}

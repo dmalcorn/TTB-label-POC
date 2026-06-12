@@ -47,6 +47,7 @@ two lines behind). 3.14.6 is the absolute latest and is viable, but 3.13.x is th
 | **Uvicorn** (`uvicorn[standard]`) | **0.49.0**, 2026-06-03 | `local` | BSD-3 | [pypi.org/project/uvicorn](https://pypi.org/project/uvicorn/) |
 | **Pydantic** (v2) | **2.13.4**, 2026-05-06 | `none` | MIT | [pypi.org/project/pydantic](https://pypi.org/project/pydantic/) |
 | **Jinja2** | **3.1.6**, 2025-03-05 (still latest) | `none` | BSD-3 | [pypi.org/project/Jinja2](https://pypi.org/project/Jinja2/) |
+| **python-multipart** | **0.0.32** (latest 0.0.x) | `none` | Apache-2.0 | [pypi.org/project/python-multipart](https://pypi.org/project/python-multipart/) |
 | **APScheduler** | **3.11.2** (3.x stable) | `local` | MIT | [pypi.org/project/APScheduler](https://pypi.org/project/APScheduler/) |
 
 **Note — APScheduler stays on 3.x.** The 4.0 line is still pre-release; pin the **3.11.x** stable line
@@ -151,6 +152,7 @@ fastapi~=0.136
 uvicorn[standard]~=0.49
 pydantic~=2.13
 jinja2~=3.1
+python-multipart~=0.0.32   # POST form parsing for the token gate (Story 1.5)
 apscheduler~=3.11
 pytesseract~=0.3
 paddleocr~=3.4

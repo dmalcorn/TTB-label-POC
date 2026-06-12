@@ -12,6 +12,7 @@ fastapi~=0.136
 uvicorn[standard]~=0.49
 pydantic~=2.13
 jinja2~=3.1
+python-multipart~=0.0.32   # POST form parsing for the token gate (Story 1.5)
 
 # Background jobs (in-process sweep; 3.x stable, NOT the 4.0 pre-release)
 apscheduler~=3.11

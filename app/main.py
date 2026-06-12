@@ -14,12 +14,14 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from app.config import get_settings
 from app.db.connection import init_db
+from app.web.deps import gate_enabled, has_valid_access, is_exempt
+from app.web.routes_access import router as access_router
 
 # Project root (parent of the `app/` package): where `static/` and `templates/`
 # live, both locally and in the Docker image (WORKDIR /app). Resolving from the
@@ -57,6 +59,27 @@ def create_app() -> FastAPI:
     # Server-rendered Jinja2 templates (no SPA, no build step). Template render is
     # a pure local operation — the 5s read-path contract (AR-5) is unaffected.
     templates = Jinja2Templates(directory=TEMPLATES_DIR)
+
+    # Shared with the web routers (token gate, later screens) via app.state so the
+    # startup config + one templates env are reused, never re-created.
+    app.state.settings = settings
+    app.state.templates = templates
+
+    # Token gate (Story 1.5). App-wide guard: every non-exempt route requires a
+    # valid access cookie once ACCESS_TOKEN is configured; `/healthz`, `/access`,
+    # and `/static/*` stay exempt. Fail-open when unconfigured (clone-and-run).
+    # A redirect/cookie compare only — no DB read on the deny path (AR-5 intact).
+    @app.middleware("http")
+    async def access_gate(request: Request, call_next):  # type: ignore[no-untyped-def]
+        if (
+            gate_enabled(settings)
+            and not is_exempt(request.url.path)
+            and not has_valid_access(request, settings)
+        ):
+            return RedirectResponse("/access", status_code=303)
+        return await call_next(request)
+
+    app.include_router(access_router)
 
     @app.get("/healthz")
     def healthz() -> dict[str, str]:

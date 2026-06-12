@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+
+{% block title %}TTB Label Review — Access{% endblock %}
+
+{# Pre-auth screen: no utility header (the header is post-auth chrome). #}
+{% block header %}{% endblock %}
+
+{% block content %}
+{#
+  Token gate — reproduces mockups/token-gate.html (both states) on real USWDS
+  components. Spine wins: tokens resolve to static/css/brand.css :root vars, not
+  the mockup's literal hex. Mockup-only scaffolding (device frame, URL bar,
+  state-label captions) is excluded. State 1 vs State 2 driven by `denied`.
+#}
+<div class="gate">
+  <main class="gate-card">
+    <div class="gate-card__seal" aria-hidden="true">U.S.<br>TREAS</div>
+    <h1 class="gate-card__title">TTB Label Review</h1>
+    {% if not denied %}
+    <p class="gate-card__sub">Enter your access token to begin.</p>
+    {% endif %}
+
+    {% if denied %}
+    <div class="usa-alert usa-alert--error usa-alert--slim gate-card__alert" role="status">
+      <div class="usa-alert__body">
+        <h2 class="usa-alert__heading">Access token required.</h2>
+        <p class="usa-alert__text">We couldn't verify that token. Check it and try again,
+          or use the link from your assignment.</p>
+      </div>
+    </div>
+    {% endif %}
+
+    <form class="gate-form" method="post" action="/access">
+      <label class="usa-label gate-form__label" for="token">Access token</label>
+      <input
+        class="usa-input gate-form__input{% if denied %} usa-input--error{% endif %}"
+        id="token"
+        name="token"
+        type="text"
+        autocomplete="off"
+        placeholder="Paste your token"
+        {% if denied %}aria-invalid="true"{% endif %}
+        autofocus>
+      <button class="usa-button gate-form__submit" type="submit">Enter</button>
+    </form>
+
+    <p class="gate-card__helper">{% if not denied %}Your token was sent with your assignment. {% endif %}No username or password &mdash; just paste the token and select Enter.</p>
+  </main>
+</div>
+{% endblock %}

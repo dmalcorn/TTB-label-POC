@@ -180,3 +180,88 @@ a {
 .app-main {
   padding: 32px 24px;
 }
+
+/* ---------- Token-gate screen (Story 1.5 — mockups/token-gate.html) ----------
+ * Centered access card on the base canvas; no app-header (pre-auth). USWDS
+ * components (.usa-input / .usa-button / .usa-alert) carry the controls; these
+ * rules supply the centered-card layout + the DESIGN.md token resolution. */
+.gate {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 70vh;
+  padding: 32px 16px;
+}
+.gate-card {
+  width: 100%;
+  max-width: 440px;
+  background-color: var(--brand-surface);
+  border: 1px solid var(--brand-border);
+  border-radius: var(--brand-radius-lg);
+  padding: 40px 36px 36px;
+  text-align: center;
+}
+.gate-card__seal {
+  width: 56px;
+  height: 56px;
+  margin: 0 auto 18px;
+  border-radius: var(--brand-radius-pill);
+  background-color: var(--brand-primary);
+  color: #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.05;
+  letter-spacing: 0.02em;
+  border: 2px solid var(--brand-primary-light);
+}
+.gate-card__title {
+  font-size: 22px;
+  font-weight: 700;
+  margin: 0 0 6px;
+}
+.gate-card__sub {
+  font-size: 16px;
+  color: var(--brand-ink-muted);
+  margin: 0 0 28px;
+}
+.gate-card__alert {
+  text-align: left;
+  margin: 0 0 24px;
+}
+/* Spine fail accent (#B50909) on the denial alert — paired with icon + word. */
+.gate-card__alert.usa-alert--error {
+  background-color: #f7ecea;
+  border-left-color: var(--verdict-fail);
+}
+.gate-form {
+  text-align: left;
+}
+.gate-form__label {
+  margin-top: 0;
+}
+.gate-form__input {
+  max-width: none;
+  width: 100%;
+  min-height: 48px;
+}
+.gate-form__input:focus-visible {
+  outline: 4px solid var(--brand-primary-light);
+  outline-offset: 0;
+}
+.gate-form__submit {
+  width: 100%;
+  min-height: 48px;
+  margin-top: 18px;
+  font-size: 18px;
+  font-weight: 700;
+}
+.gate-card__helper {
+  font-size: 15px;
+  color: var(--brand-ink-muted);
+  text-align: left;
+  margin: 20px 0 0;
+  line-height: 1.45;
+}
