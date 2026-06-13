@@ -1,0 +1,36 @@
+# auto-run/config.toml — knobs for the overnight story orchestrator.
+# Read by orchestrate.py via stdlib tomllib. Edit values, not code.
+
+[run]
+# Hard caps so a run is always bounded.
+max_stories       = 0      # stop after N completed stories this run; 0 = no cap (until none left)
+max_runtime_hours = 8      # stop STARTING new stories after this many hours
+stop_on_dirty_tree = true  # refuse to start if the working tree has uncommitted changes
+once              = false  # do exactly one story then stop (good for the first supervised run)
+
+[claude]
+model         = "claude-opus-4-8"   # explicit: the `opus` alias resolves to 4.5 on this CLI, not 4.8
+fallback_model = ""        # e.g. "sonnet" to survive overnight Opus rate limits; "" = none
+permission_mode = "bypassPermissions"   # no prompts. unattended.
+max_turns     = 250        # safety bound per phase; a phase that hits this is treated as FAILURE
+phase_timeout_sec = 5400   # 90 min per claude phase; a hang past this is killed -> FAILURE
+extra_args    = []         # any extra claude flags, e.g. ["--verbose"]
+
+[ci]
+fix_attempts = 2           # if CI is red, run an LLM "fix" phase then re-check, up to N times
+
+[git]
+commit = true
+push   = true
+remote = "origin"          # pushes the CURRENT branch (main) to this remote
+
+[paths]
+# All relative to the repo root (the parent of auto-run/). Override repo_root if needed.
+repo_root     = ".."
+sprint_status = "_bmad-output/implementation-artifacts/sprint-status.yaml"
+ci_script     = "scripts/ci.sh"
+# Extra dirs the headless claude is allowed to touch (memory + scratch).
+add_dirs = [
+  "c:/tmp",
+  "C:/Users/Diane/.claude/projects/c--alcorn-Treasury-TTB-label-POC/memory",
+]
