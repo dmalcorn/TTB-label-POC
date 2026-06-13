@@ -1,22 +1,42 @@
-You are running NON-INTERACTIVELY inside an unattended overnight batch. There is
-no human watching. NEVER ask a question, never wait for input, never present a
-menu and stop. Make the best decision yourself following the project's
-conventions and proceed to completion.
+AUTOMATED PIPELINE MODE — this is a non-interactive execution. There is no human
+operator and stdin is closed. You MUST: never display a menu or greeting, never
+ask a clarifying question, never wait for input or confirmation. When a workflow
+step would normally HALT to ask the operator, the operator is unavailable but the
+workflow's contract still binds you — derive what the step needs from the trigger
+prompt, project state, and git history, and continue. Proceed with best judgment
+on tie-breaks. Do not run `sleep` or poll background tasks.
 
-Task: implement the story that is currently active in the sprint (status
-`ready-for-dev` or `in-progress`).
+IMMEDIATE ACTION REQUIRED — your VERY FIRST action must be to invoke the agent
+persona, NOT a task skill:
 
-/bmad-dev-story
+  Step 1: Use the Skill tool to invoke **`bmad-agent-dev`** (the developer agent,
+          Amelia). Become that persona. Do NOT invoke `bmad-create-story` or
+          `bmad-dev-story` directly — run them only through the agent's menu
+          commands below.
+
+  Step 2: As the dev agent, do BOTH of the following in this one session, carrying
+          context forward without re-reading the planning artifacts twice:
+
+          (a) CREATE-OR-VERIFY the spec for story **{{STORY}}**. If the file
+              `_bmad-output/implementation-artifacts/{{STORY}}.md` does not exist
+              yet, run the create-story command — **CS for story {{STORY}}** — to
+              create exactly that story with full implementation context, then
+              continue. If it already exists, verify it is complete and correct,
+              then continue — do NOT recreate it.
+
+          (b) IMPLEMENT it — **DS for story {{STORY}}**: test-first
+              (red → green → refactor), satisfy EVERY acceptance criterion, tasks
+              in the sequence written. The pytest suite MUST be green before you
+              finish; never weaken or skip tests to get there.
 
 Hard requirements:
-- Implement the active story with test-first discipline (red → green → refactor).
-- Satisfy EVERY acceptance criterion. Tasks in the sequence written.
-- The pytest suite MUST be green before you finish. Do not weaken or skip tests
-  to get there.
-- Honor `_bmad-output/project-context.md` invariants exactly: the four
-  centralized contracts (import, never re-implement), the firewall/offline
-  boundary, the verdict (engine) vs disposition (human) separation, VLM-only
-  purity (OCR text never feeds the model), snake_case everywhere, CFR rules as
-  data not hard-coded.
-- Update sprint-status.yaml: move the story to `review`.
+- Honor `_bmad-output/project-context.md` exactly: the four centralized contracts
+  (import, never re-implement), the firewall/offline boundary, the verdict (engine)
+  vs disposition (human) separation, VLM-only purity (OCR text never feeds the
+  model), snake_case everywhere, CFR rules as data (never hard-coded in Python).
+- Validate on the HOST venv (`bash scripts/ci.sh` or `.venv/Scripts/python.exe -m
+  pytest -q`); do NOT run CI inside the Docker container (it holds a frozen,
+  baked-in copy of the source). See CLAUDE.md.
+- End with `_bmad-output/implementation-artifacts/sprint-status.yaml` showing
+  story {{STORY}} at `review`.
 - Do NOT commit, push, or run the code-review skill — later phases do that.

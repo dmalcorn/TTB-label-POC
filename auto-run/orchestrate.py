@@ -57,9 +57,12 @@ STATUS_RANK = {
 }
 DONE = "done"
 
-# Which prompt drives a story out of its current status.
+# Which prompt drives a story out of its current status. `dev_story` is COMBINED:
+# it invokes the dev agent persona, which creates-or-verifies the story spec (CS)
+# and then implements it (DS) in one session — so `backlog` routes here too, not to
+# a separate create step (mirrors the BMAD shipyard factory's combined dev node).
 PHASE_FOR_STATUS = {
-    "backlog": "create_story",
+    "backlog": "dev_story",
     "ready-for-dev": "dev_story",
     "in-progress": "dev_story",  # a dev phase that was interrupted; resume it
     "review": "code_review",
@@ -733,7 +736,9 @@ def drive_story(cfg: Config, log: RunLog, story: str) -> None:
             raise Halt(f"story {story} in unexpected status '{status}'")
         phase = PHASE_FOR_STATUS[status]
         log.say(f"  story {story}: status={status} → phase={phase}")
-        run_claude(cfg, log, prompt_text(phase), f"{story}__{phase}")
+        # Pass the explicit story id so the persona's CS/DS/CR commands target it
+        # by name (not "the next story") — deterministic, like the shipyard factory.
+        run_claude(cfg, log, prompt_text(phase, STORY=story), f"{story}__{phase}")
 
         new = status_of(cfg, story)
         if STATUS_RANK.get(new, -1) <= STATUS_RANK.get(status, -1):

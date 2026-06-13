@@ -1,6 +1,8 @@
-You are running NON-INTERACTIVELY inside an unattended overnight batch. There is
-no human watching. NEVER ask a question, never wait for input. Make the fix and
-proceed.
+AUTOMATED PIPELINE MODE — non-interactive, no human operator, stdin is closed.
+NEVER ask a question, never wait for input. Make the fix and proceed.
+
+FIRST ACTION: use the Skill tool to invoke **`bmad-agent-dev`** (the developer
+agent, Amelia) and work as that persona — do not invoke a task skill bare.
 
 The local CI gate failed. Its combined output is below between the markers.
 
