@@ -187,10 +187,18 @@ def read_statuses(cfg: Config) -> dict[str, str]:
 
 
 def next_story(statuses: dict[str, str]) -> str | None:
-    """First story (file order) that is a real story and not done."""
+    """First story (file order) that is a real story and not done.
+
+    NEVER returns a retrospective: those are interactive (party-mode review) and
+    would stall an unattended run. They're normally named `epic-N-retrospective`
+    (already excluded by STORY_KEY_RE), but the explicit guard makes it robust
+    even if one is ever named story-style (e.g. `3-9-retrospective`).
+    """
     for key, status in statuses.items():
+        if "retrospective" in key:
+            continue  # interactive — never auto-run
         if not STORY_KEY_RE.match(key):
-            continue  # skip epic-N, *-retrospective
+            continue  # skip epic-N summary lines
         if status != DONE:
             return key
     return None
@@ -474,10 +482,16 @@ def run_ci(cfg: Config, log: RunLog, fix: bool) -> tuple[bool, str]:
     except ValueError:
         script_arg = str(cfg.ci_script).replace("\\", "/")
     log.say(f"  → bash {script_arg} {' '.join(flag) or '(check)'}")
+    # Tell ci.sh which compose service/file to dispatch into, matching [docker].
+    env = child_env()
+    d = cfg.raw.get("docker", {})
+    if d.get("enabled", False):
+        env["CI_APP_SERVICE"] = d.get("service", "web")
+        env["CI_COMPOSE_FILE"] = d.get("compose_file", "compose.yaml")
     proc = subprocess.run(
         ["bash", script_arg, *flag],
         cwd=cfg.repo_root,
-        env=child_env(),
+        env=env,
         text=True,
         encoding="utf-8",  # not the cp1252 locale (CI output carries unicode)
         errors="replace",
@@ -518,6 +532,64 @@ def ci_gate(cfg: Config, log: RunLog) -> None:
         (log.run_dir / "ci-final-failure.txt").write_text(out, encoding="utf-8")
         raise Halt("CI still red after fix attempts (see ci-final-failure.txt)")
     log.say("    CI green")
+
+
+def ensure_container(cfg: Config, log: RunLog) -> None:
+    """Bring the dev container up once so the CI gate runs INSIDE it (dep parity).
+
+    Non-fatal: if docker is missing, the up fails, or it times out, we WARN and
+    continue — scripts/ci.sh degrades cleanly to host-side, which is fine for
+    pure-Python work. The image bakes ruff/mypy/pytest, so in-container checks
+    actually run (no false-green skip). stdio is inherited so the (one-time) build
+    streams live to the terminal.
+    """
+    d = cfg.raw.get("docker", {})
+    if not d.get("enabled", False):
+        return
+    service = d.get("service", "web")
+    compose_file = d.get("compose_file", "compose.yaml")
+    timeout = int(d.get("up_timeout_sec", 1200))
+    cmd = ["docker", "compose", "-f", compose_file, "up", "-d"]
+    if d.get("build"):
+        cmd.append("--build")
+    cmd.append(service)
+    log.say(f"  → {' '.join(cmd)}  (dev container for CI parity; first run builds the image)")
+    try:
+        proc = subprocess.run(cmd, cwd=cfg.repo_root, env=child_env(), timeout=timeout)
+    except FileNotFoundError:
+        log.say("  docker not on PATH — CI will run host-side (degraded). See CLAUDE.md.")
+        return
+    except subprocess.TimeoutExpired:
+        log.say(f"  docker compose up exceeded {timeout}s — continuing; CI may run host-side.")
+        return
+    if proc.returncode != 0:
+        log.say(f"  docker compose up failed (exit {proc.returncode}) — CI runs host-side (degraded).")
+    else:
+        log.say(f"  dev container '{service}' is up — CI will dispatch into it.")
+
+
+def alarm(cfg: Config, log: RunLog, why: str) -> None:
+    """Audible beeps on exit so an overnight operator wakes to fix a stop/failure.
+
+    Windows: real tones via winsound.Beep (the default audio device), looped 3–5×
+    like an alarm. Elsewhere / if audio is unavailable: the terminal bell. Never
+    raises — a failed beep must not change the run's outcome.
+    """
+    a = cfg.raw.get("alert", {})
+    if not a.get("enabled", True):
+        return
+    count = max(1, int(a.get("beeps", 5)))
+    log.say(f"*** ALARM ({why}) — {count} beeps ***")
+    try:
+        import winsound  # Windows-only; real tones through the default audio device.
+
+        for _ in range(count):
+            winsound.Beep(1000, 500)  # 1 kHz, 500 ms
+            time.sleep(0.15)
+    except Exception:  # noqa: BLE001 — non-Windows / no audio: fall back to the bell.
+        for _ in range(count):
+            print("\a", end="", flush=True)
+            time.sleep(0.25)
 
 
 def commit_and_push(cfg: Config, log: RunLog, story: str) -> None:
@@ -736,6 +808,7 @@ def main() -> int:
         except OSError:
             existing = "?"
         log.say(f"HALT: another run holds {lock_path.name} (pid {existing}). Delete it if stale.")
+        alarm(cfg, log, "another run holds the lock")
         return 2
 
     wt_path: Path | None = None
@@ -754,7 +827,11 @@ def main() -> int:
                 "Commit/stash existing changes before an unattended run."
             )
             log.say(git(cfg, "status", "--short").stdout.rstrip())
+            alarm(cfg, log, "working tree is dirty")
             return 2
+
+        # Bring the dev container up once so the CI gate runs inside it (parity).
+        ensure_container(cfg, log)
 
         while True:
             if stop_file.exists():
@@ -785,10 +862,12 @@ def main() -> int:
         halted = True
         log.say(f"HALT: {exc}")
         log.say(f"Stories completed this run: {completed}. Tree left as-is for review.")
+        alarm(cfg, log, f"HALT: {exc}")
         return 1
     except Exception as exc:  # noqa: BLE001 — last-ditch so the night ends cleanly
         halted = True
         log.say(f"UNEXPECTED ERROR: {exc!r}")
+        alarm(cfg, log, "unexpected error")
         return 1
     finally:
         if worktree_enabled and wt_path is not None:
@@ -803,6 +882,8 @@ def main() -> int:
         lock_path.unlink(missing_ok=True)
 
     log.say(f"=== run finished | stories completed: {completed} ===")
+    if cfg.raw.get("alert", {}).get("on_success", True):
+        alarm(cfg, log, "run finished")
     return 0
 
 

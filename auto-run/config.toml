@@ -30,6 +30,32 @@ tool_arg_chars = 200       # the argument gist on a tool-call line   (-> Edit: <
 text_chars     = 2000      # the model's narration / text blocks
 result_chars   = 400       # the tool-result snippet                 (<- result (ok) …)
 
+[docker]
+# Bring the dev container up automatically at the START of each run so the CI
+# gate runs INSIDE it (dependency parity with the shipped image) — no manual
+# `docker compose up -d` needed. The image bakes ruff/mypy/pytest + native OCR
+# deps, so in-container checks really run (no false-green skip). Failure is
+# non-fatal: ci.sh degrades to host-side with a warning.
+enabled        = false       # HOST-SIDE for now: the container COPYs source at build time (no
+                             # bind-mount), so in-container CI would test frozen code. Epic-3 is
+                             # pure-Python (no OCR) — host CI is complete + fast. Flip to true after
+                             # compose.yaml gets dev bind-mounts (planned for the OCR epics).
+service        = "web"       # compose service name (matches compose.yaml)
+compose_file   = "compose.yaml"
+build          = false       # true = `--build` every run; false = build only if the image is missing
+up_timeout_sec = 3600        # the FIRST build (OCR deps + HuggingFace weight warmup) is slow on a
+                             # poor connection — give it an hour so it can't get guillotined mid-build.
+                             # Once the image exists, `up -d` is seconds, so this ceiling never bites again.
+
+[alert]
+# Audible alarm when the run EXITS overnight, so you wake to fix a stop/failure
+# instead of losing hours. winsound.Beep on Windows (real tones via the default
+# audio device); falls back to the terminal bell elsewhere. Fires on halt, crash,
+# and the dirty-tree / lock refusals; also on a clean finish when on_success=true.
+enabled    = true
+beeps      = 5       # 3–5 ≈ alarm-like
+on_success = true    # also beep when the run finishes cleanly (so you know it's done)
+
 [worktree]
 # Run the orchestrator inside a dedicated git worktree on its own branch —
 # its OWN index/HEAD, sharing the same .git object store as the main checkout.
