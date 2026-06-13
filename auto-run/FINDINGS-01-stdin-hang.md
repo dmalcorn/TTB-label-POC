@@ -1,7 +1,10 @@
 # Finding 01 — `dev_story` phase hangs at startup (stdin not closed)
 
-**Status:** root cause confirmed · fix identified · **not yet applied** (orchestrate.py
-was being edited in another window — whoever owns it now should apply this).
+**Status:** root cause confirmed · **FIXED** — `stdin=subprocess.DEVNULL` applied to
+`run_claude`/`run_ci`/`git` in commit `453769d`; stream-json heartbeat + early
+stall-abort added in `36b6ac0` (so a future hang is visible and killed in
+`stall_timeout_sec`, not 90 min). Verified: a trivial phase logged `session init`
+within 1s and returned cleanly with no stdin hang.
 **Found:** 2026-06-13, first supervised `--once` run of story 3-1.
 
 ## Symptom
