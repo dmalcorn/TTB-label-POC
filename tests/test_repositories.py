@@ -244,3 +244,73 @@ def test_read_model_rejects_out_of_vocab_enum(field: str, bad_value: str):
 
     with pytest.raises(ValidationError):
         repo.Submission.model_validate({**_VALID_SUBMISSION_ROW, field: bad_value})
+
+
+# ── Volume upgrade: init_db backfills columns added to pre-existing tables ─────
+# (Story 2.4 deploy fix.) A persistent Volume DB created by an earlier story is
+# missing later columns; `CREATE TABLE IF NOT EXISTS` won't add them, so init_db
+# must ALTER them in before the schema's indexes reference them — else startup
+# dies with "no such column: image_variant".
+
+
+def _make_legacy_db(tmp_path):
+    """A DB shaped like a pre-2.3/2.4 Volume: `label_images` without the OpenCV
+    columns and `ocr_results` without `image_variant`, each carrying only the
+    columns the schema's indexes reference."""
+    db_path = tmp_path / "legacy.db"
+    conn = get_connection(db_path)
+    conn.executescript(
+        """
+        CREATE TABLE label_images (
+            id INTEGER PRIMARY KEY,
+            submission_id INTEGER,
+            filename TEXT NOT NULL
+        );
+        CREATE TABLE ocr_results (
+            id INTEGER PRIMARY KEY,
+            label_image_id INTEGER,
+            submission_id INTEGER,
+            engine_name TEXT NOT NULL
+        );
+        """
+    )
+    conn.execute("INSERT INTO ocr_results (engine_name) VALUES ('tesseract')")
+    conn.commit()
+    conn.close()
+    return db_path
+
+
+def _columns(conn: sqlite3.Connection, table: str) -> set[str]:
+    return {row[1] for row in conn.execute(f"PRAGMA table_info({table})")}
+
+
+def test_init_db_backfills_columns_on_legacy_volume_db(tmp_path):
+    db_path = _make_legacy_db(tmp_path)
+
+    init_db(db_path)  # must NOT raise "no such column: image_variant"
+
+    with connect(db_path) as conn:
+        assert "image_variant" in _columns(conn, "ocr_results")
+        assert {
+            "enhanced_path",
+            "binarized_path",
+            "preprocess_log",
+            "preprocess_ms",
+            "preprocessed_at",
+        } <= _columns(conn, "label_images")
+        # the index that referenced the new column now builds
+        idx = conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type = 'index' AND name = 'idx_ocr_results_variant'"
+        ).fetchone()
+        assert idx is not None
+        # the pre-existing row picks up the NOT NULL default
+        row = conn.execute("SELECT image_variant FROM ocr_results").fetchone()
+        assert row["image_variant"] == "ORIGINAL"
+
+
+def test_init_db_backfill_is_idempotent(tmp_path):
+    db_path = _make_legacy_db(tmp_path)
+    init_db(db_path)
+    init_db(db_path)  # second run: column already present, must be a no-op (no raise)
+    with connect(db_path) as conn:
+        assert "image_variant" in _columns(conn, "ocr_results")
