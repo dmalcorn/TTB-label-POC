@@ -388,3 +388,77 @@ def update_label_image_variants(
             label_image_id,
         ),
     )
+
+
+# ── compliance-engine write helpers (Story 3.2) ──────────────────────────────
+# The raw SQL the engine executor (`app/engine/run_checks.py`) uses to persist one
+# `checklist_items` row per Check and to set the submission's rolled-up
+# `engine_verdict`. Raw SQL stays inside `app/db/` (the data boundary). Like the
+# 2.1/2.2 helpers these DO NOT commit — the engine stage owns the unit of work so a
+# submission's whole checklist commits atomically.
+
+
+def insert_checklist_item(
+    conn: sqlite3.Connection,
+    submission_id: int,
+    *,
+    check_key: str,
+    label: str | None,
+    cfr_citation: str | None,
+    check_type: str | None,
+    verdict: str | None,
+    detail: str | None = None,
+    field_comparison_id: int | None = None,
+) -> int:
+    """Insert one ``checklist_items`` row (one per Check); return its id.
+
+    Carries the Check's provenance as DATA — ``check_key``/``label``/``cfr_citation``/
+    ``check_type`` come straight off the ruleset row (never recomputed), plus the
+    per-check ``verdict`` and an advisory ``detail`` (the inputs compared / why it
+    flagged). ``field_comparison_id`` links a field-match check to its comparison row
+    (Story 3.3). The ``CHECK`` constraints enforce the ``check_type`` and ``verdict``
+    vocabularies. The caller commits.
+    """
+    cur = conn.execute(
+        """
+        INSERT INTO checklist_items
+            (submission_id, check_key, label, cfr_citation, check_type,
+             verdict, detail, field_comparison_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            submission_id,
+            check_key,
+            label,
+            cfr_citation,
+            check_type,
+            verdict,
+            detail,
+            field_comparison_id,
+        ),
+    )
+    assert cur.lastrowid is not None  # guaranteed by a successful INSERT
+    return cur.lastrowid
+
+
+def set_engine_verdict(conn: sqlite3.Connection, submission_id: int, verdict: str) -> None:
+    """Persist the rolled-up advisory ``engine_verdict`` on a submission.
+
+    ``verdict`` is the output of ``app/verdict.py:rollup`` — domain ``PASS/REVIEW/
+    FAIL`` (no ``NA``), matching the ``submissions.engine_verdict`` CHECK exactly.
+    Advisory only — never a disposition. The caller commits.
+    """
+    conn.execute(
+        "UPDATE submissions SET engine_verdict = ? WHERE id = ?",
+        (verdict, submission_id),
+    )
+
+
+def delete_checklist_items(conn: sqlite3.Connection, submission_id: int) -> None:
+    """Delete a submission's ``checklist_items`` rows — the delete half of the
+    executor's delete-then-insert idempotency (re-processing must not duplicate
+    rows). The caller commits."""
+    conn.execute(
+        "DELETE FROM checklist_items WHERE submission_id = ?",
+        (submission_id,),
+    )

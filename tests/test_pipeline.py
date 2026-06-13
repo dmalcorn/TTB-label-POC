@@ -174,7 +174,11 @@ def test_process_submission_finalizes_with_ordered_timeline(tmp_path):
     assert sub is not None
     assert sub.status == "READY_FOR_REVIEW"
     assert sub.processing_ms is not None and sub.processing_ms >= 0
-    assert sub.engine_verdict is None  # verdict roll-up is Epic 3, not 2.2
+    # Story 3.2 wires engine_stage in LAST: a WINE submission has an EMPTY ruleset
+    # (authored in Story 3.8), so the advisory roll-up is REVIEW (rollup's empty
+    # policy — a submission with nothing verified defers to the human, never a
+    # silent auto-PASS), no longer the 2.2 interim NULL.
+    assert sub.engine_verdict == "REVIEW"
     assert [e["event_type"] for e in events] == [
         "OCR_STARTED",
         "OCR_COMPLETED",
@@ -258,6 +262,8 @@ def test_stage_failure_finalizes_and_records_note_sibling_unaffected(tmp_path, m
         sib_events = _events(conn, sibling)
 
     # Failed submission: finalized, not stuck; failure note present; no fake verdict.
+    # (STAGES is monkeypatched to [selective_stage], so engine_stage never runs here —
+    # engine_verdict stays NULL, proving a crashing pipeline invents no advisory verdict.)
     assert fail_sub is not None and fail_sub.status == "READY_FOR_REVIEW"
     assert fail_sub.engine_verdict is None
     assert any(e["note"] and "failed" in e["note"] for e in fail_events)
@@ -874,3 +880,43 @@ def test_pipeline_llm_enabled_persists_row_and_still_finalizes(tmp_path, monkeyp
         ).fetchone()
     assert sub is not None and sub.status == "READY_FOR_REVIEW"
     assert row is not None and row["status"] == "OK" and row["total_tokens"] == 30
+
+
+# ── Story 3.2: engine_stage wired LAST — checklist + advisory verdict pre-computed ──
+
+
+def test_pipeline_spirits_reaches_ready_with_checklist_and_engine_verdict(tmp_path, monkeypatch):
+    """Story 3.2 AC5 end-to-end: a swept DISTILLED_SPIRITS submission runs the real
+    STAGES (engine_stage LAST) and reaches READY_FOR_REVIEW carrying a COMPLETE
+    checklist (one row per spirits Check, each with its provenance) AND a non-NULL
+    advisory engine_verdict equal to verdict.rollup over the per-check verdicts. The
+    engine is background pre-compute — by the time the row is READY the verdict is
+    already persisted (the 5s read path never runs the engine)."""
+    from app import verdict
+    from app.engine.rulesets import get_ruleset
+    from app.pipeline import ocr as ocrmod
+
+    monkeypatch.setattr(
+        ocrmod, "build_engines", lambda: [_StubOcr("tesseract"), _StubOcr("paddleocr")]
+    )
+
+    db_path = _make_db(tmp_path)
+    with connect(db_path) as conn:
+        sid = _insert_received(conn, ttb_id="26001000000700", beverage_type="DISTILLED_SPIRITS")
+        _insert_image(conn, sid, filename="missing.jpg")
+
+    run.process_submission(str(db_path), sid)
+
+    with connect(db_path) as conn:
+        sub = repo.get_submission(conn, sid)
+        rows = conn.execute(
+            "SELECT check_key, verdict FROM checklist_items WHERE submission_id = ?",
+            (sid,),
+        ).fetchall()
+
+    assert sub is not None and sub.status == "READY_FOR_REVIEW"
+    # One checklist row per spirits Check — the whole ruleset was executed.
+    assert len(rows) == len(get_ruleset("DISTILLED_SPIRITS"))
+    # The persisted advisory verdict equals the centralized roll-up (engine & UI
+    # can never disagree). With only placeholder evaluators it is REVIEW, never NULL.
+    assert sub.engine_verdict == verdict.rollup([r["verdict"] for r in rows]) == "REVIEW"
