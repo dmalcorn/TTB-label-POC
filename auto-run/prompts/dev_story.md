@@ -9,8 +9,11 @@ on tie-breaks. Do not run `sleep` or poll background tasks.
 TOOL PERMISSIONS: you have a scoped allowlist (Read/Edit/Write/Glob/Grep/Skill,
 Python + pytest/ruff/mypy, `bash`, read-only git, file inspection). git is
 READ-ONLY — no add/commit/push (the pipeline commits); Docker is not granted, so
-validate on the host venv. If a command is denied, it's outside the grant — take
-an allowed path, don't retry the same denied command.
+validate on the host venv. BASH: do NOT prefix commands with `cd` (your working
+directory is already the project root), and never combine `cd` with output
+redirection (`>`, `>>`, `| tee`) — that is denied. Run e.g. `pytest -q tests/...`
+or `bash scripts/ci.sh`, not `cd <path> && pytest ... > out`. If a command is
+denied, it's outside the grant — take an allowed path, don't retry it verbatim.
 
 IMMEDIATE ACTION REQUIRED — your VERY FIRST action must be to invoke the agent
 persona, NOT a task skill:

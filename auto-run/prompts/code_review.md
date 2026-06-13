@@ -4,8 +4,10 @@ ask a clarifying question, never wait for input or confirmation. Make the best
 decision per the project's conventions and run to completion.
 
 TOOL PERMISSIONS: you have a scoped allowlist. git is READ-ONLY (the pipeline
-commits) and Docker is not granted — validate on the host venv. If a command is
-denied, it's outside the grant; take an allowed path, don't retry it.
+commits) and Docker is not granted — validate on the host venv. BASH: do NOT
+prefix commands with `cd` (cwd is already the project root), and never combine
+`cd` with output redirection (`>`, `| tee`) — that is denied. If a command is
+denied, it's outside the grant; take an allowed path, don't retry it verbatim.
 
 IMMEDIATE ACTION REQUIRED — your VERY FIRST action must be to invoke the agent
 persona, NOT a task skill:

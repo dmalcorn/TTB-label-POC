@@ -42,7 +42,7 @@ import threading
 import time
 import tomllib
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 # --- status model ---------------------------------------------------------
@@ -90,6 +90,10 @@ class Stopped(Exception):
 # A child killed by a console Ctrl-C/Break exits with this code on Windows
 # (0xC000013A, STATUS_CONTROL_C_EXIT). It means the operator stopped the run.
 CTRL_C_EXIT = 3221225786
+
+# Set by the SIGINT handler so a long in-process wait (a rate-limit sleep) aborts
+# promptly instead of blocking until it elapses.
+_stop_event = threading.Event()
 
 
 # --- config ---------------------------------------------------------------
@@ -348,6 +352,64 @@ def _render_event(
     return lines
 
 
+def _beep(count: int) -> None:
+    """Audible tones — winsound on Windows, terminal-bell fallback. Never raises."""
+    try:
+        import winsound  # Windows-only; real tones through the default audio device.
+
+        for _ in range(max(1, count)):
+            winsound.Beep(1000, 500)  # 1 kHz, 500 ms
+            time.sleep(0.15)
+    except Exception:  # noqa: BLE001 — non-Windows / no audio: fall back to the bell.
+        for _ in range(max(1, count)):
+            print("\a", end="", flush=True)
+            time.sleep(0.25)
+
+
+def _seconds_until(hour: int, minute: int) -> int:
+    """Seconds from now until the next local wall-clock HH:MM (rolls to tomorrow)."""
+    now = datetime.now()  # local naive — the CLI shows the reset in local time
+    reset = now.replace(hour=hour % 24, minute=minute, second=0, microsecond=0)
+    if reset <= now:
+        reset += timedelta(days=1)
+    return int((reset - now).total_seconds())
+
+
+def _parse_rate_limit_wait_seconds(text: str) -> int | None:
+    """Seconds until the limit resets, parsed from the CLI message; None if unparseable.
+
+    Handles 'try again in N minutes/seconds/hours', 'resets [at] 3:00pm' (12h), and
+    'resets [at] 15:00' (24h). Times are local wall-clock, rolled to tomorrow if past.
+    """
+    t = text.lower()
+    m = re.search(r"try again in\s+(\d+)\s*(second|minute|hour)", t)
+    if m:
+        return int(m.group(1)) * {"second": 1, "minute": 60, "hour": 3600}[m.group(2)]
+    m = re.search(r"reset[s]?\s+(?:at\s+)?(\d{1,2})(?::(\d{2}))?\s*(am|pm)", t)
+    if m:
+        hour, minute, ampm = int(m.group(1)), int(m.group(2) or 0), m.group(3)
+        if ampm == "pm" and hour != 12:
+            hour += 12
+        if ampm == "am" and hour == 12:
+            hour = 0
+        return _seconds_until(hour, minute)
+    m = re.search(r"reset[s]?\s+(?:at\s+)?(\d{1,2}):(\d{2})(?!\s*[ap]m)", t)
+    if m:
+        return _seconds_until(int(m.group(1)), int(m.group(2)))
+    return None
+
+
+def _interruptible_sleep(seconds: int) -> None:
+    """Sleep, but abort promptly (raise Stopped) if the operator Ctrl-C's."""
+    deadline = time.monotonic() + seconds
+    while True:
+        rem = deadline - time.monotonic()
+        if rem <= 0:
+            return
+        if _stop_event.wait(timeout=min(5.0, rem)):
+            raise Stopped("interrupted during rate-limit wait")
+
+
 def _invocation_lines(cmd: list[str]) -> list[str]:
     """Render the CLI invocation readably — a flag (with its value) per line."""
     lines: list[str] = []
@@ -373,7 +435,9 @@ def _extract_id_block(text: str) -> str:
     return (text[start:] if end == -1 else text[start : end + len(tail)]).strip()
 
 
-def run_claude(cfg: Config, log: RunLog, prompt: str, label: str, tools: str) -> None:
+def run_claude(
+    cfg: Config, log: RunLog, prompt: str, label: str, tools: str, _rate_limit_retries: int = 0
+) -> None:
     """Run one headless phase, printing a live play-by-play. Raises Halt on failure.
 
     `tools` is the vetted --allowedTools allowlist for this phase (specific grant,
@@ -477,6 +541,7 @@ def run_claude(cfg: Config, log: RunLog, prompt: str, label: str, tools: str) ->
     last_beat = start
     result_evt: dict | None = None
     err_chunks: list[str] = []
+    raw_out: list[str] = []  # kept only as a fallback scan source if no result event
     eofs = 0
 
     def stop(reason: str) -> None:
@@ -509,6 +574,7 @@ def run_claude(cfg: Config, log: RunLog, prompt: str, label: str, tools: str) ->
                 err_chunks.append(line)
                 continue
             fh.write(line)
+            raw_out.append(line)
             try:
                 evt = json.loads(line)
             except json.JSONDecodeError:
@@ -528,6 +594,45 @@ def run_claude(cfg: Config, log: RunLog, prompt: str, label: str, tools: str) ->
     if rc == CTRL_C_EXIT:
         # The operator pressed Ctrl-C — a clean user stop, not a phase failure.
         raise Stopped(f"phase '{label}' interrupted by Ctrl-C")
+
+    # Rate-limit auto-resume: if the CLI surfaced a usage/rate-limit window, sleep
+    # until it resets and re-run this phase instead of failing the run. Scan the
+    # result envelope + stderr (where the CLI's own message lands), not the agent's
+    # tool output. Auth REVOCATIONS are NOT retryable — they fall through to Halt.
+    rl = cfg.raw.get("rate_limit", {})
+    if rl.get("enabled", True):
+        scan = ((str(result_evt) if result_evt else "".join(raw_out)) + "\n" + "".join(err_chunks)).lower()
+        revoked = next((p for p in rl.get("halt_patterns", []) if p.lower() in scan), None)
+        limited = next((p for p in rl.get("retry_patterns", []) if p.lower() in scan), None)
+        if revoked:
+            raise Halt(
+                f"phase '{label}': Anthropic auth revoked/blocked ('{revoked}') — "
+                f"needs human (see {out_path.name})"
+            )
+        if limited and _rate_limit_retries < int(rl.get("max_retries", 3)):
+            max_wait = int(rl.get("max_wait_sec", 6 * 3600))
+            wait_s = _parse_rate_limit_wait_seconds(scan)
+            if wait_s is None or wait_s <= 0 or wait_s > max_wait:
+                default_wait = int(rl.get("default_wait_sec", 2700))
+                log.say(
+                    f"    rate limit ('{limited}') — reset time unparseable/out-of-range; "
+                    f"using default wait {default_wait // 60} min"
+                )
+                wait_s = default_wait
+            wait_s += 60  # buffer past the reset minute
+            wake = (datetime.now() + timedelta(seconds=wait_s)).strftime("%H:%M:%S")
+            log.say(
+                f"    *** RATE LIMIT ('{limited}') — sleeping {wait_s // 60} min until ~{wake}, "
+                f"then resuming (retry {_rate_limit_retries + 1}/{rl.get('max_retries', 3)})"
+            )
+            if rl.get("beep_on_sleep", True):
+                _beep(1)  # one short beep on entering the wait (NOT the failure alarm)
+            _interruptible_sleep(wait_s)  # exempt from any runtime budget; Ctrl-C aborts
+            log.say(f"    *** resuming phase '{label}' after the rate-limit wait")
+            return run_claude(
+                cfg, log, prompt, label, tools, _rate_limit_retries=_rate_limit_retries + 1
+            )
+
     if rc != 0:
         raise Halt(f"phase '{label}' exited {rc} (see {out_path.name})")
     if result_evt is None:
@@ -712,16 +817,7 @@ def alarm(cfg: Config, log: RunLog, why: str) -> None:
         return
     count = max(1, int(a.get("beeps", 5)))
     log.say(f"*** ALARM ({why}) — {count} beeps ***")
-    try:
-        import winsound  # Windows-only; real tones through the default audio device.
-
-        for _ in range(count):
-            winsound.Beep(1000, 500)  # 1 kHz, 500 ms
-            time.sleep(0.15)
-    except Exception:  # noqa: BLE001 — non-Windows / no audio: fall back to the bell.
-        for _ in range(count):
-            print("\a", end="", flush=True)
-            time.sleep(0.25)
+    _beep(count)
 
 
 def commit_and_push(cfg: Config, log: RunLog, story: str) -> None:
@@ -906,6 +1002,7 @@ def main() -> int:
 
     def on_sigint(_sig, _frm):
         stopping["flag"] = True
+        _stop_event.set()  # abort any in-progress rate-limit sleep promptly
         log.say("SIGINT received — will stop after the current story.")
 
     signal.signal(signal.SIGINT, on_sigint)

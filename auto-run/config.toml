@@ -4,7 +4,8 @@
 [run]
 # Hard caps so a run is always bounded.
 max_stories       = 0      # stop after N completed stories this run; 0 = no cap (until none left)
-max_runtime_hours = 8      # stop STARTING new stories after this many hours
+max_runtime_hours = 0      # 0 = no time cap (run until done / failure / STOP). Rate-limit
+                           # sleeps are exempt regardless (they pause mid-phase, not at a boundary).
 stop_on_dirty_tree = true  # refuse to start if the working tree has uncommitted changes
 once              = false  # do exactly one story then stop (good for the first supervised run)
 
@@ -25,6 +26,28 @@ extra_args    = []         # any extra claude flags (--output-format/--verbose a
 fix_attempts = 2           # if CI is red, run an LLM "fix" phase then re-check, up to N times
 max_output_chars = 40000   # how much CI output (from the END, where failures are) to hand each
                            # fresh fix agent — feed the COMPLETE real failure, not a stub
+
+[rate_limit]
+# Survive Claude usage/rate-limit windows overnight: when a phase's output shows a
+# limit message, sleep until it resets (parsed from the message), then RE-RUN the
+# phase — no run-ending halt. Auth REVOCATIONS still halt (they need you). The sleep
+# is exempt from any runtime budget and a Ctrl-C aborts it.
+enabled          = true
+max_retries      = 3       # per phase: how many times it may sleep-and-resume
+max_wait_sec     = 21600   # 6h cap on a single sleep (safety bound)
+default_wait_sec = 2700    # 45 min: fail-safe wait when the reset time can't be parsed
+beep_on_sleep    = true    # ONE short beep on entering a wait (distinct from the failure alarm)
+# Case-insensitive substrings meaning "rate window — sleep & resume" (retryable).
+# Broad on purpose (no confirmed message format); matched against the result
+# envelope + stderr, not the agent's tool output, to avoid false positives.
+retry_patterns = [
+  "you've hit your limit", "usage limit", "rate limit", "rate_limit",
+  "limit will reset", "limit reached", "resets at", "approaching your usage",
+]
+# Substrings meaning "revoked / auth failure — HALT for a human" (not retryable).
+halt_patterns = [
+  "does not have access to claude", "please login again", "invalid api key",
+]
 
 [log]
 # Max chars shown per item in the live terminal play-by-play. Raise to see more.
