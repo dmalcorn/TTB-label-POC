@@ -50,3 +50,7 @@ data/
 
 # --- Transient Docker build logs (Story 2.4 validation) ---
 build-*.log
+
+# --- Throwaway probe scripts written by the dev/review agents (auto-run prompts) ---
+/_probe.py
+/_probe_*.py

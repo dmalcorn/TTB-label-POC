@@ -1,5 +1,5 @@
 # generated: 2026-06-12
-# last_updated: 2026-06-13 (story 3.4 → done via code-review)
+# last_updated: 2026-06-13 (story 3.5 → done via code review)
 # project: TTB-label-POC
 # project_key: NOKEY
 # tracking_system: file-system
@@ -98,7 +98,9 @@ development_status:
   # story 3.4 moved in-progress -> review on 2026-06-13 (dev-story: deterministic no-LLM Government Warning verifier on the 3.2 seam [no executor edit]; §16.21 text + formatting rules as ruleset DATA, the three non-conflated outcomes via a JSON `outcome` discriminator [reworded→stdlib char-diff FAIL, absent→plain FAIL no-diff, bold/visual→REVIEW], local whitespace-only normalization [the deliberate normalize() exception], no field_comparisons row, AC1 no-LLM AST+source guards, AC4 data-only guards; 24 new tests + 3 stale 3.2-era roll-up assertions re-pointed to verdict.rollup; 308 suite green / 1 skip; ruff + story-scope mypy clean)
   # story 3.4 moved review -> done on 2026-06-13 (code review: 2 patches applied + 8 regression tests, 2 deferred, 4 by-design dismissals; P1 casing check substring⇒positional initial-letter [_initial_is_capital] fixing false-FAIL on over-capitalized Surgeon/General + all-caps body w/ one OCR-lowercased word [anchored §5.2]; P2 header locate scans ALL GOVERNMENT WARNING occurrences via finditer, PASS if any compliant [_evaluate_occurrence], fixing decoy-header-first + reworded-front/correct-back false-FAILs; §16.21 BODY confirmed verbatim, all 4 ACs satisfied; 316 suite green / 1 skip; ruff + story-scope mypy clean)
   3-4-government-warning-exact-verification: done
-  3-5-per-type-deterministic-format-checks: backlog
+  # story 3.5 backlog -> review on 2026-06-13 (create-story + dev-story in one session: deterministic per-type format_checks evaluator on the 3.2 dispatch seam [no executor edit]; per-type ABV-presence policy as a DATA map keyed on repo.BeverageType [the cross-type false-reject trap — spirits-absent FAIL is the ONLY hard-fail-on-absence; table-wine ≤14% + malt absent PASS; unknown type REVIEW], 27 CFR 5.203 post-2020 standards-of-fill lookup [exact-after-canonicalize, no tolerance], proof↔ABV 2× consistency [PROOF_TOLERANCE=0.6], §5.65/§5.203/§5.66 rules as ruleset DATA; three new spirits Check rows + check_key registry in data-dictionary §6.2.1; name_address_format handler present-but-unwired for 3.8 reuse; no field_comparisons row; AC1 no-LLM AST+source guards + AC4 CFR-as-data guard; 22 new tests, 338 suite green / 1 skip; ruff + story-scope mypy clean)
+  # story 3.5 moved review -> done on 2026-06-13 (code review: 6 patches applied + 6 regression tests, 2 deferred; F1 % removed from ABV abbreviation tokens [reachable bare-45% FAIL], F2 word-boundary abbreviation match [no REVOLVER/CALCIUM substring false-positive], F3 cue-aware extraction [promo 30% OFF not scavenged as ABV; net-cued size + drop ml<=0 + last-token fallback, no serving-size grab], F4 malt-absent ABV ⇒ REVIEW [§7.65 trigger undeterminable], F6 wine unreadable-app-ABV+no-label-ABV ⇒ REVIEW, F5 data-dictionary §6.2.1 HYBRID→FIELD_MATCH; 344 suite green / 1 skip; ruff + story-scope mypy clean)
+  3-5-per-type-deterministic-format-checks: done
   3-6-hybrid-class-type-designation-check: backlog
   3-7-flag-only-checks-surface-as-review: backlog
   3-8-wine-and-malt-beverage-rulesets-at-full-depth: backlog

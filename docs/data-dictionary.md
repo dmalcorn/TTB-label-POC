@@ -318,16 +318,21 @@ CFR citations — lives as data in `app/engine/rulesets/distilled_spirits.py` (t
 no `rulesets` table); this registry lists the identifiers so the dictionary stays the
 single index of every `check_key`. Citations shown for reference use the post-2022
 Part 5 renumbering. Scope is Story 3.2's always-mandatory elements + the Government
-Warning + the same-field-of-vision positional check; §4 conditional/flag-only checks
-arrive with Story 3.7, and wine/malt keys with Story 3.8.
+Warning + the same-field-of-vision positional check; the Story 3.5 per-type
+DETERMINISTIC **format** checks (`abv_format`/`standards_of_fill`/
+`proof_abv_consistency`) augment the matchable elements below; §4 conditional/
+flag-only checks arrive with Story 3.7, and wine/malt keys with Story 3.8.
 
 | `check_key` | Common Name | `check_type` | CFR Citation (ref) |
 |---|---|---|---|
 | `brand_name` | Brand name | `FIELD_MATCH` | `27 CFR 5.64` |
 | `class_type_designation` | Class/type designation | `HYBRID` | `27 CFR 5.141` |
-| `alcohol_content` | Alcohol content | `HYBRID` | `27 CFR 5.65` |
-| `net_contents` | Net contents | `HYBRID` | `27 CFR 5.70` |
-| `name_address` | Name and address | `HYBRID` | `27 CFR 5.66` |
+| `alcohol_content` | Alcohol content | `FIELD_MATCH` | `27 CFR 5.65` |
+| `net_contents` | Net contents | `FIELD_MATCH` | `27 CFR 5.70` |
+| `name_address` | Name and address | `FIELD_MATCH` | `27 CFR 5.66` |
+| `abv_format` | Alcohol content statement format (Story 3.5) | `DETERMINISTIC` | `27 CFR 5.65` |
+| `standards_of_fill` | Net contents standard of fill (Story 3.5) | `DETERMINISTIC` | `27 CFR 5.203` |
+| `proof_abv_consistency` | Proof / alcohol content consistency (Story 3.5) | `DETERMINISTIC` | `27 CFR 5.65` |
 | `government_warning` | Government Warning | `DETERMINISTIC` | `27 CFR 16.21` |
 | `same_field_of_vision` | Same field of vision (brand, class/type, alcohol content) | `MANUAL` | `27 CFR 5.63` |
 
