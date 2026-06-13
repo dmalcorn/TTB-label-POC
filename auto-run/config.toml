@@ -38,7 +38,7 @@ cleanup_on_success = true                   # `git worktree remove` after a full
 
 [git]
 commit = true
-push   = true
+push   = false             # TEMP: supervised 3-1 retry commits locally for review; flip back to true after
 remote = "origin"          # pushes the CURRENT branch (main) to this remote
 # Paths a STORY commit must never include. Walls the harness off from story
 # commits so you can edit auto-run/ in parallel without it being swept in.
