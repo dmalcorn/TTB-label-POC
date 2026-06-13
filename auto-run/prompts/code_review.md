@@ -20,6 +20,18 @@ persona, NOT a task skill:
           {{STORY_ID}}** — and bring story {{STORY_ID}} (currently in `review`)
           to `done`.
 
+  Step 2a: REVIEW SUBAGENTS — the code-review workflow spawns parallel review
+          layers (Blind Hunter / adversarial, Edge Case Hunter, Acceptance
+          Auditor) via the Task tool. In THIS environment the BMAD review-layer
+          *agent types* (`bmad-review-adversarial-general`,
+          `bmad-review-edge-case-hunter`) are NOT registered — only
+          `general-purpose`, `Explore`, `Plan` (and built-ins) exist. Do NOT try
+          to spawn the layers by those bmad names (it fails and wastes turns).
+          Invoke each layer as a **`general-purpose`** Task agent with that
+          layer's adversarial/edge-case prompt embedded. For the **Blind Hunter**,
+          embed ONLY the story diff in its prompt and instruct it to read no
+          project files / use no other context — preserve its diff-only blindness.
+
   Step 3: After completing the work, end your response with this block:
 
           === AGENT IDENTIFICATION ===

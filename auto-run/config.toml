@@ -6,7 +6,10 @@
 max_stories       = 0      # stop after N completed stories this run; 0 = no cap (until none left)
 max_runtime_hours = 0      # 0 = no time cap (run until done / failure / STOP). Rate-limit
                            # sleeps are exempt regardless (they pause mid-phase, not at a boundary).
-stop_on_dirty_tree = true  # refuse to start if the working tree has uncommitted changes
+stop_on_dirty_tree = false # false = WARN and continue on a dirty tree (lists the uncommitted
+                           # files; lets you resume an interrupted story). true = refuse to start.
+                           # NOTE when false: leftover work from a prior halt rolls into the next
+                           # story's commit — the warning surfaces it; clean the tree if unwanted.
 once              = false  # do exactly one story then stop (good for the first supervised run)
 
 [claude]

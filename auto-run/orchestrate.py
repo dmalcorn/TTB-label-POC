@@ -1061,14 +1061,23 @@ def main() -> int:
             wt_path, _branch = setup_worktree(cfg, log, run_id)
             cfg.rebind_to(wt_path)
             log.say(f"  phases now run in worktree: {cfg.repo_root}")
-        elif cfg.run.get("stop_on_dirty_tree", True) and tree_dirty(cfg):
+        elif tree_dirty(cfg):
+            # Uncommitted work at start will be INCLUDED in the first story's commit
+            # (commit_and_push stages '.' minus auto-run). Default: warn-and-continue
+            # so resuming an interrupted story is seamless — but surface the files so
+            # leftover/contaminating work is visible. Set stop_on_dirty_tree=true to
+            # refuse instead (the old blocking guard).
+            short = git(cfg, "status", "--short").stdout.rstrip()
+            if cfg.run.get("stop_on_dirty_tree", False):
+                log.say("HALT: working tree is dirty (stop_on_dirty_tree=true).")
+                log.say(short)
+                alarm(cfg, log, "working tree is dirty")
+                return 2
             log.say(
-                "HALT: working tree is dirty. "
-                "Commit/stash existing changes before an unattended run."
+                "  ⚠ starting on a DIRTY tree — the uncommitted work below will be "
+                "rolled into the first story's commit:"
             )
-            log.say(git(cfg, "status", "--short").stdout.rstrip())
-            alarm(cfg, log, "working tree is dirty")
-            return 2
+            log.say(short)
 
         # Bring the dev container up once so the CI gate runs inside it (parity).
         ensure_container(cfg, log)
