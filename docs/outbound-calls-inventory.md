@@ -1,7 +1,7 @@
 # Outbound-Calls Inventory — TTB COLA Label Specialist POC
 
-**Status:** Planning artifact (pre-implementation). Updated as components are built.
-**Last updated:** 2026-06-12
+**Status:** Planning artifact (updated as components are built). LLM layer implemented in Story 2.5.
+**Last updated:** 2026-06-13
 **Audience:** TTB reviewers verifying firewall compliance; the POC engineering team.
 
 ---
@@ -138,24 +138,30 @@ A reviewer (or auditor) can confirm the posture without reading the full codebas
   into the image at build time (`COPY models/ models/`), so the **runtime** never reaches the network
   for weights (architecture.md D7 / Infrastructure). Remaining: verify checksum/version pinning at the
   dependency-pinning step.
-- **TODO-3 — Document the pinned LangChain local-only config.** The master off-switch is pinned:
-  `LANGCHAIN_TRACING_ENABLED` (set `false` for the OCR-only path); local-only tracing writes to the
-  local DB with no LangSmith/cloud telemetry endpoint configured (architecture.md Env/config, D6).
-  Document this flag in [`tools-used.md`](./tools-used.md) and in the README.
-- **TODO-4 — Add the zero-egress smoke test to the run instructions.** The mechanism is decided:
-  `docker run --network none` with `LLM_ENABLED=false` (architecture.md Infrastructure). Document
-  this command in the README and confirm the full flow succeeds with zero failed outbound connection
-  attempts.
+- **TODO-3 — Document the pinned LangChain local-only config (PARTIAL — Story 2.5).** The master
+  off-switch `LANGCHAIN_TRACING_ENABLED` (default `false`) is wired and documented in `.env.example`
+  / README; Story 2.5 adds the `langchain` dependency but **wires no tracing and configures no
+  LangSmith/cloud endpoint**, so there is zero tracing egress. Remaining: the full local-only
+  tracing-to-DB harness is Epic 5 (`benchmark/tracing.py`); document it in
+  [`tools-used.md`](./tools-used.md) then.
+- **TODO-4 — Add the zero-egress smoke test to the run instructions (RESOLVED — Story 2.5).** The
+  README "Offline egress smoke test" section documents `docker run --network none -e
+  LLM_ENABLED=false`; the model layer is never constructed under that flag (no SDK import, no
+  client) and the seeded corpus reaches `READY_FOR_REVIEW` on OCR-only with zero outbound attempts.
+  The offline test suite (`tests/test_llm_adapters.py`, `tests/test_pipeline.py`) enforces it: the
+  factory constructs nothing when disabled, and off-host clients live only under `app/adapters/llm/`.
 - **TODO-5 — Confirm DB deployment topology.** Verify the database is local/on-prem with no external
   replication, backup-to-cloud, or telemetry.
 - **TODO-6 — Verify no implicit telemetry from dependencies.** Audit third-party libraries (e.g.
   update-checkers, usage analytics) for any default "phone-home" behavior and disable it.
-- **TODO-7 — Record the cloud domains contacted.** The endpoint-swap mechanism is decided: the pinned
-  `LLM_PROVIDER` / `LLM_BASE_URL` env vars move provider config from cloud-API (POC) to internal
-  endpoint (production) with no code change, and the only off-host calls originate in
-  `adapters/llm/{openai,google,anthropic}` (architecture.md External boundary, D6). Remaining: record
-  the exact cloud domains the POC contacts at runtime so the `models-internal-endpoint` classification
-  is auditable.
+- **TODO-7 — Record the cloud domains contacted (PARTIAL — Story 2.5).** The endpoint-swap mechanism
+  is implemented: `LLM_PROVIDER` / `LLM_BASE_URL` / `LLM_MODEL_ID` move provider config from cloud-API
+  (POC) to internal endpoint (production) with no code change, and the only off-host clients in the app
+  are constructed in `app/adapters/llm/{openai,google,anthropic}.py` (a structural test enforces it;
+  `local_vlm.py` is the zero-egress localhost branch). Default cloud domains the POC contacts at
+  runtime (when `LLM_ENABLED=true` and `LLM_BASE_URL` is unset): `api.openai.com` (openai),
+  `api.anthropic.com` (anthropic), `generativelanguage.googleapis.com` (google). Remaining: capture an
+  at-runtime connection log with the model layer enabled to confirm no other domain is contacted.
 
 ---
 

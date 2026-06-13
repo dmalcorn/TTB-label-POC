@@ -71,6 +71,16 @@ The benchmark exists to answer four questions, in order of procurement value:
    `models-internal-endpoint` (internal endpoints in production); the local OCR core remains the
    zero-egress baseline every model result is compared against.
 
+> **POC scope note — the model path is VLM-only and kept pure (2026-06-13).** In this POC the
+> model **reads the label image directly** and produces its own extraction; it is **never** handed
+> OCR text or any other engine's output. This keeps the OCR-vs-model comparison an honest
+> head-to-head (each extractor is independent) rather than measuring "an LLM tidying up OCR." The
+> **OCR + LLM-fallback / hybrid** configuration named in question 3 (OCR for the clean 90%, a model
+> for the degraded tail) is therefore **out of scope for the POC** and recorded as a **future
+> consideration** — see [`tradeoffs-and-limitations.md`](./tradeoffs-and-limitations.md). The
+> configurations the POC actually benchmarks are: **OCR-only**, **OCR + OpenCV preprocessing**, and
+> **VLM-only**.
+
 > **Non-goal:** the benchmark does **not** pick a single winner to hard-wire into the deployed app.
 > Per [`discussion-points.md` §6](../ref-docs/discussion-points.md), it deliberately *"runs multiples
 > and collects stats."* The engines stay swappable behind a uniform interface (§5).

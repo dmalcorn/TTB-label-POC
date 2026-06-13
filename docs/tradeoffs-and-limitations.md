@@ -313,6 +313,30 @@ over-claim.*
   [presearch.md](presearch.md).
 - **Future work:** wire the Phase-2 API (B8) to a real submission feed.
 
+## B10. The model extracts from the image alone — no OCR-assisted hybrid (deliberate)
+
+- **Decision (2026-06-13):** the model-extraction path is **VLM-only** — the model is handed
+  the **label image** and produces its **own** field reading. It is **never** given the OCR
+  engines' text (or any other engine's output) as a hint. The OCR text feeds only the
+  **deterministic** compliance engine (Field Match, Government Warning — Epic 3); the two
+  extraction paths stay fully independent.
+- **Why kept pure:** the benchmark's core question is *"how does a model compare to classical
+  OCR at reading a label?"* Feeding the model OCR text would measure *"a model tidying up OCR,"*
+  conflating the two and invalidating the head-to-head — and the model is meant to be a genuine
+  **fallback when OCR is poor**, which only holds if it reads the label itself. So the POC
+  benchmarks three clean configurations — **OCR-only**, **OCR + OpenCV preprocessing**, and
+  **VLM-only** — each an independent extractor scored against ground truth.
+- **Future consideration (explicitly NOT in this POC):** an **OCR + LLM hybrid** — e.g. classical
+  OCR for the clean majority with a model on the degraded tail, or an LLM that reconciles/repairs
+  OCR output (the COLAClear-style "CV + structured-LLM" architecture). It is a promising
+  production pattern and a plausible accuracy/cost sweet spot, but it is deliberately left as
+  future work so the POC's comparison stays honest and the firewall story stays simple. Recorded
+  here so the write-ups can speak to "what we considered next," and reflected as a scope note in
+  [ocr-llm-benchmarking-plan.md](ocr-llm-benchmarking-plan.md).
+- **Trade-off accepted:** the POC does not demonstrate the (likely strong) hybrid configuration;
+  it demonstrates the clean endpoints the hybrid would interpolate between, with the data to
+  judge whether the hybrid is worth building.
+
 ---
 
 ## Summary — what to take away
@@ -336,6 +360,7 @@ over-claim.*
 | B7 | Reviewer workflow designed | The POC's differentiator |
 | B8 | No COLA integration | Phase 2 |
 | B9 | Seeded dummy data | Built to exercise the engine, incl. fail cases |
+| B10 | VLM reads the image alone — no OCR-assisted hybrid | Deliberate; keeps the benchmark honest, hybrid is future work |
 
 **The through-line:** every limitation in Part B is either (a) a deliberate,
 regulation-aligned scope decision that mirrors TTB's own posture, or (b) a clearly bounded

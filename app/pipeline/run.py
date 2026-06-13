@@ -36,6 +36,7 @@ from typing import Any
 from app.db import repositories as repo
 from app.db.connection import connect
 from app.pipeline import status
+from app.pipeline.llm import llm_stage
 from app.pipeline.ocr import ocr_stage
 from app.pipeline.preprocess import preprocess_stage
 
@@ -66,10 +67,13 @@ Stage = Callable[[StageContext], None]
 # Story 2.3 registers `preprocess_stage` at the FRONT (it runs before OCR and
 # produces the enhanced/binarized variants the OCR stage consumes). Story 2.4's
 # `ocr_stage` follows it, taking over the OCR_STARTED/OCR_COMPLETED timeline markers
-# from 2.2's removed `passthrough_stage` and writing the real ocr_results rows. Each
-# stage's wall-time is inside `process_submission`'s timed loop, so it already rolls
-# into `processing_ms` (AC3) with no scheduler/status change (AC5).
-STAGES: list[Stage] = [preprocess_stage, ocr_stage]
+# from 2.2's removed `passthrough_stage` and writing the real ocr_results rows. Story
+# 2.5's `llm_stage` registers LAST. It reads the label IMAGE directly (VLM-only, never
+# the OCR text) and is config-gated: skipped entirely when the model layer is off, so
+# the OCR-only path is unchanged.
+# Each stage's wall-time is inside `process_submission`'s timed loop, so it already
+# rolls into `processing_ms` (AC3) with no scheduler/status change (AC5).
+STAGES: list[Stage] = [preprocess_stage, ocr_stage, llm_stage]
 
 
 def process_submission(db_path: str, submission_id: int) -> None:

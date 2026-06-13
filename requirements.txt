@@ -37,6 +37,19 @@ paddleocr~=3.4
 # weight-bake step dies with `ModuleNotFoundError: No module named 'paddle'`.
 paddlepaddle~=3.0
 
+# LLM extraction providers (Story 2.5) — classified `models-internal-endpoint`.
+# The ONLY off-host call sites in the app live in app/adapters/llm/{openai,google,
+# anthropic}.py; each SDK is imported LAZILY inside its adapter and the client is
+# built only when LLM_ENABLED=true and a key is present, so importing these never
+# opens a socket and the `--network none` + LLM_ENABLED=false boot stays zero-egress.
+openai~=2.41
+anthropic~=0.79
+google-genai~=2.8
+# LangChain — LOCAL TRACING ONLY, no telemetry egress. 2.5 adds the dep but wires no
+# tracing (LANGCHAIN_TRACING_ENABLED default off; no LangSmith/cloud endpoint set);
+# the full local tracing harness is Epic 5 (benchmark/tracing.py).
+langchain~=1.3
+
 # dev / quality / test
 ruff~=0.15
 pytest~=9.0

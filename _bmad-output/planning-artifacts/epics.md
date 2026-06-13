@@ -67,7 +67,7 @@ This document provides the complete epic and story breakdown for the TTB COLA La
 - **FR-13:** **Government Warning exact verification** (deterministic, no LLM) per 27 CFR 16.21 — exact wording, caps "GOVERNMENT WARNING:" header, whitespace normalized, body case-insensitive, required casing enforced; deviations → FAIL with the deviation identified; bold undeterminable → not-verified, never silent PASS.
 - **FR-14:** **Field Match with normalization tolerance** — PASS on normalized match, REVIEW on near-miss/low confidence, FAIL on substantive mismatch ("STONE'S THROW" vs "Stone's Throw" → PASS; ABV 45% vs 40% → FAIL).
 - **FR-15:** **Per-type deterministic format Checks** — alcohol-content statement format, net-contents + standards-of-fill lookup, name/address qualifying phrase, conditional Checks (sulfites, coloring, age, country of origin); cross-commodity ABV rules respected; proof ↔ ABV consistency; unevaluable conditional → REVIEW.
-- **FR-16:** **Hybrid class/type designation Check** — rules first, escalate only genuine ambiguity to LLM, LLM-assisted capped at REVIEW (never FAIL); cross-image designation conflicts detected deterministically → FAIL; degrades to rules-only when LLM off.
+- **FR-16:** **Hybrid class/type designation Check** — rules first, escalate only genuine ambiguity to LLM (the model reads the label **image**, never OCR text — VLM-only), LLM-assisted capped at REVIEW (never FAIL); cross-image designation conflicts detected deterministically → FAIL; degrades to rules-only when LLM off.
 - **FR-17:** **Flag-only Checks → REVIEW** — Same Field of Vision spatial inference, "separate and apart" placement, severely degraded text → REVIEW with explanatory note, never PASS/FAIL.
 - **FR-18:** **Verdict provenance** — every Engine Verdict records its Check, determinism class, CFR citation, compared input values, and (LLM-assisted) model identification; review screen can explain any verdict.
 
@@ -500,7 +500,7 @@ So that an LLM opinion can advise but never produce a FAIL on its own.
 **Given** `engine/checks/class_type.py`
 **When** it validates the designation
 **Then** valid designations (e.g. "Kentucky Straight Bourbon Whiskey") validate deterministically with no LLM call
-**And** genuinely ambiguous cases escalate to LLM assessment capped at REVIEW severity (never FAIL)
+**And** genuinely ambiguous cases escalate to LLM assessment capped at REVIEW severity (never FAIL) — the model is given the label **image** (VLM-only), **never** the OCR text; OCR output is never fed to a model (per project-context "VLM-only" hard rule)
 **And** conflicting designations across a Submission's multiple labels are detected deterministically → FAIL with both values cited
 **And** with `LLM_ENABLED=false`, the check degrades to rules-only plus REVIEW for unresolved cases. *(FR-16)*
 

@@ -190,7 +190,7 @@ The system deterministically validates rule-bound formats per Beverage Type: alc
 - A conditional Check that cannot be evaluated from available data (e.g., sulfite ppm unknown) → REVIEW with explanation, not a guess. `[ASSUMPTION]`
 
 #### FR-16: Hybrid class/type designation Check
-The system validates the class/type designation by rules first (valid designation lists, spelling), escalating only genuinely ambiguous cases to LLM assessment, and caps LLM-assisted results at REVIEW severity — an LLM opinion alone never produces FAIL. `[ASSUMPTION: capping LLM-derived verdicts at REVIEW is the right recommend-don't-decide posture]`
+The system validates the class/type designation by rules first (valid designation lists, spelling), escalating only genuinely ambiguous cases to LLM assessment — where the model reads the label **image** (VLM-only), never the OCR text — and caps LLM-assisted results at REVIEW severity — an LLM opinion alone never produces FAIL. `[ASSUMPTION: capping LLM-derived verdicts at REVIEW is the right recommend-don't-decide posture]` `[VLM-only: OCR output is never fed to a model anywhere in the POC; the OCR+LLM hybrid is a documented future consideration only — see tradeoffs-and-limitations.md B10]`
 **Consequences (testable):**
 - "Kentucky Straight Bourbon Whiskey" validates deterministically without an LLM call.
 - Conflicting class/type designations across a Submission's multiple labels are detected deterministically (text comparison across images) → FAIL with both values cited.

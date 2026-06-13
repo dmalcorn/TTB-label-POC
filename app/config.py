@@ -8,8 +8,12 @@ model layer is simply off — the OCR-only path stays fully functional.
 from __future__ import annotations
 
 import os
+from typing import TYPE_CHECKING
 
 from pydantic import BaseModel
+
+if TYPE_CHECKING:  # type-only — never imports a provider adapter/SDK at runtime
+    from app.adapters.llm.base import ModelAdapter
 
 
 def _env_bool(name: str, default: bool = False) -> bool:
@@ -53,6 +57,15 @@ class Settings(BaseModel):
     llm_enabled: bool = False
     llm_provider: str | None = None
     llm_base_url: str | None = None
+    # Per-provider API keys (Story 2.5). Absent ⇒ that provider's model layer is
+    # simply off (the factory returns None) — never an exception (AR-9). Read here
+    # but NEVER logged. `local` needs no key (it is a zero-egress localhost server).
+    openai_api_key: str | None = None
+    anthropic_api_key: str | None = None
+    google_api_key: str | None = None
+    # Active model id (Story 2.5). Absent ⇒ a per-provider default is used; the demo
+    # / benchmark sets this explicitly. Production swaps model + endpoint by config.
+    llm_model_id: str | None = None
     langchain_tracing_enabled: bool = False
     # SQLite database file. Local default for dev; the Railway Volume mount path in
     # deployment (Story 1.6 wires the mount). Absent ⇒ default, never raises.
@@ -78,6 +91,10 @@ class Settings(BaseModel):
             llm_enabled=_env_bool("LLM_ENABLED", default=False),
             llm_provider=os.getenv("LLM_PROVIDER"),
             llm_base_url=os.getenv("LLM_BASE_URL"),
+            openai_api_key=os.getenv("OPENAI_API_KEY"),
+            anthropic_api_key=os.getenv("ANTHROPIC_API_KEY"),
+            google_api_key=os.getenv("GOOGLE_API_KEY"),
+            llm_model_id=os.getenv("LLM_MODEL_ID"),
             langchain_tracing_enabled=_env_bool("LANGCHAIN_TRACING_ENABLED", default=False),
             # `or` (not getenv's default arg) so a set-but-empty DATABASE_PATH=""
             # falls back to the default instead of opening a throwaway temp DB.
@@ -95,3 +112,79 @@ class Settings(BaseModel):
 def get_settings() -> Settings:
     """Resolve settings from the current environment."""
     return Settings.from_env()
+
+
+# ── LLM provider gating + factory (Story 2.5, AC2) ───────────────────────────
+# The single decision point for "is the model layer on, and which provider?". It
+# returns an adapter ONLY when LLM_ENABLED=true, a supported provider is set, and
+# (for the cloud providers) the provider's key is present — otherwise None, meaning
+# "model layer off; run OCR-only" (AR-9). Crucially, NO adapter is imported or
+# constructed on the None paths, so `--network none` + LLM_ENABLED=false never even
+# touches a provider SDK (the egress proof depends on this — outbound-calls §4).
+
+# Supported provider keys (the LLM_PROVIDER vocabulary). `local` is the zero-egress
+# localhost branch and needs no API key.
+_SUPPORTED_PROVIDERS: frozenset[str] = frozenset({"openai", "anthropic", "google", "local"})
+
+# Per-provider default model id when LLM_MODEL_ID is unset. Config-swappable — the
+# benchmark/demo sets LLM_MODEL_ID explicitly; these are only sensible fallbacks.
+_DEFAULT_MODEL_ID: dict[str, str] = {
+    "openai": "gpt-4o-mini",
+    "anthropic": "claude-opus-4-8",
+    "google": "gemini-2.0-flash",
+    "local": "local-vlm",
+}
+
+
+def _provider_api_key(settings: Settings, provider: str) -> str | None:
+    """The configured API key for a cloud provider (``None`` if absent)."""
+    return {
+        "openai": settings.openai_api_key,
+        "anthropic": settings.anthropic_api_key,
+        "google": settings.google_api_key,
+    }.get(provider)
+
+
+def _construct_adapter(provider: str, settings: Settings) -> ModelAdapter:
+    """Build the concrete adapter for ``provider``. The adapter class is imported
+    **lazily here** so the None paths of :func:`get_llm_adapter` never import a
+    provider module, and constructing the adapter never imports its SDK or opens a
+    socket (the SDK import + client are lazy inside the adapter)."""
+    model_id = settings.llm_model_id or _DEFAULT_MODEL_ID[provider]
+    base_url = settings.llm_base_url
+    if provider == "openai":
+        from app.adapters.llm.openai import OpenAiAdapter
+
+        return OpenAiAdapter(model_id=model_id, api_key=settings.openai_api_key, base_url=base_url)
+    if provider == "anthropic":
+        from app.adapters.llm.anthropic import AnthropicAdapter
+
+        return AnthropicAdapter(
+            model_id=model_id, api_key=settings.anthropic_api_key, base_url=base_url
+        )
+    if provider == "google":
+        from app.adapters.llm.google import GoogleAdapter
+
+        return GoogleAdapter(model_id=model_id, api_key=settings.google_api_key, base_url=base_url)
+    # provider == "local"
+    from app.adapters.llm.local_vlm import LocalVlmAdapter
+
+    return LocalVlmAdapter(model_id=model_id, base_url=base_url)
+
+
+def get_llm_adapter(settings: Settings) -> ModelAdapter | None:
+    """Resolve the active model adapter, or ``None`` when the model layer is off.
+
+    Returns ``None`` — and constructs nothing — when ``LLM_ENABLED`` is false, no
+    (or an unsupported) provider is set, or a cloud provider's key is absent. The
+    pipeline treats ``None`` as "model layer off" and completes OCR-only (AC2). The
+    ``local`` provider needs no key (zero-egress localhost).
+    """
+    if not settings.llm_enabled:
+        return None
+    provider = (settings.llm_provider or "").strip().lower()
+    if provider not in _SUPPORTED_PROVIDERS:
+        return None
+    if provider != "local" and not _provider_api_key(settings, provider):
+        return None
+    return _construct_adapter(provider, settings)

@@ -117,8 +117,8 @@ docker compose run --rm web python -m app.db.seed
 
 ### Offline egress smoke test (NFR-2 / FR-12)
 
-Proves the **zero-egress, OCR-only** boot — build the image, then run it with **no network**
-and confirm it still serves:
+Proves the **zero-egress, OCR-only** configuration — build the image, then run it with **no
+network** and confirm it boots, serves, *and* pre-computes the seeded corpus end-to-end:
 
 ```bash
 docker build -t ttb-label-poc .
@@ -127,8 +127,13 @@ docker run --rm --network none -e LLM_ENABLED=false -e ACCESS_TOKEN=demo \
 # in another shell:  curl -fsS http://localhost:8000/healthz   ->  {"status":"ok"}
 ```
 
-`--network none` strips all connectivity; a clean boot plus `200 /healthz` is the proof that
-startup (schema init + seed) makes no outbound calls.
+`--network none` strips all connectivity. With `LLM_ENABLED=false` the model layer is **never
+constructed** — no provider SDK is imported and no client is built (Story 2.5) — so the
+background sweep runs preprocess + Tesseract + PaddleOCR locally and every seeded submission
+reaches `READY_FOR_REVIEW` on **OCR-only** results, with **zero** failed outbound connection
+attempts. A clean boot, `200 /healthz`, and the whole corpus advancing to `READY_FOR_REVIEW`
+together are the proof that the local-first core stands alone (the only off-host calls in the
+app live in `app/adapters/llm/{openai,google,anthropic}.py`, gated entirely by `LLM_ENABLED`).
 
 ### Deploy (Railway)
 
@@ -141,10 +146,13 @@ contract; the operational playbook — service identity, env vars, Volume creati
 is in **[`docs/railway-deployment.md`](docs/railway-deployment.md)**.
 
 Runtime configuration is entirely env-driven (`.env.example` documents every variable):
-`ACCESS_TOKEN`, `LLM_ENABLED`, `LLM_PROVIDER`, `LLM_BASE_URL`, `LANGCHAIN_TRACING_ENABLED`,
-`DATABASE_PATH`. Absent keys leave features off — the OCR-only path stays fully functional. The
-deployed demo *may* reach cloud LLM APIs (the `models-internal-endpoint` stand-in) when
-`LLM_ENABLED=true`; `LLM_ENABLED=false` is the provable zero-egress configuration.
+`ACCESS_TOKEN`, `LLM_ENABLED`, `LLM_PROVIDER`, `LLM_BASE_URL`, `LLM_MODEL_ID`,
+`OPENAI_API_KEY` / `ANTHROPIC_API_KEY` / `GOOGLE_API_KEY` (only the selected provider's is
+needed), `LANGCHAIN_TRACING_ENABLED`, `DATABASE_PATH`. Absent keys leave features off — the
+OCR-only path stays fully functional. The deployed demo *may* reach cloud LLM APIs (the
+`models-internal-endpoint` stand-in) when `LLM_ENABLED=true`; `LLM_ENABLED=false` is the
+provable zero-egress configuration. Production swaps the cloud API for an in-firewall endpoint
+via `LLM_BASE_URL` with no code change.
 
 > The full `docs/` deliverable set is indexed at **[`docs/index.md`](docs/index.md)** (linked
 > under [Documentation](#documentation) above); population of the remaining deliverables

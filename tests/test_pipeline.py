@@ -613,3 +613,262 @@ def test_ocr_results_stores_raw_text_only_no_per_field_columns(tmp_path):
         "wine_appellation",
     }
     assert cols.isdisjoint(forbidden)
+
+
+# ── Story 2.5: VLM stage — config-gated, image-based, OCR-only fallback ───────
+# Offline by construction: a fake ModelAdapter (canned or raising) is injected via
+# the llm.get_llm_adapter seam; OCR engines are stubbed as above. No real provider.
+# VLM-only: the stage hands the model the label IMAGE, never OCR text.
+
+
+class _FakeModel:
+    """Canned ModelAdapter; ``raises=True`` simulates an unreachable provider.
+
+    Records every ``run`` call so a test can assert the stage handed the model an
+    image (VLM-only) and an OCR-free prompt."""
+
+    model_name = "Fake Model"
+    model_id = "fake-1"
+    model_full_id = "fake-1[test]"
+    provider = "local"
+
+    def __init__(self, *, raises: bool = False) -> None:
+        self._raises = raises
+        self.calls: list[dict] = []
+
+    def run(self, task, prompt, *, image_path=None):
+        from app.contracts import LlmResult
+
+        self.calls.append({"task": task, "prompt": prompt, "image_path": image_path})
+        if self._raises:
+            raise RuntimeError("provider unreachable")
+        return LlmResult(
+            model_name=self.model_name,
+            model_id=self.model_id,
+            model_full_id=self.model_full_id,
+            provider=self.provider,
+            task=task,
+            result_text='{"brand_name": "Stone\'s Throw"}',
+            prompt_tokens=10,
+            completion_tokens=20,
+            latency_ms=5,
+            requested_at="2026-06-13T00:00:00+00:00",
+            responded_at="2026-06-13T00:00:01+00:00",
+            status="OK",
+        )
+
+
+def test_llm_stage_persists_stats_with_db_computed_total_tokens(tmp_path, monkeypatch):
+    """AC4: a successful adapter → one llm_results row with model identity, provider,
+    timing, tokens, and a DB-COMPUTED total_tokens (10+20=30, never inserted)."""
+    from app.pipeline import llm as llmmod
+
+    db_path = _make_db(tmp_path)
+    with connect(db_path) as conn:
+        sid = _insert_received(conn, status="PROCESSING")
+        img_id = _insert_image(conn, sid)
+
+    monkeypatch.setattr(llmmod, "get_llm_adapter", lambda settings: _FakeModel())
+    with connect(db_path) as conn:
+        llmmod.llm_stage(_stage_ctx(conn, sid, {}))
+
+    with connect(db_path) as conn:
+        rows = conn.execute("SELECT * FROM llm_results WHERE submission_id = ?", (sid,)).fetchall()
+    assert len(rows) == 1
+    row = rows[0]
+    assert row["status"] == "OK"
+    assert row["provider"] == "local"
+    assert (row["model_name"], row["model_id"], row["model_full_id"]) == (
+        "Fake Model",
+        "fake-1",
+        "fake-1[test]",
+    )
+    assert row["task"] == "extract_fields"
+    assert row["prompt_tokens"] == 10 and row["completion_tokens"] == 20
+    assert row["total_tokens"] == 30  # DB GENERATED column — never inserted
+    assert row["requested_at"] and row["responded_at"] and row["latency_ms"] == 5
+    assert row["label_image_id"] == img_id
+    assert row["is_benchmark_only"] == 0  # the displayed extraction (not benchmark-only)
+
+
+def test_llm_stage_sends_the_image_not_ocr_text(tmp_path, monkeypatch):
+    """VLM-only (the spine of the rework): the stage hands the model the primary label
+    IMAGE and an OCR-free instruction prompt — it never reads or forwards OCR text."""
+    from app.pipeline import llm as llmmod
+
+    db_path = _make_db(tmp_path)
+    with connect(db_path) as conn:
+        sid = _insert_received(conn, status="PROCESSING")
+        _insert_image(conn, sid, filename="front.jpg")
+        # Seed OCR rows that MUST NOT leak into the model prompt.
+        repo.insert_ocr_result(
+            conn,
+            submission_id=sid,
+            label_image_id=repo.list_label_images(conn, sid)[0].id,
+            result=OcrResult(engine_name="tesseract", text="SECRET-OCR-LEAK-TOKEN", status="OK"),
+        )
+        conn.commit()
+
+    fake = _FakeModel()
+    monkeypatch.setattr(llmmod, "get_llm_adapter", lambda settings: fake)
+    with connect(db_path) as conn:
+        llmmod.llm_stage(_stage_ctx(conn, sid, {}))
+
+    assert len(fake.calls) == 1
+    call = fake.calls[0]
+    assert call["image_path"] is not None and call["image_path"].endswith("front.jpg")
+    assert "SECRET-OCR-LEAK-TOKEN" not in call["prompt"]  # OCR text never reaches the model
+    assert "OCR" not in call["prompt"]  # the prompt instructs reading the image, not OCR text
+
+
+def test_llm_stage_skips_when_no_label_image(tmp_path, monkeypatch):
+    """VLM-only has nothing to read without an image: an enabled adapter + a submission
+    with NO label image ⇒ the stage skips, no model call, no llm_results row."""
+    from app.pipeline import llm as llmmod
+
+    db_path = _make_db(tmp_path)
+    with connect(db_path) as conn:
+        sid = _insert_received(conn, status="PROCESSING")  # no _insert_image
+
+    fake = _FakeModel()
+    monkeypatch.setattr(llmmod, "get_llm_adapter", lambda settings: fake)
+    with connect(db_path) as conn:
+        llmmod.llm_stage(_stage_ctx(conn, sid, {}))
+
+    assert fake.calls == []  # the model was never called
+    with connect(db_path) as conn:
+        count = conn.execute(
+            "SELECT COUNT(*) AS n FROM llm_results WHERE submission_id = ?", (sid,)
+        ).fetchone()["n"]
+    assert count == 0
+
+
+def test_llm_stage_skips_when_primary_filename_is_blank(tmp_path, monkeypatch):
+    """A label image with a blank filename has no readable path (it would resolve to
+    the fixtures directory) — the stage skips rather than calling a doomed provider."""
+    from app.pipeline import llm as llmmod
+
+    db_path = _make_db(tmp_path)
+    with connect(db_path) as conn:
+        sid = _insert_received(conn, status="PROCESSING")
+        _insert_image(conn, sid, filename="   ")  # whitespace-only
+
+    fake = _FakeModel()
+    monkeypatch.setattr(llmmod, "get_llm_adapter", lambda settings: fake)
+    with connect(db_path) as conn:
+        llmmod.llm_stage(_stage_ctx(conn, sid, {}))
+
+    assert fake.calls == []  # the model was never called
+    with connect(db_path) as conn:
+        count = conn.execute(
+            "SELECT COUNT(*) AS n FROM llm_results WHERE submission_id = ?", (sid,)
+        ).fetchone()["n"]
+    assert count == 0
+
+
+def test_llm_stage_skips_entirely_when_adapter_is_none(tmp_path, monkeypatch):
+    """AC2: factory None ⇒ the stage writes NO llm_results row and constructs nothing."""
+    from app.pipeline import llm as llmmod
+
+    db_path = _make_db(tmp_path)
+    with connect(db_path) as conn:
+        sid = _insert_received(conn, status="PROCESSING")
+        _insert_image(conn, sid)
+
+    monkeypatch.setattr(llmmod, "get_llm_adapter", lambda settings: None)
+    with connect(db_path) as conn:
+        llmmod.llm_stage(_stage_ctx(conn, sid, {}))
+
+    with connect(db_path) as conn:
+        count = conn.execute(
+            "SELECT COUNT(*) AS n FROM llm_results WHERE submission_id = ?", (sid,)
+        ).fetchone()["n"]
+    assert count == 0
+
+
+def test_llm_stage_degrades_to_error_row_when_adapter_raises(tmp_path, monkeypatch):
+    """AC3: an unreachable provider (adapter raises) → an ERROR llm_results row that
+    captures provider + the error in result_text (the queryable degraded signal)."""
+    from app.pipeline import llm as llmmod
+
+    db_path = _make_db(tmp_path)
+    with connect(db_path) as conn:
+        sid = _insert_received(conn, status="PROCESSING")
+        _insert_image(conn, sid)
+
+    monkeypatch.setattr(llmmod, "get_llm_adapter", lambda settings: _FakeModel(raises=True))
+    with connect(db_path) as conn:
+        llmmod.llm_stage(_stage_ctx(conn, sid, {}))
+
+    with connect(db_path) as conn:
+        row = conn.execute(
+            "SELECT status, provider, result_text, requested_at, responded_at "
+            "FROM llm_results WHERE submission_id = ?",
+            (sid,),
+        ).fetchone()
+    assert row is not None
+    assert row["status"] == "ERROR"
+    assert row["provider"] == "local"  # identity preserved on the degraded row
+    assert "unreachable" in (row["result_text"] or "")
+    # The stage-level fallback stamps timing too, so even a raising adapter is honest.
+    assert row["requested_at"] and row["responded_at"]
+
+
+def test_pipeline_llm_disabled_reaches_ready_ocr_only_constructs_nothing(tmp_path, monkeypatch):
+    """AC2/AC5: with LLM_ENABLED unset (default off) the full pipeline finalizes
+    OCR-only — submission reaches READY_FOR_REVIEW, NO llm_results row exists, and the
+    adapter factory constructs NOTHING (no provider SDK, no client, no socket)."""
+    import app.config as cfg
+    from app.pipeline import ocr as ocrmod
+
+    for key in ("LLM_ENABLED", "LLM_PROVIDER", "OPENAI_API_KEY", "ANTHROPIC_API_KEY"):
+        monkeypatch.delenv(key, raising=False)
+    constructed: list = []
+    monkeypatch.setattr(cfg, "_construct_adapter", lambda *a, **k: constructed.append(1))
+    monkeypatch.setattr(
+        ocrmod, "build_engines", lambda: [_StubOcr("tesseract"), _StubOcr("paddleocr")]
+    )
+
+    db_path = _make_db(tmp_path)
+    with connect(db_path) as conn:
+        sid = _insert_received(conn, ttb_id="26001000000600")
+        _insert_image(conn, sid, filename="missing.jpg")
+
+    run.process_submission(str(db_path), sid)
+
+    with connect(db_path) as conn:
+        sub = repo.get_submission(conn, sid)
+        llm_count = conn.execute(
+            "SELECT COUNT(*) AS n FROM llm_results WHERE submission_id = ?", (sid,)
+        ).fetchone()["n"]
+    assert sub is not None and sub.status == "READY_FOR_REVIEW"
+    assert llm_count == 0
+    assert constructed == []  # zero-egress: the model layer was never constructed
+
+
+def test_pipeline_llm_enabled_persists_row_and_still_finalizes(tmp_path, monkeypatch):
+    """AC3/AC4 end-to-end: with a fake adapter wired, the full pipeline writes the
+    llm_results row AND the submission still reaches READY_FOR_REVIEW (the model layer
+    is additive, never a hard dependency; the read path never blocks)."""
+    from app.pipeline import llm as llmmod
+    from app.pipeline import ocr as ocrmod
+
+    monkeypatch.setattr(
+        ocrmod, "build_engines", lambda: [_StubOcr("tesseract"), _StubOcr("paddleocr")]
+    )
+    monkeypatch.setattr(llmmod, "get_llm_adapter", lambda settings: _FakeModel())
+
+    db_path = _make_db(tmp_path)
+    with connect(db_path) as conn:
+        sid = _insert_received(conn, ttb_id="26001000000601")
+        _insert_image(conn, sid, filename="missing.jpg")
+
+    run.process_submission(str(db_path), sid)
+
+    with connect(db_path) as conn:
+        sub = repo.get_submission(conn, sid)
+        row = conn.execute(
+            "SELECT status, total_tokens FROM llm_results WHERE submission_id = ?", (sid,)
+        ).fetchone()
+    assert sub is not None and sub.status == "READY_FOR_REVIEW"
+    assert row is not None and row["status"] == "OK" and row["total_tokens"] == 30

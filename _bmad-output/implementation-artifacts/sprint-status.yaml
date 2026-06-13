@@ -48,6 +48,15 @@ project: TTB-label-POC
 # story 2.1 moved review -> done on 2026-06-12 (code review: 3 patches applied, 3 deferred)
 # story 2.2 moved review -> done on 2026-06-12 (code review: 3 patches applied, 5 deferred)
 # story 2.3 moved review -> done on 2026-06-13 (code review: 3 patches applied, 5 deferred)
+# story 2.5 moved ready-for-dev -> in-progress on 2026-06-13 (dev-story)
+# story 2.5 moved in-progress -> review on 2026-06-13 (dev-story: 18 new tests, 174 suite green / 1 skip; egress boundary enforced offline, full Docker --network none sweep carried forward)
+# story 2.5 REWORKED in review on 2026-06-13 (code review caught a spec deviation: model was fed OCR text; reworked to pure VLM-only image extraction per PRD FR-12/FR-21-22; OCR+LLM hybrid documented as future-only)
+# story 2.5 moved review -> done on 2026-06-13 (re-review: VLM-only purity held, all ACs satisfied; 2 patches applied + 5 deferred/build-host; 183 suite green / 1 skip)
+# epic-2 moved in-progress -> done on 2026-06-13 (all stories 2.1-2.5 done; pre-compute pipeline + multi-engine extraction + VLM-only complete)
+# epic-3 backlog -> in-progress; story 3.1 backlog -> ready-for-dev on 2026-06-13 (create-story)
+# story 3.2 backlog -> ready-for-dev on 2026-06-13 (create-story)
+# story 3.3 backlog -> ready-for-dev on 2026-06-13 (create-story)
+# story 3.4 backlog -> ready-for-dev on 2026-06-13 (create-story)
 project_key: NOKEY
 tracking_system: file-system
 story_location: _bmad-output/implementation-artifacts
@@ -64,20 +73,20 @@ development_status:
   epic-1-retrospective: optional
 
   # Epic 2: Pre-compute Pipeline & Multi-Engine Extraction
-  epic-2: in-progress
+  epic-2: done
   2-1-engine-agnostic-ocr-llm-adapter-contracts: done
   2-2-background-sweep-and-submission-lifecycle: done
   2-3-local-opencv-image-preprocessing: done
   2-4-tesseract-paddleocr-extraction-both-image-variants: done
-  2-5-toggleable-llm-extraction-and-ocr-only-fallback: ready-for-dev
+  2-5-toggleable-llm-extraction-and-ocr-only-fallback: done
   epic-2-retrospective: optional
 
   # Epic 3: Compliance Engine & Rulesets
-  epic-3: backlog
-  3-1-normalization-and-verdict-roll-up-contracts: backlog
-  3-2-rulesets-as-data-executor-with-verdict-provenance: backlog
-  3-3-field-match-check-with-tolerance-bands: backlog
-  3-4-government-warning-exact-verification: backlog
+  epic-3: in-progress
+  3-1-normalization-and-verdict-roll-up-contracts: ready-for-dev
+  3-2-rulesets-as-data-executor-with-verdict-provenance: ready-for-dev
+  3-3-field-match-check-with-tolerance-bands: ready-for-dev
+  3-4-government-warning-exact-verification: ready-for-dev
   3-5-per-type-deterministic-format-checks: backlog
   3-6-hybrid-class-type-designation-check: backlog
   3-7-flag-only-checks-surface-as-review: backlog

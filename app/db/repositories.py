@@ -128,6 +128,25 @@ def list_label_images(conn: sqlite3.Connection, submission_id: int) -> list[Labe
     return [LabelImage.model_validate(dict(row)) for row in rows]
 
 
+def get_submission_ocr_text(conn: sqlite3.Connection, submission_id: int) -> str:
+    """The submission's OCR text — every ``OK`` ``ocr_results`` row joined in id order.
+
+    The input the **deterministic compliance engine** (Epic 3 — Field Match,
+    Government Warning) reads to locate/compare values; per-field parsing into
+    ``field_comparisons`` is Epic 3, not here. It is deliberately **never** fed to the
+    VLM extraction stage (Story 2.5) — the model reads the label image on its own so
+    the OCR-vs-model benchmark stays a true head-to-head. ``ERROR`` rows and rows with
+    NULL/blank ``extracted_text`` are skipped; returns an empty string when there is no
+    readable text."""
+    rows = conn.execute(
+        "SELECT extracted_text FROM ocr_results "
+        "WHERE submission_id = ? AND status = 'OK' AND extracted_text IS NOT NULL "
+        "AND TRIM(extracted_text) <> '' ORDER BY id",
+        (submission_id,),
+    ).fetchall()
+    return "\n".join(row["extracted_text"] for row in rows)
+
+
 # ── pipeline write helpers (Story 2.1) ───────────────────────────────────────
 # Persist the centralized adapter shapes. Each engine/model gets its OWN row
 # (per-engine/per-model storage, never merged — AR-4). The contract→column

@@ -38,6 +38,7 @@ Pinned in `_bmad-output/planning-artifacts/approved-tech-stack.md` (version-of-r
 - **Adapters depend on protocols, never concretes:** `engine/` and `pipeline/` import `adapters/*/base.py`, never a specific engine/provider. Adding an engine/model = a new adapter file, NO schema or caller change.
 - **CFR rules live as data** (Ruleset rows with citation + source date), NEVER hard-coded in check logic.
 - **Determinism taxonomy:** rule-bound checks are deterministic code (no LLM). The Government Warning check NEVER calls an LLM. LLM-assisted verdicts are capped at REVIEW — an LLM opinion alone never yields FAIL.
+- **VLM-only — a model reads the IMAGE, never OCR text (hard rule, whole POC):** any LLM/VLM call — the extraction stage (Story 2.5) AND the hybrid class/type check (Story 3.6) — is handed the label **image** and produces its own reading. OCR text/results MUST NEVER be passed into a model call as input — no OCR→LLM hint, no OCR-assisted prompt, no OCR+LLM hybrid — **anywhere** in the POC. OCR text feeds ONLY the deterministic engine (Field Match, Government Warning), via `get_submission_ocr_text`. This keeps the OCR-vs-model benchmark an honest head-to-head (FR-12/FR-21-22). The OCR+LLM hybrid is a documented **future consideration only** (`docs/tradeoffs-and-limitations.md` B10; benchmarking-plan scope note). In review, any code that passes OCR output into a model call is a finding.
 
 ### The Four Centralized Contracts (import, never re-implement)
 
