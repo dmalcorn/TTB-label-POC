@@ -5,32 +5,25 @@ The authoritative AI rules for this codebase live in
 writing code and follow it exactly. This file adds operational notes that agents
 working in this repo need.
 
-## Docker Desktop IS available — use the dev container for native deps
+## Validate on the HOST venv — do NOT run CI inside the container (for now)
 
-Docker Desktop is installed and the daemon is running on this machine. The dev
-container is the canonical environment for anything that needs native OCR/image
-deps (Tesseract, OpenCV, PaddleOCR) or the offline-pinned runtime. **Do not report
-"Docker unavailable" — bring the container up and use it.**
+Validate your work with the **host venv** (Python 3.14): `bash scripts/ci.sh` or
+`.venv/Scripts/python.exe -m pytest -q`. It has every pure-Python dep and is fast.
 
-- The compose service is **`web`** (see [`compose.yaml`](compose.yaml)), built from
-  [`Dockerfile`](Dockerfile). (Note: the service is `web`, not `app`.)
-- Bring it up:  `docker compose up -d web`  (first run builds the image — slow once).
-- Run commands inside it:
-  - tests:  `docker compose exec -T web pytest -q`
-  - the full gate:  `docker compose exec -T web bash scripts/ci.sh`
-  - a shell:  `docker compose exec web bash`
-- `scripts/ci.sh` auto-detects a **running** `web` container and dispatches its
-  checks into it for dependency parity. If the container isn't up it degrades to
-  host-side with a warning — so if you see that warning and need real deps, run
-  `docker compose up -d web` first, then re-run.
+**Do NOT try to run the test/CI suite inside the `web` Docker container.** The
+container COPYs the source at build time (no bind-mount in `compose.yaml`), so it
+holds a **frozen, stale** snapshot — `docker compose exec web …` would test old code,
+not your edits. Don't `docker compose up -d` to "get dep parity for CI"; it won't
+reflect your changes and just wastes time. (Live bind-mounted container CI is a
+planned future enhancement; until then, host validation is canonical.)
 
-### Which environment to use
-- **Pure-Python stories** (e.g. Epic-3 normalization / verdict roll-up — no OCR,
-  no image processing): the **host venv** (Python 3.14) is fine and faster.
-- **Anything touching OCR / image / native deps, or a zero-egress / firewall
-  check** (NFR-2): use the **`web` container** so deps and behavior match the
-  shipped image. The egress smoke test is
-  `docker run --rm --network none -e LLM_ENABLED=false ttb-label-poc`.
+mypy note: the host has no `cv2`/OCR natives, so `mypy --ignore-missing-imports`
+treats those as `Any` — type errors in code that imports them won't surface
+host-side. That's expected; don't chase it.
+
+The container/image is for **building the production artifact and the zero-egress
+smoke test** (NFR-2): `docker run --rm --network none -e LLM_ENABLED=false ttb-label-poc`
+— not for live development CI.
 
 ## CI
 
