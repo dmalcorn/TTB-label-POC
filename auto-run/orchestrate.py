@@ -736,9 +736,11 @@ def drive_story(cfg: Config, log: RunLog, story: str) -> None:
             raise Halt(f"story {story} in unexpected status '{status}'")
         phase = PHASE_FOR_STATUS[status]
         log.say(f"  story {story}: status={status} → phase={phase}")
-        # Pass the explicit story id so the persona's CS/DS/CR commands target it
-        # by name (not "the next story") — deterministic, like the shipyard factory.
-        run_claude(cfg, log, prompt_text(phase, STORY=story), f"{story}__{phase}")
+        # Pass the short numeric id ("3-3", not the full slug) for the persona's
+        # CS/DS/CR commands — deterministic, and the form BMAD expects.
+        m = STORY_KEY_RE.match(story)
+        story_id = m.group(0).rstrip("-") if m else story
+        run_claude(cfg, log, prompt_text(phase, STORY_ID=story_id), f"{story}__{phase}")
 
         new = status_of(cfg, story)
         if STATUS_RANK.get(new, -1) <= STATUS_RANK.get(status, -1):

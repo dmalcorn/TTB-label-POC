@@ -9,25 +9,34 @@ on tie-breaks. Do not run `sleep` or poll background tasks.
 IMMEDIATE ACTION REQUIRED — your VERY FIRST action must be to invoke the agent
 persona, NOT a task skill:
 
-  Step 1: Use the Skill tool to invoke **`bmad-agent-dev`** (the developer agent,
-          Amelia). Become that persona. Do NOT invoke `bmad-create-story` or
+  Step 1: Use the Skill tool to invoke **`bmad-agent-dev`** (the developer agent).
+          Adopt that persona fully. Do NOT invoke `bmad-create-story` or
           `bmad-dev-story` directly — run them only through the agent's menu
           commands below.
 
-  Step 2: As the dev agent, do BOTH of the following in this one session, carrying
-          context forward without re-reading the planning artifacts twice:
+  Step 2: As that agent, do BOTH of the following for story **{{STORY_ID}}** in
+          this one session, carrying context forward without re-reading the
+          planning artifacts twice:
 
-          (a) CREATE-OR-VERIFY the spec for story **{{STORY}}**. If the file
-              `_bmad-output/implementation-artifacts/{{STORY}}.md` does not exist
-              yet, run the create-story command — **CS for story {{STORY}}** — to
-              create exactly that story with full implementation context, then
+          (a) CREATE-OR-VERIFY the story spec. If the spec for story {{STORY_ID}}
+              does not exist yet, run the create-story command — **CS for story
+              {{STORY_ID}}** — to create it with full implementation context, then
               continue. If it already exists, verify it is complete and correct,
               then continue — do NOT recreate it.
 
-          (b) IMPLEMENT it — **DS for story {{STORY}}**: test-first
+          (b) IMPLEMENT it — **DS for story {{STORY_ID}}**: test-first
               (red → green → refactor), satisfy EVERY acceptance criterion, tasks
               in the sequence written. The pytest suite MUST be green before you
               finish; never weaken or skip tests to get there.
+
+  Step 3: After completing the work, end your response with this block:
+
+          === AGENT IDENTIFICATION ===
+          Agent: [your agent type, e.g. DEV Agent]
+          Persona: [your persona name, from the agent file you loaded]
+          Loaded files:
+            - [exact path to each file you read during activation]
+          === END IDENTIFICATION ===
 
 Hard requirements:
 - Honor `_bmad-output/project-context.md` exactly: the four centralized contracts
@@ -38,5 +47,5 @@ Hard requirements:
   pytest -q`); do NOT run CI inside the Docker container (it holds a frozen,
   baked-in copy of the source). See CLAUDE.md.
 - End with `_bmad-output/implementation-artifacts/sprint-status.yaml` showing
-  story {{STORY}} at `review`.
+  story {{STORY_ID}} at `review`.
 - Do NOT commit, push, or run the code-review skill — later phases do that.

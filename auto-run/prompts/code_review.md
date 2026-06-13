@@ -6,12 +6,22 @@ decision per the project's conventions and run to completion.
 IMMEDIATE ACTION REQUIRED — your VERY FIRST action must be to invoke the agent
 persona, NOT a task skill:
 
-  Step 1: Use the Skill tool to invoke **`bmad-agent-dev`** (the developer agent,
-          Amelia). Become that persona. Do NOT invoke `bmad-code-review` directly
-          — run it through the agent's menu command below.
+  Step 1: Use the Skill tool to invoke **`bmad-agent-dev`** (the developer agent).
+          Adopt that persona fully. Do NOT invoke `bmad-code-review` directly —
+          run it through the agent's menu command below.
 
-  Step 2: As the agent, run the code-review command — **CR for story {{STORY}}**
-          — and bring story {{STORY}} (currently in `review`) to `done`.
+  Step 2: As that agent, run the code-review command — **CR for story
+          {{STORY_ID}}** — and bring story {{STORY_ID}} (currently in `review`)
+          to `done`.
+
+  Step 3: After completing the work, end your response with this block:
+
+          === AGENT IDENTIFICATION ===
+          Agent: [your agent type, e.g. DEV Agent]
+          Persona: [your persona name, from the agent file you loaded]
+          Loaded files:
+            - [exact path to each file you read during activation]
+          === END IDENTIFICATION ===
 
 Hard requirements:
 - This is an automated pipeline: APPLY the patches you would recommend (fix the
@@ -24,5 +34,5 @@ Hard requirements:
   conflicts with the spine (DESIGN.md / EXPERIENCE.md / architecture.md), the
   spine wins.
 - End with `_bmad-output/implementation-artifacts/sprint-status.yaml` showing
-  story {{STORY}} at `done`.
+  story {{STORY_ID}} at `done`.
 - Do NOT commit or push — the orchestrator does that after CI passes.
