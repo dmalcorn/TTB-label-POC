@@ -83,7 +83,13 @@ class Halt(Exception):
 @dataclass
 class Config:
     raw: dict
+    # `repo_root` is WHERE PHASES RUN: the main checkout in single-tree mode, or
+    # the worktree once one is set up (rebound in main, along with sprint_status
+    # and ci_script). `canonical_repo` is the main checkout where .git lives —
+    # the only place `git worktree add/remove/prune` may run. They're equal until
+    # a worktree is created.
     repo_root: Path
+    canonical_repo: Path
     sprint_status: Path
     ci_script: Path
     add_dirs: list[str]
@@ -104,6 +110,17 @@ class Config:
     def git(self) -> dict:
         return self.raw["git"]
 
+    @property
+    def worktree(self) -> dict:
+        return self.raw.get("worktree", {"enabled": False})
+
+    def rebind_to(self, work_root: Path) -> None:
+        """Point phase/CI/status paths at a new working dir (the worktree)."""
+        paths = self.raw["paths"]
+        self.repo_root = work_root
+        self.sprint_status = (work_root / paths["sprint_status"]).resolve()
+        self.ci_script = (work_root / paths["ci_script"]).resolve()
+
 
 def load_config(path: Path) -> Config:
     with path.open("rb") as fh:
@@ -113,6 +130,7 @@ def load_config(path: Path) -> Config:
     return Config(
         raw=raw,
         repo_root=repo_root,
+        canonical_repo=repo_root,
         sprint_status=(repo_root / paths["sprint_status"]).resolve(),
         ci_script=(repo_root / paths["ci_script"]).resolve(),
         add_dirs=list(paths.get("add_dirs", [])),
@@ -221,6 +239,11 @@ def run_claude(cfg: Config, log: RunLog, prompt: str, label: str) -> None:
             env=child_env(),
             text=True,
             capture_output=True,
+            # REQUIRED: launched from a detached process, the inherited stdin is an
+            # open pipe that never sends EOF. `claude -p` reads stdin when it isn't
+            # a TTY, so without this it blocks forever before doing any work.
+            # See auto-run/FINDINGS-01-stdin-hang.md.
+            stdin=subprocess.DEVNULL,
             timeout=c["phase_timeout_sec"],
         )
     except subprocess.TimeoutExpired:
@@ -258,13 +281,19 @@ def prompt_text(name: str, **subs: str) -> str:
 # --- git + ci -------------------------------------------------------------
 
 
-def git(cfg: Config, *args: str, check: bool = True) -> subprocess.CompletedProcess[str]:
+def git(
+    cfg: Config, *args: str, check: bool = True, cwd: Path | None = None
+) -> subprocess.CompletedProcess[str]:
+    # Default cwd is the working tree (cfg.repo_root). Worktree management must
+    # pass cwd=cfg.canonical_repo — you cannot `git worktree remove` from inside
+    # the worktree being removed.
     return subprocess.run(
         ["git", *args],
-        cwd=cfg.repo_root,
+        cwd=cwd or cfg.repo_root,
         env=child_env(),
         text=True,
         capture_output=True,
+        stdin=subprocess.DEVNULL,  # never block on stdin in a detached run (FINDINGS-01)
         check=check,
     )
 
@@ -287,6 +316,7 @@ def run_ci(cfg: Config, log: RunLog, fix: bool) -> tuple[bool, str]:
         env=child_env(),
         text=True,
         capture_output=True,
+        stdin=subprocess.DEVNULL,  # never block on stdin in a detached run (FINDINGS-01)
     )
     combined = (proc.stdout or "") + "\n" + (proc.stderr or "")
     return proc.returncode == 0, combined
@@ -347,11 +377,72 @@ def commit_and_push(cfg: Config, log: RunLog, story: str) -> None:
     log.say(f"  committed {story}")
 
     if cfg.git["push"]:
-        res = git(cfg, "push", cfg.git["remote"], "HEAD", check=False)
+        # -u sets upstream on first push of a fresh worktree branch; harmless on
+        # repeat. In worktree mode HEAD is the per-run branch, so this pushes the
+        # run branch for human review — never a direct write to main.
+        res = git(cfg, "push", "-u", cfg.git["remote"], "HEAD", check=False)
         if res.returncode != 0:
             (log.run_dir / "push-failure.txt").write_text(res.stdout + "\n" + res.stderr, "utf-8")
             raise Halt("git push failed (committed locally; see push-failure.txt)")
-        log.say(f"  pushed to {cfg.git['remote']}")
+        branch = git(cfg, "rev-parse", "--abbrev-ref", "HEAD", check=False).stdout.strip()
+        log.say(f"  pushed {branch} to {cfg.git['remote']}")
+        if cfg.worktree.get("enabled"):
+            log.say(f"  → review & merge: open a PR for '{branch}' (do NOT auto-merge)")
+
+
+# --- worktree isolation ---------------------------------------------------
+
+
+def worktree_path(cfg: Config, run_id: str) -> Path:
+    rel = cfg.worktree.get("path_template", "../ttb-autorun-{run_id}").replace("{run_id}", run_id)
+    return (cfg.canonical_repo / rel).resolve()
+
+
+def worktree_branch(cfg: Config, run_id: str) -> str:
+    return f"{cfg.worktree.get('branch_prefix', 'auto/run')}-{run_id}"
+
+
+def setup_worktree(cfg: Config, log: RunLog, run_id: str) -> tuple[Path, str]:
+    """Create a fresh worktree on its own branch off the PUSHED base_ref.
+
+    Runs entirely against the canonical repo. Returns (path, branch). Raises
+    Halt if the worktree can't be created (no half-state to clean up).
+    """
+    wt = cfg.worktree
+    base_ref = wt.get("base_ref", "origin/main")
+    remote = cfg.git.get("remote", "origin")
+    path = worktree_path(cfg, run_id)
+    branch = worktree_branch(cfg, run_id)
+
+    # Refresh remote-tracking refs so base_ref is current. Best-effort: an
+    # offline/transient fetch failure shouldn't abort the night — we branch off
+    # whatever origin/main we last saw and log the staleness.
+    fr = git(cfg, "fetch", remote, check=False, cwd=cfg.canonical_repo)
+    if fr.returncode != 0:
+        why = fr.stderr.strip()[:160]
+        log.say(f"  worktree: fetch warning (using last-known {base_ref}) — {why}")
+
+    # Clear any stale registrations / a same-named branch from a prior re-run so
+    # `worktree add -b` can recreate cleanly (git forbids two worktrees/one branch).
+    git(cfg, "worktree", "prune", check=False, cwd=cfg.canonical_repo)
+    git(cfg, "branch", "-D", branch, check=False, cwd=cfg.canonical_repo)
+
+    res = git(cfg, "worktree", "add", str(path), "-b", branch, base_ref,
+              check=False, cwd=cfg.canonical_repo)
+    if res.returncode != 0:
+        raise Halt(f"`git worktree add` failed: {(res.stderr or res.stdout).strip()[:400]}")
+    log.say(f"  worktree ready: {path}  (branch {branch} off {base_ref})")
+    return path, branch
+
+
+def remove_worktree(cfg: Config, log: RunLog, path: Path) -> None:
+    res = git(cfg, "worktree", "remove", "--force", str(path),
+              check=False, cwd=cfg.canonical_repo)
+    if res.returncode != 0:
+        why = (res.stderr or res.stdout).strip()[:200]
+        log.say(f"  worktree remove warning (leaving on disk) — {why}")
+    else:
+        log.say(f"  worktree removed: {path}")
 
 
 # --- per-story drive ------------------------------------------------------
@@ -416,6 +507,8 @@ def main() -> int:
 
     log.say(f"=== auto-run {run_id} | repo={cfg.repo_root} | model={cfg.claude['model']} ===")
 
+    worktree_enabled = bool(cfg.worktree.get("enabled"))
+
     if args.dry_run:
         statuses = read_statuses(cfg)
         story = next_story(statuses)
@@ -425,16 +518,47 @@ def main() -> int:
         st = statuses[story]
         log.say(f"DRY RUN: next story = {story} (status={st})")
         log.say(f"DRY RUN: would run phases starting at '{PHASE_FOR_STATUS.get(st)}' → CI → commit → push")
-        log.say(f"DRY RUN: tree dirty = {tree_dirty(cfg)} | once={once} | max_stories={max_stories}")
+        if worktree_enabled:
+            log.say(
+                f"DRY RUN: would create worktree at {worktree_path(cfg, run_id)} "
+                f"on branch '{worktree_branch(cfg, run_id)}' off {cfg.worktree.get('base_ref')} "
+                "(dirty-tree guard skipped in worktree mode)"
+            )
+        else:
+            log.say(f"DRY RUN: single-tree mode | tree dirty = {tree_dirty(cfg)}")
+        log.say(f"DRY RUN: once={once} | max_stories={max_stories}")
         return 0
 
-    if cfg.run.get("stop_on_dirty_tree", True) and tree_dirty(cfg):
-        log.say("HALT: working tree is dirty. Commit/stash existing changes before an unattended run.")
-        log.say(git(cfg, "status", "--short").stdout.rstrip())
+    # Single-instance lock: two concurrent runs race on the shared .git and could
+    # both try to `worktree add`. Atomic O_EXCL create; released only by the holder.
+    lock_path = SKILL_DIR / ".run.lock"
+    try:
+        fd = os.open(lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        os.write(fd, str(os.getpid()).encode())
+        os.close(fd)
+    except FileExistsError:
+        try:
+            existing = lock_path.read_text(encoding="utf-8").strip() or "?"
+        except OSError:
+            existing = "?"
+        log.say(f"HALT: another run holds {lock_path.name} (pid {existing}). Delete it if stale.")
         return 2
 
+    wt_path: Path | None = None
     completed = 0
+    halted = False
     try:
+        if worktree_enabled:
+            # Isolate: branch off the PUSHED base_ref, not the working tree — so a
+            # dirty main (or a human editing it) can't bleed in. No dirty-tree guard.
+            wt_path, _branch = setup_worktree(cfg, log, run_id)
+            cfg.rebind_to(wt_path)
+            log.say(f"  phases now run in worktree: {cfg.repo_root}")
+        elif cfg.run.get("stop_on_dirty_tree", True) and tree_dirty(cfg):
+            log.say("HALT: working tree is dirty. Commit/stash existing changes before an unattended run.")
+            log.say(git(cfg, "status", "--short").stdout.rstrip())
+            return 2
+
         while True:
             if stop_file.exists():
                 log.say("STOP sentinel present — halting gracefully.")
@@ -461,12 +585,26 @@ def main() -> int:
                 log.say("--once set — stopping after one story.")
                 break
     except Halt as exc:
+        halted = True
         log.say(f"HALT: {exc}")
         log.say(f"Stories completed this run: {completed}. Tree left as-is for review.")
         return 1
     except Exception as exc:  # noqa: BLE001 — last-ditch so the night ends cleanly
+        halted = True
         log.say(f"UNEXPECTED ERROR: {exc!r}")
         return 1
+    finally:
+        if worktree_enabled and wt_path is not None:
+            if halted:
+                log.say(
+                    f"  worktree LEFT for review: {wt_path} "
+                    f"(branch {worktree_branch(cfg, run_id)})"
+                )
+            elif cfg.worktree.get("cleanup_on_success", True):
+                remove_worktree(cfg, log, wt_path)
+            else:
+                log.say(f"  worktree left (cleanup_on_success=false): {wt_path}")
+        lock_path.unlink(missing_ok=True)
 
     log.say(f"=== run finished | stories completed: {completed} ===")
     return 0

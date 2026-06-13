@@ -19,6 +19,20 @@ extra_args    = []         # any extra claude flags, e.g. ["--verbose"]
 [ci]
 fix_attempts = 2           # if CI is red, run an LLM "fix" phase then re-check, up to N times
 
+[worktree]
+# Run the orchestrator inside a dedicated git worktree on its own branch —
+# its OWN index/HEAD, sharing the same .git object store as the main checkout.
+# This removes the single-shared-tree constraint: a human can edit auto-run/ (or
+# anything) on main while a run is live, and the run can even START with
+# uncommitted work on main, because it branches off `base_ref` (a PUSHED ref),
+# NOT the working tree. One worktree + one branch per run; per-story commits all
+# land on that branch and are pushed for human review (no auto-merge).
+enabled            = false                  # false = legacy single-tree mode (no regression)
+base_ref           = "origin/main"          # branch the run off this PUSHED ref (fetched first)
+branch_prefix      = "auto/run"             # branch name = "<branch_prefix>-<run_id>"
+path_template      = "../ttb-autorun-{run_id}"  # worktree dir, relative to the canonical repo root
+cleanup_on_success = true                   # `git worktree remove` after a fully green run; LEFT on halt
+
 [git]
 commit = true
 push   = true
