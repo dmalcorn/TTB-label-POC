@@ -87,9 +87,11 @@ def placeholder_evaluator(check: Check, ctx: CheckContext) -> CheckResult:
     return CheckResult(verdict=verdict.REVIEW, detail="not yet evaluated by the engine")
 
 
-# The {strategy: evaluator} registry. EMPTY in 3.2 — every lookup falls through to
-# the honest placeholder default (see `get_evaluator`). Stories 3.3–3.7 register
-# their real evaluator here (one line each), with no executor edit.
+# The {strategy: evaluator} registry. Every lookup falls through to the honest
+# placeholder default (see `get_evaluator`) for any not-yet-registered strategy.
+# Stories 3.3–3.7 register their real evaluator here (one line each), with no
+# executor edit. Story 3.3 registers ``field_match`` (see the bottom-of-module
+# registration — kept after the definitions to avoid an import cycle).
 EVALUATORS: dict[str, Evaluator] = {}
 
 
@@ -102,3 +104,12 @@ def get_evaluator(strategy: str) -> Evaluator:
     truthful REVIEW row instead of crashing the engine stage.
     """
     return EVALUATORS.get(strategy, placeholder_evaluator)
+
+
+# ── per-strategy registrations (Stories 3.3–3.7) ─────────────────────────────
+# Imported AFTER the seam definitions above so the evaluator modules can import
+# CheckContext/CheckResult from this package without a cycle. Each module's import
+# is the single line that wires its strategy into EVALUATORS.
+from app.engine.checks.field_match import field_match as _field_match  # noqa: E402
+
+EVALUATORS["field_match"] = _field_match

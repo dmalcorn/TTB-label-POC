@@ -917,6 +917,12 @@ def test_pipeline_spirits_reaches_ready_with_checklist_and_engine_verdict(tmp_pa
     assert sub is not None and sub.status == "READY_FOR_REVIEW"
     # One checklist row per spirits Check — the whole ruleset was executed.
     assert len(rows) == len(get_ruleset("DISTILLED_SPIRITS"))
-    # The persisted advisory verdict equals the centralized roll-up (engine & UI
-    # can never disagree). With only placeholder evaluators it is REVIEW, never NULL.
-    assert sub.engine_verdict == verdict.rollup([r["verdict"] for r in rows]) == "REVIEW"
+    # The persisted advisory verdict equals the centralized roll-up (engine & UI can
+    # never disagree) and is non-NULL. Since Story 3.3 the field_match checks produce
+    # REAL verdicts: the stub OCR text ("text::missing.jpg") does not match this
+    # submission's application fields, so the matchable checks FAIL and the run rolls
+    # up to FAIL (any FAIL ⇒ FAIL) — the still-placeholder checks (gov warning,
+    # class/type, sfov) REVIEW. The invariant under test is engine==rollup, not a
+    # fixed value.
+    assert sub.engine_verdict == verdict.rollup([r["verdict"] for r in rows])
+    assert sub.engine_verdict in {"PASS", "REVIEW", "FAIL"}

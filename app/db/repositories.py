@@ -462,3 +462,122 @@ def delete_checklist_items(conn: sqlite3.Connection, submission_id: int) -> None
         "DELETE FROM checklist_items WHERE submission_id = ?",
         (submission_id,),
     )
+
+
+# ── field-comparison write + extracted-value reads (Story 3.3) ───────────────
+# The raw SQL the field-match evaluator (`app/engine/checks/field_match.py`) uses
+# to persist one `field_comparisons` row per matchable field and to resolve the
+# EXTRACTED-value source (the highest-confidence OCR row, or the latest OK LLM
+# extraction). Raw SQL stays inside `app/db/` (the data boundary). Like the
+# 2.1/2.2/3.2 helpers the write DOES NOT commit — the engine stage owns the unit of
+# work so a submission's whole checklist + comparisons commit atomically.
+
+
+def delete_field_comparisons(conn: sqlite3.Connection, submission_id: int) -> None:
+    """Delete a submission's ``field_comparisons`` rows — the delete half of the
+    engine's delete-then-insert idempotency (a re-run must not duplicate comparison
+    rows alongside the checklist). The caller commits."""
+    conn.execute(
+        "DELETE FROM field_comparisons WHERE submission_id = ?",
+        (submission_id,),
+    )
+
+
+def insert_field_comparison(
+    conn: sqlite3.Connection,
+    submission_id: int,
+    *,
+    field_key: str,
+    application_value: str | None,
+    extracted_value: str | None,
+    match_status: str,
+    similarity: float | None = None,
+    source_ocr_result_id: int | None = None,
+    source_llm_result_id: int | None = None,
+) -> int:
+    """Insert one ``field_comparisons`` row (one per matchable field); return its id.
+
+    Stores the RAW (un-normalized) ``application_value``/``extracted_value`` — the UI
+    shows raw; normalization is comparison-only. ``match_status`` is the comparison
+    outcome (``MATCH/MISMATCH/MISSING/UNVERIFIABLE``); ``similarity`` is the
+    normalized 0–1 ratio (``None`` when not computed). Provenance is normalized: AT
+    MOST ONE source FK is set (the table ``CHECK`` enforces it) — the review UI's
+    ``v_field_comparisons`` view derives ``extracted_source`` from it. The caller
+    commits.
+    """
+    cur = conn.execute(
+        """
+        INSERT INTO field_comparisons
+            (submission_id, field_key, application_value, extracted_value,
+             source_ocr_result_id, source_llm_result_id, match_status, similarity)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            submission_id,
+            field_key,
+            application_value,
+            extracted_value,
+            source_ocr_result_id,
+            source_llm_result_id,
+            match_status,
+            similarity,
+        ),
+    )
+    assert cur.lastrowid is not None  # guaranteed by a successful INSERT
+    return cur.lastrowid
+
+
+def get_best_ocr_result_id(conn: sqlite3.Connection, submission_id: int) -> int | None:
+    """The id of the submission's highest-confidence ``OK`` ``ocr_results`` row.
+
+    The contributing OCR row the field-match evaluator records as the provenance FK
+    for an OCR-sourced extracted value (recommended: the most-confident reading).
+    ``NULL`` confidences sort last; ``None`` when the submission has no ``OK`` row.
+    """
+    row = conn.execute(
+        "SELECT id FROM ocr_results "
+        "WHERE submission_id = ? AND status = 'OK' "
+        "ORDER BY confidence IS NULL, confidence DESC, id LIMIT 1",
+        (submission_id,),
+    ).fetchone()
+    return int(row["id"]) if row is not None else None
+
+
+def get_best_ocr_confidence(conn: sqlite3.Connection, submission_id: int) -> float | None:
+    """The ``confidence`` of the submission's highest-confidence ``OK`` OCR row.
+
+    Used by the field-match low-confidence safety valve (``OCR_CONFIDENCE_FLOOR``):
+    an apparent match read from a low-confidence OCR row is forced to REVIEW.
+    ``None`` when there is no ``OK`` row or its confidence is NULL.
+    """
+    row = conn.execute(
+        "SELECT confidence FROM ocr_results "
+        "WHERE submission_id = ? AND status = 'OK' "
+        "ORDER BY confidence IS NULL, confidence DESC, id LIMIT 1",
+        (submission_id,),
+    ).fetchone()
+    if row is None or row["confidence"] is None:
+        return None
+    return float(row["confidence"])
+
+
+def get_latest_llm_extraction(
+    conn: sqlite3.Connection, submission_id: int
+) -> tuple[int, str] | None:
+    """The latest ``OK`` ``extract_fields`` ``llm_results`` row as ``(id, result_text)``.
+
+    The structured VLM extraction the field-match evaluator parses per ``field_key``
+    (the LLM-assisted extracted-value source; provenance FK = this row id). Scoped to
+    the displayed extraction (``is_benchmark_only = 0``); ``None`` when the model
+    layer was off (the OCR-only path). Most-recent row wins (``id`` DESC).
+    """
+    row = conn.execute(
+        "SELECT id, result_text FROM llm_results "
+        "WHERE submission_id = ? AND task = 'extract_fields' AND status = 'OK' "
+        "AND is_benchmark_only = 0 AND result_text IS NOT NULL "
+        "ORDER BY id DESC LIMIT 1",
+        (submission_id,),
+    ).fetchone()
+    if row is None:
+        return None
+    return (int(row["id"]), row["result_text"])

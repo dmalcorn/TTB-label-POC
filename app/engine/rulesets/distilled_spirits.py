@@ -57,21 +57,27 @@ DISTILLED_SPIRITS_RULESET: tuple[Check, ...] = (
         field_key="class_type_designation",
     ),
     Check(
+        # The matchable fields route to the Story-3.3 ``field_match`` evaluator
+        # (application value vs OCR/LLM-extracted value, three-band tolerance), so
+        # check_type is FIELD_MATCH: the field-match component is what the engine
+        # confirms here. Story 3.5's per-type FORMAT checks (ABV format/abbreviation,
+        # metric standards-of-fill) are a SEPARATE concern added under their own
+        # strategy later — they augment, not replace, this comparison.
         check_key="alcohol_content",
         label="Alcohol content",
-        check_type="HYBRID",
+        check_type="FIELD_MATCH",
         cfr_citation="27 CFR 5.65",
         source_date=_SOURCE_DATE,
-        strategy="format_checks",
+        strategy="field_match",
         field_key="alcohol_content",
     ),
     Check(
         check_key="net_contents",
         label="Net contents",
-        check_type="HYBRID",
+        check_type="FIELD_MATCH",
         cfr_citation="27 CFR 5.70",
         source_date=_SOURCE_DATE,
-        strategy="format_checks",
+        strategy="field_match",
         field_key="net_contents",
     ),
     Check(
@@ -83,10 +89,10 @@ DISTILLED_SPIRITS_RULESET: tuple[Check, ...] = (
         # the comparison link.
         check_key="name_address",
         label="Name and address",
-        check_type="HYBRID",
+        check_type="FIELD_MATCH",
         cfr_citation="27 CFR 5.66",
         source_date=_SOURCE_DATE,
-        strategy="format_checks",
+        strategy="field_match",
         field_key="applicant_name_address",
     ),
     Check(

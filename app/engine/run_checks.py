@@ -72,7 +72,11 @@ def _detail_with_provenance(result: CheckResult) -> str | None:
     return result.detail
 
 
-def run_checks(conn: sqlite3.Connection, submission: repo.Submission) -> str:
+def run_checks(
+    conn: sqlite3.Connection,
+    submission: repo.Submission,
+    scratch: dict | None = None,
+) -> str:
     """Execute a submission's ruleset into a checklist + rolled-up engine verdict.
 
     Loads ``get_ruleset(submission.beverage_type)``; for each Check, dispatches to
@@ -80,14 +84,23 @@ def run_checks(conn: sqlite3.Connection, submission: repo.Submission) -> str:
     rolls the per-check verdicts up via ``verdict.rollup`` and persists
     ``engine_verdict``. Returns the rolled-up verdict.
 
-    Idempotent: prior ``checklist_items`` rows for the submission are cleared first
-    (delete-then-insert) so re-processing (a re-sweep / reset) does not duplicate
-    rows. The caller (the engine stage) owns the commit.
+    Idempotent: prior ``checklist_items`` AND ``field_comparisons`` rows for the
+    submission are cleared first (delete-then-insert) so re-processing (a re-sweep /
+    reset) does not duplicate rows. The caller (the engine stage) owns the commit.
+
+    ``scratch`` is the pipeline's forward-seam dict (``StageContext.scratch``) —
+    Story 2.5's ``llm_stage`` stashes its structured extraction at
+    ``scratch["llm_extraction"]``; the field-match evaluator (Story 3.3) reads it (or
+    falls back to the persisted ``OK`` ``llm_results`` row). Defaults to empty so a
+    direct caller / the OCR-only path needs nothing.
     """
     submission_id = submission.id
     ruleset = get_ruleset(submission.beverage_type)
 
-    # delete-then-insert idempotency: a re-run replaces the checklist, never appends.
+    # delete-then-insert idempotency: a re-run replaces the checklist + comparisons,
+    # never appends. field_comparisons is deleted first so a checklist_items row's
+    # ON DELETE SET NULL FK does not strand a stale comparison link.
+    repo.delete_field_comparisons(conn, submission_id)
     repo.delete_checklist_items(conn, submission_id)
 
     # The deterministic engine's input is the submission's joined OCR text — read it
@@ -98,6 +111,7 @@ def run_checks(conn: sqlite3.Connection, submission: repo.Submission) -> str:
         submission=submission,
         ocr_text=repo.get_submission_ocr_text(conn, submission_id),
         llm_results=[],
+        scratch=scratch or {},
     )
 
     per_check_verdicts: list[str] = []
@@ -132,7 +146,7 @@ def engine_stage(ctx: StageContext) -> None:
     the submission still finalizes (FR-9). Commits once at the end (commit-per-stage).
     """
     try:
-        run_checks(ctx.conn, ctx.submission)
+        run_checks(ctx.conn, ctx.submission, scratch=ctx.scratch)
         ctx.conn.commit()
     except Exception:  # noqa: BLE001 — record honestly, never abort the submission
         # ``run_checks`` is a delete-then-insert unit of work with NO commit inside,
