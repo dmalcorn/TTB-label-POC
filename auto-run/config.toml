@@ -23,6 +23,9 @@ fix_attempts = 2           # if CI is red, run an LLM "fix" phase then re-check,
 commit = true
 push   = true
 remote = "origin"          # pushes the CURRENT branch (main) to this remote
+# Paths a STORY commit must never include. Walls the harness off from story
+# commits so you can edit auto-run/ in parallel without it being swept in.
+exclude_paths = ["auto-run"]
 
 [paths]
 # All relative to the repo root (the parent of auto-run/). Override repo_root if needed.

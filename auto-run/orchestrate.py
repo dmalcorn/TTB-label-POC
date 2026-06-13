@@ -273,6 +273,11 @@ def tree_dirty(cfg: Config) -> bool:
     return bool(git(cfg, "status", "--porcelain").stdout.strip())
 
 
+def anything_staged(cfg: Config) -> bool:
+    # `git diff --cached --quiet` exits 1 when there ARE staged changes.
+    return git(cfg, "diff", "--cached", "--quiet", check=False).returncode != 0
+
+
 def run_ci(cfg: Config, log: RunLog, fix: bool) -> tuple[bool, str]:
     flag = ["--fix"] if fix else []
     log.say(f"  → ci.sh {' '.join(flag) or '(check)'}")
@@ -314,12 +319,21 @@ def commit_and_push(cfg: Config, log: RunLog, story: str) -> None:
         "(create-story -> dev-story -> code-review -> CI).\n\n"
         "Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
     )
+    # Scope staging so a story commit can NEVER include excluded paths (e.g. the
+    # auto-run/ harness, which a human may be editing in parallel). Positive '.'
+    # + exclude pathspecs from the repo root.
+    excludes = list(cfg.git.get("exclude_paths", []))
+    pathspec = [".", *(f":(exclude){p}" for p in excludes)]
+
     # pre-commit fixers may rewrite files and fail the first commit; re-add and retry.
     committed = False
     for attempt in range(3):
-        git(cfg, "add", "-A")
-        if not tree_dirty(cfg):
-            raise Halt(f"nothing staged to commit for {story} (did a phase produce no changes?)")
+        git(cfg, "add", "-A", "--", *pathspec)
+        if not anything_staged(cfg):
+            raise Halt(
+                f"nothing staged to commit for {story} "
+                f"(no changes outside excludes={excludes}; did a phase produce nothing?)"
+            )
         res = git(cfg, "commit", "-m", msg, check=False)
         if res.returncode == 0:
             committed = True
