@@ -42,7 +42,7 @@ import threading
 import time
 import tomllib
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 # --- status model ---------------------------------------------------------
@@ -153,7 +153,7 @@ class RunLog:
         self.log_file = self.run_dir / "run.log"
 
     def say(self, msg: str) -> None:
-        stamp = datetime.now(timezone.utc).strftime("%H:%M:%S")
+        stamp = datetime.now(UTC).strftime("%H:%M:%S")
         line = f"[{stamp}] {msg}"
         print(line, flush=True)
         with self.log_file.open("a", encoding="utf-8") as fh:
@@ -211,21 +211,24 @@ def child_env() -> dict[str, str]:
     return env
 
 
-def _tool_brief(name: str, inp: dict | None) -> str:
+def _tool_brief(name: str, inp: dict | None, arg_chars: int) -> str:
     """`Edit: app/normalize.py`, `Bash: pytest -q`, etc. — the gist of a tool call."""
     inp = inp or {}
     for key in ("file_path", "path", "command", "pattern", "description", "prompt", "url", "query"):
         val = inp.get(key)
         if val:
-            return f"{name}: {str(val).replace(chr(10), ' ')[:100]}"
+            return f"{name}: {str(val).replace(chr(10), ' ')[:arg_chars]}"
     return name
 
 
-def _render_event(evt: dict) -> list[str]:
+def _render_event(
+    evt: dict, *, arg_chars: int = 200, text_chars: int = 2000, result_chars: int = 400
+) -> list[str]:
     """Human-readable play-by-play lines for one stream-json event (may be several).
 
     This is what the operator watches scroll by in the terminal — the model's
     narration, every tool call/edit, and tool results — not a throttled summary.
+    Per-item char caps come from the [log] config block so they're tunable.
     """
     t = evt.get("type")
     lines: list[str] = []
@@ -237,11 +240,11 @@ def _render_event(evt: dict) -> list[str]:
                 continue
             bt = b.get("type")
             if bt == "tool_use":
-                lines.append("-> " + _tool_brief(b.get("name", "?"), b.get("input")))
+                lines.append("-> " + _tool_brief(b.get("name", "?"), b.get("input"), arg_chars))
             elif bt == "text":
                 txt = (b.get("text") or "").strip()
                 if txt:
-                    lines.append(txt[:500])
+                    lines.append(txt[:text_chars])
             elif bt == "thinking":
                 lines.append("(thinking…)")
     elif t == "user":
@@ -258,7 +261,7 @@ def _render_event(evt: dict) -> list[str]:
             elif isinstance(content, str):
                 snippet = content.strip().replace("\n", " ")
             flag = "error" if b.get("is_error") else "ok"
-            lines.append(f"<- result ({flag}) {snippet[:80]}")
+            lines.append(f"<- result ({flag}) {snippet[:result_chars]}")
     # 'result' is the terminal event — the caller reports cost/turns; nothing here.
     return lines
 
@@ -300,6 +303,10 @@ def run_claude(cfg: Config, log: RunLog, prompt: str, label: str) -> None:
     hard_timeout = int(c["phase_timeout_sec"])
     stall_timeout = int(c.get("stall_timeout_sec", 0))  # 0 = disabled
     heartbeat = max(5, int(c.get("heartbeat_sec", 30)))
+    lg = cfg.raw.get("log", {})
+    arg_chars = int(lg.get("tool_arg_chars", 200))
+    text_chars = int(lg.get("text_chars", 2000))
+    result_chars = int(lg.get("result_chars", 400))
 
     log.say(
         f"  → claude phase '{label}' (model={c['model']}, max_turns={c['max_turns']}, "
@@ -326,7 +333,7 @@ def run_claude(cfg: Config, log: RunLog, prompt: str, label: str) -> None:
             stderr=subprocess.PIPE,
         )
     except FileNotFoundError:
-        raise Halt("`claude` CLI not found on PATH")
+        raise Halt("`claude` CLI not found on PATH") from None
 
     # Windows can't select() on pipes, so drain each stream in a daemon thread and
     # feed a queue the main loop polls — that lets us enforce the timeouts.
@@ -360,7 +367,10 @@ def run_claude(cfg: Config, log: RunLog, prompt: str, label: str) -> None:
             if now - start > hard_timeout:
                 stop(f"phase '{label}' exceeded {hard_timeout}s hard timeout (see {out_path.name})")
             if stall_timeout and now - last_event > stall_timeout:
-                stop(f"phase '{label}' stalled — no output for {stall_timeout}s (see {out_path.name})")
+                stop(
+                    f"phase '{label}' stalled — no output for {stall_timeout}s "
+                    f"(see {out_path.name})"
+                )
             try:
                 tag, line = q.get(timeout=2.0)
             except queue.Empty:
@@ -384,7 +394,9 @@ def run_claude(cfg: Config, log: RunLog, prompt: str, label: str) -> None:
             if evt.get("type") == "result":
                 result_evt = evt
             el = int(time.monotonic() - start)
-            for disp in _render_event(evt):
+            for disp in _render_event(
+                evt, arg_chars=arg_chars, text_chars=text_chars, result_chars=result_chars
+            ):
                 log.say(f"    [{short} {el}s] {disp}")
             last_beat = time.monotonic()
 
@@ -441,11 +453,29 @@ def anything_staged(cfg: Config) -> bool:
     return git(cfg, "diff", "--cached", "--quiet", check=False).returncode != 0
 
 
+def _gate_failed_to_launch(out: str) -> bool:
+    """True when bash couldn't even FIND/RUN the script (a broken gate, not a code failure).
+
+    The classic symptom on Windows was a backslash-mangled path:
+    `/bin/bash: C:alcorn…ci.sh: No such file or directory`. Don't waste LLM fix
+    attempts on code when the gate itself never ran.
+    """
+    o = out.lower()
+    return "ci.sh" in o and ("no such file or directory" in o or "command not found" in o)
+
+
 def run_ci(cfg: Config, log: RunLog, fix: bool) -> tuple[bool, str]:
     flag = ["--fix"] if fix else []
-    log.say(f"  → ci.sh {' '.join(flag) or '(check)'}")
+    # Pass bash a POSIX path. A Windows backslash path (C:\…\ci.sh) gets its
+    # backslashes eaten by bash → "No such file or directory" and the gate never
+    # runs. Relative-from-cwd is cleanest; fall back to forward-slashed absolute.
+    try:
+        script_arg = cfg.ci_script.relative_to(cfg.repo_root).as_posix()
+    except ValueError:
+        script_arg = str(cfg.ci_script).replace("\\", "/")
+    log.say(f"  → bash {script_arg} {' '.join(flag) or '(check)'}")
     proc = subprocess.run(
-        ["bash", str(cfg.ci_script), *flag],
+        ["bash", script_arg, *flag],
         cwd=cfg.repo_root,
         env=child_env(),
         text=True,
@@ -459,16 +489,31 @@ def run_ci(cfg: Config, log: RunLog, fix: bool) -> tuple[bool, str]:
 
 
 def ci_gate(cfg: Config, log: RunLog) -> None:
-    """Run CI; if red, run a fix phase and retry, up to ci.fix_attempts. Halt if still red."""
+    """Run CI; if red, run a fix phase and retry, up to ci.fix_attempts. Halt if still red.
+
+    Distinguishes a BROKEN GATE (can't launch) from a real code failure, and hands
+    each fresh fix agent the complete CI output so it works the real problem.
+    """
+    if not cfg.ci_script.exists():
+        raise Halt(f"CI gate can't run: script not found at {cfg.ci_script}")
+
+    max_chars = int(cfg.ci.get("max_output_chars", 40000))
     ok, out = run_ci(cfg, log, fix=True)  # first pass also auto-formats
+    if not ok and _gate_failed_to_launch(out):
+        (log.run_dir / "ci-final-failure.txt").write_text(out, encoding="utf-8")
+        raise Halt("CI gate failed to LAUNCH — broken invocation, not a code failure (see ci-final-failure.txt)")
+
     attempts = int(cfg.ci["fix_attempts"])
     for i in range(attempts):
         if ok:
             log.say("    CI green")
             return
-        log.say(f"    CI red — fix attempt {i + 1}/{attempts}")
-        run_claude(cfg, log, prompt_text("fix", CI_OUTPUT=out[-12000:]), f"ci-fix-{i + 1}")
+        log.say(f"    CI red — fix attempt {i + 1}/{attempts} (fresh session, full CI output)")
+        run_claude(cfg, log, prompt_text("fix", CI_OUTPUT=out[-max_chars:]), f"ci-fix-{i + 1}")
         ok, out = run_ci(cfg, log, fix=True)
+        if not ok and _gate_failed_to_launch(out):
+            (log.run_dir / "ci-final-failure.txt").write_text(out, encoding="utf-8")
+            raise Halt("CI gate failed to LAUNCH after a fix — broken invocation (see ci-final-failure.txt)")
     if not ok:
         (log.run_dir / "ci-final-failure.txt").write_text(out, encoding="utf-8")
         raise Halt("CI still red after fix attempts (see ci-final-failure.txt)")
@@ -509,7 +554,9 @@ def commit_and_push(cfg: Config, log: RunLog, story: str) -> None:
             res.stdout + "\n" + res.stderr, encoding="utf-8"
         )
     if not committed:
-        raise Halt("commit failed after 3 attempts (a hook can't auto-fix — see commit-attempt-*.txt)")
+        raise Halt(
+            "commit failed after 3 attempts (a hook can't auto-fix — see commit-attempt-*.txt)"
+        )
     log.say(f"  committed {story}")
 
     if cfg.git["push"]:
@@ -563,8 +610,17 @@ def setup_worktree(cfg: Config, log: RunLog, run_id: str) -> tuple[Path, str]:
     git(cfg, "worktree", "prune", check=False, cwd=cfg.canonical_repo)
     git(cfg, "branch", "-D", branch, check=False, cwd=cfg.canonical_repo)
 
-    res = git(cfg, "worktree", "add", str(path), "-b", branch, base_ref,
-              check=False, cwd=cfg.canonical_repo)
+    res = git(
+        cfg,
+        "worktree",
+        "add",
+        str(path),
+        "-b",
+        branch,
+        base_ref,
+        check=False,
+        cwd=cfg.canonical_repo,
+    )
     if res.returncode != 0:
         raise Halt(f"`git worktree add` failed: {(res.stderr or res.stdout).strip()[:400]}")
     log.say(f"  worktree ready: {path}  (branch {branch} off {base_ref})")
@@ -572,8 +628,7 @@ def setup_worktree(cfg: Config, log: RunLog, run_id: str) -> tuple[Path, str]:
 
 
 def remove_worktree(cfg: Config, log: RunLog, path: Path) -> None:
-    res = git(cfg, "worktree", "remove", "--force", str(path),
-              check=False, cwd=cfg.canonical_repo)
+    res = git(cfg, "worktree", "remove", "--force", str(path), check=False, cwd=cfg.canonical_repo)
     if res.returncode != 0:
         why = (res.stderr or res.stdout).strip()[:200]
         log.say(f"  worktree remove warning (leaving on disk) — {why}")
@@ -621,7 +676,7 @@ def main() -> int:
     args = ap.parse_args()
 
     cfg = load_config(Path(args.config).resolve())
-    run_id = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+    run_id = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
     log = RunLog(SKILL_DIR / "logs" / run_id)
 
     once = args.once or bool(cfg.run.get("once"))
@@ -629,7 +684,7 @@ def main() -> int:
     deadline = None
     hours = float(cfg.run.get("max_runtime_hours", 0) or 0)
     if hours:
-        deadline = datetime.now(timezone.utc).timestamp() + hours * 3600
+        deadline = datetime.now(UTC).timestamp() + hours * 3600
     stop_file = SKILL_DIR / "STOP"
 
     # Ctrl-C: ask for a graceful stop after the current phase.
@@ -653,7 +708,10 @@ def main() -> int:
             return 0
         st = statuses[story]
         log.say(f"DRY RUN: next story = {story} (status={st})")
-        log.say(f"DRY RUN: would run phases starting at '{PHASE_FOR_STATUS.get(st)}' → CI → commit → push")
+        log.say(
+            f"DRY RUN: would run phases starting at '{PHASE_FOR_STATUS.get(st)}' "
+            "→ CI → commit → push"
+        )
         if worktree_enabled:
             log.say(
                 f"DRY RUN: would create worktree at {worktree_path(cfg, run_id)} "
@@ -691,7 +749,10 @@ def main() -> int:
             cfg.rebind_to(wt_path)
             log.say(f"  phases now run in worktree: {cfg.repo_root}")
         elif cfg.run.get("stop_on_dirty_tree", True) and tree_dirty(cfg):
-            log.say("HALT: working tree is dirty. Commit/stash existing changes before an unattended run.")
+            log.say(
+                "HALT: working tree is dirty. "
+                "Commit/stash existing changes before an unattended run."
+            )
             log.say(git(cfg, "status", "--short").stdout.rstrip())
             return 2
 
@@ -701,7 +762,7 @@ def main() -> int:
                 break
             if stopping["flag"]:
                 break
-            if deadline and datetime.now(timezone.utc).timestamp() > deadline:
+            if deadline and datetime.now(UTC).timestamp() > deadline:
                 log.say(f"Runtime budget ({hours}h) reached — not starting another story.")
                 break
             if max_stories and completed >= max_stories:
@@ -733,8 +794,7 @@ def main() -> int:
         if worktree_enabled and wt_path is not None:
             if halted:
                 log.say(
-                    f"  worktree LEFT for review: {wt_path} "
-                    f"(branch {worktree_branch(cfg, run_id)})"
+                    f"  worktree LEFT for review: {wt_path} (branch {worktree_branch(cfg, run_id)})"
                 )
             elif cfg.worktree.get("cleanup_on_success", True):
                 remove_worktree(cfg, log, wt_path)
