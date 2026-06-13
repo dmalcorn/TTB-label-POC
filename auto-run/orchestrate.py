@@ -348,6 +348,31 @@ def _render_event(
     return lines
 
 
+def _invocation_lines(cmd: list[str]) -> list[str]:
+    """Render the CLI invocation readably — a flag (with its value) per line."""
+    lines: list[str] = []
+    i = 0
+    while i < len(cmd):
+        tok = cmd[i]
+        if tok.startswith("-") and tok != "--" and i + 1 < len(cmd) and not cmd[i + 1].startswith("-"):
+            lines.append(f"{tok} {cmd[i + 1]}")
+            i += 2
+        else:
+            lines.append(tok)
+            i += 1
+    return lines
+
+
+def _extract_id_block(text: str) -> str:
+    """Pull the agent's `=== AGENT IDENTIFICATION ===` block out of its final text."""
+    start = text.find("=== AGENT IDENTIFICATION ===")
+    if start == -1:
+        return ""
+    tail = "=== END IDENTIFICATION ==="
+    end = text.find(tail, start)
+    return (text[start:] if end == -1 else text[start : end + len(tail)]).strip()
+
+
 def run_claude(cfg: Config, log: RunLog, prompt: str, label: str, tools: str) -> None:
     """Run one headless phase, printing a live play-by-play. Raises Halt on failure.
 
@@ -404,6 +429,11 @@ def run_claude(cfg: Config, log: RunLog, prompt: str, label: str, tools: str) ->
         f"  → claude phase '{label}' (model={c['model']}, max_turns={c['max_turns']}, "
         f"hard={hard_timeout}s, stall={stall_timeout or 'off'}s)"
     )
+    # Show the first 7 lines of the actual CLI invocation (each line truncated so
+    # the allowlist/prompt don't flood) — confirms exactly how claude was called.
+    log.say("    invocation (first 7 lines):")
+    for line in _invocation_lines(cmd)[:7]:
+        log.say(f"      {line[:200]}")
     out_path = log.run_dir / f"{label}.jsonl"
 
     # stdin=DEVNULL is REQUIRED: a detached child blocks forever on an inherited
@@ -508,6 +538,15 @@ def run_claude(cfg: Config, log: RunLog, prompt: str, label: str, tools: str) ->
     cost = result_evt.get("total_cost_usd")
     turns = result_evt.get("num_turns")
     log.say(f"    done ({label}): turns={turns} cost_usd={cost}")
+
+    # Surface the agent's self-identification block (proves which persona/skill
+    # files actually activated) cleanly at phase end.
+    block = _extract_id_block(result_evt.get("result") or "")
+    if block:
+        for line in block.splitlines():
+            log.say(f"    {line}")
+    else:
+        log.say("    (no agent-identification block in the result)")
 
 
 def prompt_text(name: str, **subs: str) -> str:
