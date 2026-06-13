@@ -315,6 +315,11 @@ def run_claude(cfg: Config, log: RunLog, prompt: str, label: str) -> None:
             cwd=cfg.repo_root,
             env=child_env(),
             text=True,
+            # REQUIRED on Windows: without an explicit encoding, text mode decodes
+            # the child's output as the cp1252 locale and a reader thread CRASHES on
+            # the first non-cp1252 byte (e.g. a smart quote) in the stream-json.
+            encoding="utf-8",
+            errors="replace",
             bufsize=1,
             stdin=subprocess.DEVNULL,
             stdout=subprocess.PIPE,
@@ -419,6 +424,8 @@ def git(
         cwd=cwd or cfg.repo_root,
         env=child_env(),
         text=True,
+        encoding="utf-8",  # not the cp1252 locale (e.g. unicode filenames in status)
+        errors="replace",
         capture_output=True,
         stdin=subprocess.DEVNULL,  # never block on stdin in a detached run (FINDINGS-01)
         check=check,
@@ -442,6 +449,8 @@ def run_ci(cfg: Config, log: RunLog, fix: bool) -> tuple[bool, str]:
         cwd=cfg.repo_root,
         env=child_env(),
         text=True,
+        encoding="utf-8",  # not the cp1252 locale (CI output carries unicode)
+        errors="replace",
         capture_output=True,
         stdin=subprocess.DEVNULL,  # never block on stdin in a detached run (FINDINGS-01)
     )
