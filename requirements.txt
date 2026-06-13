@@ -52,5 +52,6 @@ langchain~=1.3
 
 # dev / quality / test
 ruff~=0.15
+mypy~=2.1          # static type check — CI Phase 3 (project-context: type hints required)
 pytest~=9.0
 httpx~=0.28        # FastAPI TestClient transport (test-only)

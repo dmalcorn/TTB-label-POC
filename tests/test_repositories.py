@@ -31,7 +31,8 @@ def _insert_submission(conn: sqlite3.Connection, **overrides) -> int:
     sql = f"INSERT INTO submissions ({', '.join(cols)}) VALUES ({placeholders})"
     cur = conn.execute(sql, tuple(cols.values()))
     conn.commit()
-    return int(cur.lastrowid)
+    assert cur.lastrowid is not None  # guaranteed by a successful INSERT
+    return cur.lastrowid
 
 
 def _insert_label_image(conn: sqlite3.Connection, submission_id: int, **overrides) -> int:
@@ -47,7 +48,8 @@ def _insert_label_image(conn: sqlite3.Connection, submission_id: int, **override
     sql = f"INSERT INTO label_images ({', '.join(cols)}) VALUES ({placeholders})"
     cur = conn.execute(sql, tuple(cols.values()))
     conn.commit()
-    return int(cur.lastrowid)
+    assert cur.lastrowid is not None  # guaranteed by a successful INSERT
+    return cur.lastrowid
 
 
 # ── AC-1 / AC-2: init, tables, PRAGMAs ───────────────────────────────────────
@@ -67,8 +69,9 @@ def test_deferred_tables_not_created(tmp_path):
     """Scope guard: tables still deferred to later stories must not exist yet.
 
     ``ocr_results`` / ``llm_results`` moved out of this guard in Story 2.1, which
-    creates them; ``field_comparisons`` / ``checklist_items`` are created in
-    Epic 3 (Story 3.1).
+    creates them; ``field_comparisons`` / ``checklist_items`` moved out in Story
+    3.1, which creates them (see ``tests/test_schema_epic3.py``). ``review_progress``
+    is still deferred to its web-layer writer (Epic 4).
     """
     db_path = _make_db(tmp_path)
     with connect(db_path) as conn:
@@ -76,7 +79,7 @@ def test_deferred_tables_not_created(tmp_path):
             r["name"]
             for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()
         }
-    for deferred in ("field_comparisons", "checklist_items", "review_progress"):
+    for deferred in ("review_progress",):
         assert deferred not in names
 
 

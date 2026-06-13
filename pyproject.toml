@@ -7,11 +7,20 @@ requires-python = ">=3.13"
 [tool.ruff]
 line-length = 100
 target-version = "py313"
+# The auto-run/ orchestrator harness is tooling, walled off from story commits;
+# don't gate story CI (`ruff check .`) on its lint debt.
+extend-exclude = ["auto-run"]
 
 [tool.ruff.lint]
 # Sensible default rule set: pyflakes (F), pycodestyle (E/W), isort (I),
 # pyupgrade (UP), flake8-bugbear (B).
 select = ["E", "W", "F", "I", "UP", "B"]
+
+[tool.mypy]
+# CI Phase 3 type-check (scripts/ci.sh). Pinned to the container/runtime target
+# (python:3.13-slim) so host runs match. `--ignore-missing-imports` is passed by
+# the CI invocation for the native OCR/LLM deps that ship no type stubs.
+python_version = "3.13"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

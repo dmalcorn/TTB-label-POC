@@ -200,7 +200,8 @@ def insert_ocr_result(
             error_text,
         ),
     )
-    return int(cur.lastrowid)
+    assert cur.lastrowid is not None  # guaranteed by a successful INSERT
+    return cur.lastrowid
 
 
 def insert_llm_result(
@@ -243,7 +244,8 @@ def insert_llm_result(
             result.status,
         ),
     )
-    return int(cur.lastrowid)
+    assert cur.lastrowid is not None  # guaranteed by a successful INSERT
+    return cur.lastrowid
 
 
 # ── pipeline lifecycle write helpers (Story 2.2) ─────────────────────────────
@@ -315,7 +317,8 @@ def insert_audit_event(
         """,
         (submission_id, event_type, actor, from_status, to_status, note),
     )
-    return int(cur.lastrowid)
+    assert cur.lastrowid is not None  # guaranteed by a successful INSERT
+    return cur.lastrowid
 
 
 def update_processing_ms(conn: sqlite3.Connection, submission_id: int, processing_ms: int) -> None:

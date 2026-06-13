@@ -68,7 +68,8 @@ def _insert_submission(conn: sqlite3.Connection, row: dict) -> int:
         f"INSERT INTO submissions ({', '.join(cols)}) VALUES ({placeholders})",
         values,
     )
-    return int(cur.lastrowid)
+    assert cur.lastrowid is not None  # guaranteed by a successful INSERT
+    return cur.lastrowid
 
 
 def _insert_label_images(conn: sqlite3.Connection, submission_id: int, images: list[dict]) -> None:

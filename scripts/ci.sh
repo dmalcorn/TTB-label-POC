@@ -32,7 +32,7 @@ esac
 # Dev container coordination (architecture.md — Docker Desktop dev stack).
 # Service name must match compose.yaml; override via env if it differs.
 COMPOSE_FILE="${CI_COMPOSE_FILE:-compose.yaml}"
-APP_SERVICE="${CI_APP_SERVICE:-app}"
+APP_SERVICE="${CI_APP_SERVICE:-web}"   # must match compose.yaml (service is `web`, not `app`)
 
 # Can we dispatch into a running dev container?
 container_ready() {

@@ -157,8 +157,9 @@ def normalize_illumination_glare(gray: np.ndarray) -> tuple[np.ndarray, bool, di
 
     # Background division flattens uneven illumination; rescale back to 0–255.
     safe_bg = np.where(background == 0, 1, background).astype(np.float32)
-    normalized = gray.astype(np.float32) / safe_bg
-    normalized = cv2.normalize(normalized, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
+    divided = gray.astype(np.float32) / safe_bg
+    scaled = cv2.normalize(divided, divided, 0, 255, cv2.NORM_MINMAX)
+    normalized: np.ndarray = scaled.astype(np.uint8)
     if hotspot_fraction >= _GLARE_FRACTION_THRESHOLD:  # inpaint genuine blown hotspots
         hotspots = (background >= 250).astype(np.uint8) * 255
         normalized = cv2.inpaint(normalized, hotspots, 3, cv2.INPAINT_TELEA)

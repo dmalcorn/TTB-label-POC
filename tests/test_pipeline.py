@@ -38,7 +38,8 @@ def _insert_received(conn: sqlite3.Connection, **overrides) -> int:
     sql = f"INSERT INTO submissions ({', '.join(cols)}) VALUES ({placeholders})"
     cur = conn.execute(sql, tuple(cols.values()))
     conn.commit()
-    return int(cur.lastrowid)
+    assert cur.lastrowid is not None  # guaranteed by a successful INSERT
+    return cur.lastrowid
 
 
 def _insert_image(conn: sqlite3.Connection, submission_id: int, **overrides) -> int:
@@ -53,7 +54,8 @@ def _insert_image(conn: sqlite3.Connection, submission_id: int, **overrides) -> 
     sql = f"INSERT INTO label_images ({', '.join(cols)}) VALUES ({placeholders})"
     cur = conn.execute(sql, tuple(cols.values()))
     conn.commit()
-    return int(cur.lastrowid)
+    assert cur.lastrowid is not None  # guaranteed by a successful INSERT
+    return cur.lastrowid
 
 
 def _events(conn: sqlite3.Connection, submission_id: int) -> list[sqlite3.Row]:

@@ -360,7 +360,7 @@ def _build_corpus() -> list[dict]:
             rows.append(row)
 
         # 4 violation → FAIL (varied check failures)
-        violations = [
+        violations: list[tuple[str, dict[str, object]]] = [
             ("abv_mismatch", {}),
             ("gov_warning_reworded", {}),
             ("off_standard_fill", {}),

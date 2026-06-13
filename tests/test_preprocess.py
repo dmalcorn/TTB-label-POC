@@ -29,7 +29,7 @@ _LINES = ["STONE'S THROW", "CABERNET SAUVIGNON", "ALC 13.5% BY VOL", "750 ML", "
 def _label_bgr(angle: float = 0.0, w: int = 600, h: int = 400) -> np.ndarray:
     """A clean, evenly-lit black-text-on-white label (optionally rotated by
     ``angle`` degrees) as a 3-channel BGR array — what a decoded JPEG looks like."""
-    gray = np.full((h, w), 255, np.uint8)
+    gray: np.ndarray = np.full((h, w), 255, np.uint8)
     for i, line in enumerate(_LINES):
         cv2.putText(gray, line, (40, 70 + i * 60), cv2.FONT_HERSHEY_SIMPLEX, 1.1, 0, 2, cv2.LINE_AA)
     if angle:
@@ -181,7 +181,8 @@ def _insert_received(conn: sqlite3.Connection, **overrides) -> int:
     sql = f"INSERT INTO submissions ({', '.join(cols)}) VALUES ({', '.join('?' for _ in cols)})"
     cur = conn.execute(sql, tuple(cols.values()))
     conn.commit()
-    return int(cur.lastrowid)
+    assert cur.lastrowid is not None  # guaranteed by a successful INSERT
+    return cur.lastrowid
 
 
 def _insert_image(conn: sqlite3.Connection, submission_id: int, filename: str, position: int = 1):
@@ -191,7 +192,8 @@ def _insert_image(conn: sqlite3.Connection, submission_id: int, filename: str, p
         (submission_id, position, filename),
     )
     conn.commit()
-    return int(cur.lastrowid)
+    assert cur.lastrowid is not None  # guaranteed by a successful INSERT
+    return cur.lastrowid
 
 
 def _wire_dirs(monkeypatch, tmp_path):

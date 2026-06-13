@@ -31,12 +31,14 @@ def _seed_submission_and_image(conn: sqlite3.Connection) -> tuple[int, int]:
         "INSERT INTO submissions (ttb_id, beverage_type, status) VALUES (?, ?, ?)",
         ("26001000000001", "DISTILLED_SPIRITS", "PROCESSING"),
     )
-    sub_id = int(cur.lastrowid)
+    assert cur.lastrowid is not None  # guaranteed by a successful INSERT
+    sub_id = cur.lastrowid
     cur = conn.execute(
         "INSERT INTO label_images (submission_id, position, filename) VALUES (?, ?, ?)",
         (sub_id, 1, "front.jpg"),
     )
-    img_id = int(cur.lastrowid)
+    assert cur.lastrowid is not None  # guaranteed by a successful INSERT
+    img_id = cur.lastrowid
     conn.commit()
     return sub_id, img_id
 

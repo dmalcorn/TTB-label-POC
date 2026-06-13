@@ -192,3 +192,65 @@ CREATE INDEX IF NOT EXISTS idx_llm_results_submission ON llm_results (submission
 CREATE INDEX IF NOT EXISTS idx_llm_results_model      ON llm_results (model_id);
 -- TODO(normalization): if the model list grows, factor model_name/model_id/model_full_id/
 -- provider into a `llm_models` reference table and FK to it. Keep inline for the POC.
+
+-- ── field_comparisons ────────────────────────────────────────────────────────
+-- One row per APPLICATION-field vs EXTRACTED-value comparison — the backing data
+-- for the UI's vertical-stacked comparison (application value on top, OCR/LLM
+-- value below) and discrepancy highlighting (database-schema.md §1.5). Created
+-- here by Story 3.1; WRITTEN by the analysis job (Story 3.3 field-match). Per the
+-- centralized contract, all comparison normalization routes through app/normalize.py.
+CREATE TABLE IF NOT EXISTS field_comparisons (
+    id                    INTEGER PRIMARY KEY,
+    submission_id         INTEGER NOT NULL REFERENCES submissions(id) ON DELETE CASCADE,
+    field_key             TEXT    NOT NULL,
+    application_value     TEXT,
+    extracted_value       TEXT,
+    -- Provenance is NORMALIZED: the source is the referenced ocr_results / llm_results row, not a
+    -- free-text string. Engine/model identity has one source of truth (the source row); the display
+    -- label (`ocr:tesseract`, `llm:<model_id>`) is derived by v_field_comparisons below.
+    source_ocr_result_id  INTEGER REFERENCES ocr_results(id) ON DELETE SET NULL,
+    source_llm_result_id  INTEGER REFERENCES llm_results(id) ON DELETE SET NULL,
+    match_status          TEXT CHECK (match_status IN ('MATCH','MISMATCH','MISSING','UNVERIFIABLE')),
+    similarity            REAL CHECK (similarity IS NULL OR similarity BETWEEN 0 AND 1),
+    created_at            TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    -- At most one source: a value comes from OCR or from an LLM, never both. Neither = MISSING/UNVERIFIABLE.
+    CHECK (source_ocr_result_id IS NULL OR source_llm_result_id IS NULL)
+);
+CREATE INDEX IF NOT EXISTS idx_field_comparisons_submission ON field_comparisons (submission_id);
+
+-- `extracted_source` is DERIVED, not stored: reconstruct the display label by joining the source
+-- row so engine/model identity is never duplicated (and never drifts). The review UI and the
+-- benchmark roll-up read this view instead of a stored column.
+CREATE VIEW IF NOT EXISTS v_field_comparisons AS
+SELECT fc.*,
+       CASE
+           WHEN fc.source_ocr_result_id IS NOT NULL THEN 'ocr:' || o.engine_name
+           WHEN fc.source_llm_result_id IS NOT NULL THEN 'llm:' || l.model_id
+           ELSE NULL
+       END AS extracted_source
+FROM field_comparisons fc
+LEFT JOIN ocr_results o ON o.id = fc.source_ocr_result_id
+LEFT JOIN llm_results l ON l.id = fc.source_llm_result_id;
+
+-- ── checklist_items ──────────────────────────────────────────────────────────
+-- One row per required check for a submission — the digital desk checklist
+-- (database-schema.md §1.6). Each row carries a per-check engine verdict and the
+-- CFR citation as DATA (so a Part renumbering needs no code change — project rule
+-- "CFR rules live as data"). The submission's rolled-up engine_verdict is the
+-- aggregate of these per-check verdicts via app/verdict.py:rollup(). Created here
+-- by Story 3.1; WRITTEN by the analysis job (Stories 3.2–3.7). The verdict enum
+-- includes NA (per-check input domain); the rolled-up submissions.engine_verdict
+-- enum does not (NA never propagates).
+CREATE TABLE IF NOT EXISTS checklist_items (
+    id                   INTEGER PRIMARY KEY,
+    submission_id        INTEGER NOT NULL REFERENCES submissions(id) ON DELETE CASCADE,
+    check_key            TEXT    NOT NULL,
+    label                TEXT,
+    cfr_citation         TEXT,
+    check_type           TEXT CHECK (check_type IN ('DETERMINISTIC','FIELD_MATCH','HYBRID','MANUAL')),
+    verdict              TEXT CHECK (verdict IN ('PASS','REVIEW','FAIL','NA')),
+    detail               TEXT,
+    field_comparison_id  INTEGER REFERENCES field_comparisons(id) ON DELETE SET NULL,
+    created_at           TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_checklist_items_submission ON checklist_items (submission_id);

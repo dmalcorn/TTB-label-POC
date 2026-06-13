@@ -4,7 +4,7 @@ baseline_commit: c00d92dea980abab228640ea2c38af8897881a8e
 
 # Story 3.1: Normalization & verdict roll-up contracts
 
-Status: ready-for-dev
+Status: done
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -41,33 +41,33 @@ so that "STONE'S THROW" == "Stone's Throw" everywhere and the most-severe verdic
 
 ## Tasks / Subtasks
 
-- [ ] **Task 1 — Implement `app/normalize.py` (AC1)**
-  - [ ] Replace the placeholder body (keep/extend the docstring). Implement `normalize(value: str | None, field_key: str) -> str` applying the **exact fixed order**: (1) `None`/empty → return `""` early; (2) trim (`.strip()`); (3) collapse internal whitespace (`re.sub(r"\s+", " ", s)`); (4) Unicode NFKC (`unicodedata.normalize("NFKC", s)`); (5) casefold (`.casefold()`); (6) curly→straight quotes (map `'` `'` → `'` and `"` `"` → `"`, incl. U+2018/2019/201C/201D and prime U+2032/2033 if you choose); (7) strip trailing punctuation (`.rstrip(...)` of `.,;:!?…` and stray quote/space).
-  - [ ] **Order is the contract — do not reorder.** NFKC does NOT fold curly quotes to straight, so the explicit quote step is required and must run *after* casefold (casefold never touches quotes; this keeps the order stable and greppable against the documented spec).
-  - [ ] Define `NUMERIC_FIELD_KEYS = frozenset({"alcohol_content", "net_contents"})`. For these, after the text pipeline, **additionally parse to number+unit** and return a canonical `"<number> <unit>"` string (e.g. `"45% Alc./Vol."` → `"45 %"`, `"750 mL"` → `"750 ml"`) so format/case/abbrev variants collapse to one comparable form.
-  - [ ] Expose a companion `parse_numeric(value: str | None, field_key: str) -> tuple[Decimal | None, str | None]` returning `(number, unit)` for numeric field_keys (`(None, None)` when unparseable). Story 3.3's tolerance bands consume this. **Use `decimal.Decimal`, never `float`** — avoids comparison drift (mirrors the project's "never float math on currency" discipline). Match the unit token case-insensitively and emit a canonical lowercase unit (`%`, `ml`, `l`, `proof`).
-  - [ ] Type hints required; `from __future__ import annotations` already present.
+- [x] **Task 1 — Implement `app/normalize.py` (AC1)**
+  - [x] Replace the placeholder body (keep/extend the docstring). Implement `normalize(value: str | None, field_key: str) -> str` applying the **exact fixed order**: (1) `None`/empty → return `""` early; (2) trim (`.strip()`); (3) collapse internal whitespace (`re.sub(r"\s+", " ", s)`); (4) Unicode NFKC (`unicodedata.normalize("NFKC", s)`); (5) casefold (`.casefold()`); (6) curly→straight quotes (map `'` `'` → `'` and `"` `"` → `"`, incl. U+2018/2019/201C/201D and prime U+2032/2033 if you choose); (7) strip trailing punctuation (`.rstrip(...)` of `.,;:!?…` and stray quote/space).
+  - [x] **Order is the contract — do not reorder.** NFKC does NOT fold curly quotes to straight, so the explicit quote step is required and must run *after* casefold (casefold never touches quotes; this keeps the order stable and greppable against the documented spec).
+  - [x] Define `NUMERIC_FIELD_KEYS = frozenset({"alcohol_content", "net_contents"})`. For these, after the text pipeline, **additionally parse to number+unit** and return a canonical `"<number> <unit>"` string (e.g. `"45% Alc./Vol."` → `"45 %"`, `"750 mL"` → `"750 ml"`) so format/case/abbrev variants collapse to one comparable form.
+  - [x] Expose a companion `parse_numeric(value: str | None, field_key: str) -> tuple[Decimal | None, str | None]` returning `(number, unit)` for numeric field_keys (`(None, None)` when unparseable). Story 3.3's tolerance bands consume this. **Use `decimal.Decimal`, never `float`** — avoids comparison drift (mirrors the project's "never float math on currency" discipline). Match the unit token case-insensitively and emit a canonical lowercase unit (`%`, `ml`, `l`, `proof`).
+  - [x] Type hints required; `from __future__ import annotations` already present.
 
-- [ ] **Task 2 — Implement `app/verdict.py` (AC2)**
-  - [ ] Replace the placeholder body. Implement `rollup(verdicts: Iterable[str]) -> str`: scan once — if any `FAIL` → `"FAIL"`; elif any `REVIEW` → `"REVIEW"`; else `"PASS"`.
-  - [ ] Exclude `NA` (not-applicable) check verdicts from the roll-up (filter before scanning). The roll-up **input domain** is the per-check `checklist_items.verdict` enum `{PASS, REVIEW, FAIL, NA}`; the **output domain** is the submission `engine_verdict` enum `{PASS, REVIEW, FAIL}` (no `NA`). "can't-verify" is represented by the caller as `REVIEW` — no separate token.
-  - [ ] **Empty / all-`NA` ⇒ `REVIEW`** (defer to human; never silently auto-`PASS` a submission with nothing actually verified — consistent with the determinism taxonomy "ambiguity goes to REVIEW, never silent auto-decision"). Add a test pinning this; if Diane prefers `PASS`-on-empty, it's a one-line change — flag in Completion Notes.
-  - [ ] Provide greppable verdict constants + a `Literal` type alias matching `contracts.py` style: `Verdict = Literal["PASS", "REVIEW", "FAIL"]` and module constants `PASS = "PASS"`, `REVIEW = "REVIEW"`, `FAIL = "FAIL"` (and `NA = "NA"` for callers). Strings stay `UPPER_SNAKE` to match the DB `CHECK` enums exactly.
-  - [ ] **No import of `disposition.py`, no `verdict → disposition` mapping** anywhere. `engine_verdict` is advisory only.
+- [x] **Task 2 — Implement `app/verdict.py` (AC2)**
+  - [x] Replace the placeholder body. Implement `rollup(verdicts: Iterable[str]) -> str`: scan once — if any `FAIL` → `"FAIL"`; elif any `REVIEW` → `"REVIEW"`; else `"PASS"`.
+  - [x] Exclude `NA` (not-applicable) check verdicts from the roll-up (filter before scanning). The roll-up **input domain** is the per-check `checklist_items.verdict` enum `{PASS, REVIEW, FAIL, NA}`; the **output domain** is the submission `engine_verdict` enum `{PASS, REVIEW, FAIL}` (no `NA`). "can't-verify" is represented by the caller as `REVIEW` — no separate token.
+  - [x] **Empty / all-`NA` ⇒ `REVIEW`** (defer to human; never silently auto-`PASS` a submission with nothing actually verified — consistent with the determinism taxonomy "ambiguity goes to REVIEW, never silent auto-decision"). Add a test pinning this; if Diane prefers `PASS`-on-empty, it's a one-line change — flag in Completion Notes.
+  - [x] Provide greppable verdict constants + a `Literal` type alias matching `contracts.py` style: `Verdict = Literal["PASS", "REVIEW", "FAIL"]` and module constants `PASS = "PASS"`, `REVIEW = "REVIEW"`, `FAIL = "FAIL"` (and `NA = "NA"` for callers). Strings stay `UPPER_SNAKE` to match the DB `CHECK` enums exactly.
+  - [x] **No import of `disposition.py`, no `verdict → disposition` mapping** anywhere. `engine_verdict` is advisory only.
 
-- [ ] **Task 3 — Create `field_comparisons` + `checklist_items` in `app/db/schema.sql` (AC3)**
-  - [ ] Append both `CREATE TABLE IF NOT EXISTS` blocks **verbatim** from `docs/database-schema.md` §1.5 and §1.6, including: the `match_status` CHECK (`MATCH/MISMATCH/MISSING/UNVERIFIABLE`), `similarity` CHECK (0–1), the at-most-one-source CHECK on `field_comparisons`; and the `check_type` CHECK (`DETERMINISTIC/FIELD_MATCH/HYBRID/MANUAL`) and `verdict` CHECK (`PASS/REVIEW/FAIL/NA`) on `checklist_items`.
-  - [ ] Add the indexes (`idx_field_comparisons_submission`, `idx_checklist_items_submission`) and the **`v_field_comparisons` view** (derives `extracted_source` by joining `ocr_results`/`llm_results` — both already exist from Story 2.1).
-  - [ ] **No `_ADDED_COLUMNS` ledger entry needed** — these are NEW tables; `CREATE TABLE IF NOT EXISTS` makes them with all columns. The ledger in `app/db/connection.py` is only for columns added to *pre-existing* tables. (Read the ledger's header comment before touching it.)
-  - [ ] Verify `init_db` still runs idempotently (re-run safe) on both a fresh DB and a re-init.
+- [x] **Task 3 — Create `field_comparisons` + `checklist_items` in `app/db/schema.sql` (AC3)**
+  - [x] Append both `CREATE TABLE IF NOT EXISTS` blocks **verbatim** from `docs/database-schema.md` §1.5 and §1.6, including: the `match_status` CHECK (`MATCH/MISMATCH/MISSING/UNVERIFIABLE`), `similarity` CHECK (0–1), the at-most-one-source CHECK on `field_comparisons`; and the `check_type` CHECK (`DETERMINISTIC/FIELD_MATCH/HYBRID/MANUAL`) and `verdict` CHECK (`PASS/REVIEW/FAIL/NA`) on `checklist_items`.
+  - [x] Add the indexes (`idx_field_comparisons_submission`, `idx_checklist_items_submission`) and the **`v_field_comparisons` view** (derives `extracted_source` by joining `ocr_results`/`llm_results` — both already exist from Story 2.1).
+  - [x] **No `_ADDED_COLUMNS` ledger entry needed** — these are NEW tables; `CREATE TABLE IF NOT EXISTS` makes them with all columns. The ledger in `app/db/connection.py` is only for columns added to *pre-existing* tables. (Read the ledger's header comment before touching it.)
+  - [x] Verify `init_db` still runs idempotently (re-run safe) on both a fresh DB and a re-init.
 
-- [ ] **Task 4 — Tests (AC1, AC2, AC4)**
-  - [ ] `tests/test_normalize.py`: **SM-C2 zero-false-FAIL class** — assert `normalize("STONE'S THROW", "brand_name") == normalize("Stone's Throw", "brand_name")` for **both** straight (`'`) and curly (`'`) apostrophe variants. One test per pipeline step (whitespace collapse, NFKC e.g. fullwidth/ligature/accents, casefold, curly→straight `'`/`"`, trailing-punctuation strip), `None`/`""` → `""`, and numeric: `"45% Alc./Vol."` vs `"45 % alc/vol"` equal; `"750 mL"` vs `"750 ml"` equal; `parse_numeric("45% Alc./Vol.", "alcohol_content") == (Decimal("45"), "%")`, unparseable → `(None, None)`.
-  - [ ] `tests/test_verdict.py`: any `FAIL` ⇒ `FAIL` (mixed with PASS/REVIEW/NA); no FAIL + any `REVIEW` ⇒ `REVIEW`; all `PASS` ⇒ `PASS`; `NA` excluded; empty + all-`NA` ⇒ `REVIEW`; idempotent/order-independent.
-  - [ ] Pure unit tests — no DB, no fixtures, no I/O. (An `init_db`-creates-the-tables assertion may live in `tests/test_repositories.py` or a small schema test; keep `test_normalize.py`/`test_verdict.py` pure.)
+- [x] **Task 4 — Tests (AC1, AC2, AC4)**
+  - [x] `tests/test_normalize.py`: **SM-C2 zero-false-FAIL class** — assert `normalize("STONE'S THROW", "brand_name") == normalize("Stone's Throw", "brand_name")` for **both** straight (`'`) and curly (`'`) apostrophe variants. One test per pipeline step (whitespace collapse, NFKC e.g. fullwidth/ligature/accents, casefold, curly→straight `'`/`"`, trailing-punctuation strip), `None`/`""` → `""`, and numeric: `"45% Alc./Vol."` vs `"45 % alc/vol"` equal; `"750 mL"` vs `"750 ml"` equal; `parse_numeric("45% Alc./Vol.", "alcohol_content") == (Decimal("45"), "%")`, unparseable → `(None, None)`.
+  - [x] `tests/test_verdict.py`: any `FAIL` ⇒ `FAIL` (mixed with PASS/REVIEW/NA); no FAIL + any `REVIEW` ⇒ `REVIEW`; all `PASS` ⇒ `PASS`; `NA` excluded; empty + all-`NA` ⇒ `REVIEW`; idempotent/order-independent.
+  - [x] Pure unit tests — no DB, no fixtures, no I/O. (`init_db`-creates-the-tables assertions live in the new `tests/test_schema_epic3.py`; `test_normalize.py`/`test_verdict.py` are kept pure.)
 
-- [ ] **Task 5 — Validate + finalize**
-  - [ ] `ruff check` + `ruff format` (line length 100); full `pytest` green (no regressions on the existing suite). Update File List + Change Log + Completion Notes.
+- [x] **Task 5 — Validate + finalize**
+  - [x] `ruff check` + `ruff format` (line length 100); full `pytest` green (no regressions on the existing suite). Update File List + Change Log + Completion Notes.
 
 ## Dev Notes
 
@@ -118,16 +118,41 @@ These are 2 of the 4 centralized contracts (`contracts.py` #1 done in 2.1; `disp
 
 ### Agent Model Used
 
+claude-opus-4-8 (dev-story workflow, non-interactive batch).
+
 ### Debug Log References
+
+- Full suite green pre-change baseline: 183 passed / 1 skipped.
+- Final suite: **234 passed / 1 skipped** (+51 new tests: 27 normalize, 11 verdict, 13 epic-3 schema). `ruff check app tests` → all checks passed; `ruff format` applied (2 test files reformatted to line-length 100).
+- TDD red→green confirmed at each step: verdict ImportError → green; normalize ImportError → green; 13 schema failures → green.
 
 ### Completion Notes List
 
 - Ultimate context engine analysis completed - comprehensive developer guide created.
+- **AC1 — `normalize` (contract #2):** implemented `app/normalize.py` with the FROZEN 7-step order (None/empty→`""`, trim, collapse-whitespace, NFKC, casefold, curly→straight quotes, strip-trailing-punctuation), each step labeled inline so a reviewer can grep against the spec. The curly→straight step runs *after* casefold (casefold never touches quotes) per the contract. SM-C2 zero-false-FAIL class proven for both straight and curly apostrophes.
+- **Numeric fields:** `NUMERIC_FIELD_KEYS = frozenset({"alcohol_content","net_contents"})`. `normalize` returns the canonical `"<number> <unit>"` for these (`"45% Alc./Vol." → "45 %"`, `"750 mL" → "750 ml"`); companion `parse_numeric` returns `(Decimal, unit)` — **`decimal.Decimal`, never `float`** — for Story 3.3's tolerance bands. Canonical units lowercased: `%`, `ml`, `l`, `proof`. Word-unit detection uses `\b` boundaries so `l` does not match inside `alc`; `%` is matched as a literal.
+- **AC2 — `rollup` (contract #3):** implemented `app/verdict.py` — single-pass severity precedence (any FAIL⇒FAIL; else any REVIEW⇒REVIEW; else PASS), `NA` filtered before scanning, accepts any `Iterable`. Greppable `Verdict = Literal[...]` alias + `PASS/REVIEW/FAIL/NA` UPPER_SNAKE constants matching the DB CHECK enums.
+- **Empty / all-`NA` ⇒ `REVIEW`** (defer to human; never silent auto-PASS), per the determinism taxonomy. **DECISION FLAG for Diane:** if `PASS`-on-empty is preferred instead, it is a one-line change (`return PASS` in the `if not scored:` branch) plus the two affected tests; left as `REVIEW` per the story's stated default.
+- **Engine-vs-human firewall:** `verdict.py` has NO import of `disposition` and emits NO `verdict → disposition` mapping. Enforced structurally by an AST-based test (`test_verdict_module_does_not_import_disposition`) that rejects any disposition import and any `APPROVED/NEEDS_CORRECTION/REJECTED` string literal in code (the docstring may *name* disposition to document the firewall). `disposition.py` placeholder left untouched (out of scope — Epic 4).
+- **AC3 — schema:** appended `field_comparisons`, the `v_field_comparisons` view, and `checklist_items` to `app/db/schema.sql` faithfully from database-schema.md §1.5/§1.6 using `CREATE … IF NOT EXISTS` (the project's schema-growth pattern). All CHECK enums, the at-most-one-source CHECK, similarity 0–1, the two indexes, and the derived `extracted_source` view are covered by tests. NEW tables → no `_ADDED_COLUMNS` ledger entry (per the ledger's header rule); `init_db` idempotence re-verified.
+- **Test guard update:** `tests/test_repositories.py::test_deferred_tables_not_created` previously asserted `field_comparisons`/`checklist_items` did NOT exist; since 3.1 creates them, that guard was narrowed to the still-deferred `review_progress` (Epic 4). This reflects scope advancing, not a weakened test — the two tables now have dedicated coverage in `tests/test_schema_epic3.py`.
+- **Contracts purity:** both modules are pure in-memory (zero I/O, zero DB, zero adapter imports). Raw SQL stayed confined to `app/db/`; no `field_comparisons`/`checklist_items` write helpers were added to `repositories.py` (their writers are Stories 3.2/3.3).
 
 ### File List
+
+- `app/normalize.py` (modified — implemented `normalize` + `parse_numeric` + `NUMERIC_FIELD_KEYS`)
+- `app/verdict.py` (modified — implemented `rollup` + `Verdict` alias + constants)
+- `app/db/schema.sql` (modified — added `field_comparisons`, `v_field_comparisons` view, `checklist_items` + indexes)
+- `tests/test_normalize.py` (new — SM-C2 class, per-step, numeric/parse_numeric)
+- `tests/test_verdict.py` (new — severity precedence, NA/empty, firewall AST guard)
+- `tests/test_schema_epic3.py` (new — tables/view/indexes, CHECK enums, derived source, idempotence)
+- `tests/test_repositories.py` (modified — narrowed `test_deferred_tables_not_created` guard to `review_progress`)
+- `_bmad-output/implementation-artifacts/sprint-status.yaml` (modified — 3.1 ready-for-dev → in-progress → review)
 
 ### Change Log
 
 | Date | Description |
 |------|-------------|
 | 2026-06-13 | Story 3.1 drafted — centralized `normalize(value, field_key)` (+ `parse_numeric`) and `rollup(verdicts)` contracts, creation of `field_comparisons`/`checklist_items` tables (+ `v_field_comparisons` view), and the SM-C2 / severity-precedence unit tests. Status → ready-for-dev. |
+| 2026-06-13 | Story 3.1 implemented (dev-story, TDD). `normalize`+`parse_numeric` (frozen 7-step order, Decimal numerics), `rollup` (severity precedence, NA-excluded, empty/all-NA⇒REVIEW, disposition-firewall AST guard), and schema §1.5/§1.6 tables+view+indexes. 234 passed / 1 skipped; ruff clean. Status → review. |
+| 2026-06-13 | Code review (3 parallel layers: blind / edge-case / acceptance). 5 patches applied + 9 regression tests; 5 deferred. **Patch 1 (verdict):** `rollup` now folds any token outside `{PASS,FAIL}` (after the NA-filter) to `REVIEW` — an unknown/wrong-case/empty verdict can no longer silently auto-`PASS`, closing a determinism-taxonomy violation. **Patches 2–5 (normalize):** number+unit are matched as ONE adjacent token (`_NUMBER_UNIT_RE`) instead of two uncorrelated passes, fixing: (2) no-space units `750ml`/`1.5l` now canonicalize equal to the spaced form; (3) `%` no longer short-circuits the scan so `"80 proof (40%)"`→`(80,proof)` not `(80,%)`; (4) thousands separators handled (`"1,000 ml"`→`1000 ml`); (5) ambiguous comma-decimal (`"1,5 l"`) and malformed multi-dot (`"1.2.3 %"`) now refuse `(None,None)` rather than silently mis-parsing. AC fidelity, schema-DDL-verbatim, and the disposition firewall re-verified clean; numeric-validation/range and the `normalize`/`parse_numeric` unitless divergence deferred to Story 3.3 (tolerance bands). **243 passed / 1 skipped; ruff clean.** Deferrals in `deferred-work.md`. Status → done. |
