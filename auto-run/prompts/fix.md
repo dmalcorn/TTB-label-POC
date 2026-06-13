@@ -19,3 +19,12 @@ Hard requirements:
   weaken assertions to make the gate go green. Fix the actual problem.
 - Re-run the relevant checks yourself to confirm before finishing.
 - Do not commit or push.
+
+After completing the work, end your response with this block:
+
+=== AGENT IDENTIFICATION ===
+Agent: [your agent type, e.g. DEV Agent]
+Persona: [your persona name, from the agent file you loaded]
+Loaded files:
+  - [exact path to each file you read during activation]
+=== END IDENTIFICATION ===
