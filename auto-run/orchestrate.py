@@ -33,10 +33,13 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import queue
 import re
 import signal
 import subprocess
 import sys
+import threading
+import time
 import tomllib
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -208,14 +211,45 @@ def child_env() -> dict[str, str]:
     return env
 
 
+def _summarize_event(evt: dict) -> str:
+    """One-line, human-readable gist of a stream-json event for the heartbeat."""
+    t = evt.get("type")
+    if t == "system":
+        return f"session {evt.get('subtype', 'event')}"
+    if t == "assistant":
+        blocks = (evt.get("message") or {}).get("content") or []
+        tools = [
+            b.get("name")
+            for b in blocks
+            if isinstance(b, dict) and b.get("type") == "tool_use" and b.get("name")
+        ]
+        if tools:
+            return "tool: " + ", ".join(tools)
+        if any(isinstance(b, dict) and b.get("type") == "thinking" for b in blocks):
+            return "thinking"
+        return "writing"
+    if t == "user":
+        return "tool result"
+    if t == "result":
+        return f"result ({evt.get('subtype', '')})"
+    return str(t or "event")
+
+
 def run_claude(cfg: Config, log: RunLog, prompt: str, label: str) -> None:
-    """Run one headless phase. Raises Halt on any failure."""
+    """Run one headless phase, streaming events for a live heartbeat. Raises Halt on failure.
+
+    Uses --output-format stream-json so the run isn't blind: we log a progress
+    line as events arrive, and abort EARLY on a stall (no events for
+    stall_timeout_sec) instead of waiting out the full phase_timeout_sec hard cap.
+    See auto-run/FINDINGS-01-stdin-hang.md.
+    """
     c = cfg.claude
     cmd = [
         "claude",
         "-p",
         "--output-format",
-        "json",
+        "stream-json",
+        "--verbose",  # required by the CLI for stream-json in print (-p) mode
         "--permission-mode",
         c["permission_mode"],
         "--model",
@@ -230,44 +264,103 @@ def run_claude(cfg: Config, log: RunLog, prompt: str, label: str) -> None:
     cmd += list(c.get("extra_args", []))
     cmd.append(prompt)  # positional prompt last
 
-    log.say(f"  → claude phase '{label}' (model={c['model']}, max_turns={c['max_turns']})")
-    out_path = log.run_dir / f"{label}.json"
+    hard_timeout = int(c["phase_timeout_sec"])
+    stall_timeout = int(c.get("stall_timeout_sec", 0))  # 0 = disabled
+    heartbeat = max(5, int(c.get("heartbeat_sec", 30)))
+
+    log.say(
+        f"  → claude phase '{label}' (model={c['model']}, max_turns={c['max_turns']}, "
+        f"hard={hard_timeout}s, stall={stall_timeout or 'off'}s)"
+    )
+    out_path = log.run_dir / f"{label}.jsonl"
+
+    # stdin=DEVNULL is REQUIRED: a detached child blocks forever on an inherited
+    # stdin pipe that never sends EOF (FINDINGS-01).
     try:
-        proc = subprocess.run(
+        proc = subprocess.Popen(
             cmd,
             cwd=cfg.repo_root,
             env=child_env(),
             text=True,
-            capture_output=True,
-            # REQUIRED: launched from a detached process, the inherited stdin is an
-            # open pipe that never sends EOF. `claude -p` reads stdin when it isn't
-            # a TTY, so without this it blocks forever before doing any work.
-            # See auto-run/FINDINGS-01-stdin-hang.md.
+            bufsize=1,
             stdin=subprocess.DEVNULL,
-            timeout=c["phase_timeout_sec"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
         )
-    except subprocess.TimeoutExpired:
-        raise Halt(f"phase '{label}' exceeded {c['phase_timeout_sec']}s timeout")
     except FileNotFoundError:
         raise Halt("`claude` CLI not found on PATH")
 
-    out_path.write_text(proc.stdout or "", encoding="utf-8")
-    if proc.stderr:
-        (log.run_dir / f"{label}.stderr.txt").write_text(proc.stderr, encoding="utf-8")
+    # Windows can't select() on pipes, so drain each stream in a daemon thread and
+    # feed a queue the main loop polls — that lets us enforce the timeouts.
+    q: queue.Queue[tuple[str, str | None]] = queue.Queue()
 
-    if proc.returncode != 0:
-        raise Halt(f"phase '{label}' exited {proc.returncode} (see {out_path.name})")
+    def drain(stream, tag: str) -> None:
+        try:
+            for line in stream:
+                q.put((tag, line))
+        finally:
+            q.put((tag, None))  # EOF sentinel
 
-    try:
-        env = json.loads(proc.stdout)
-    except (json.JSONDecodeError, TypeError):
-        raise Halt(f"phase '{label}' produced non-JSON output (see {out_path.name})")
+    threading.Thread(target=drain, args=(proc.stdout, "out"), daemon=True).start()
+    threading.Thread(target=drain, args=(proc.stderr, "err"), daemon=True).start()
 
-    if env.get("is_error"):
+    start = time.monotonic()
+    last_event = start
+    last_beat = start
+    seen_any = False
+    result_evt: dict | None = None
+    err_chunks: list[str] = []
+    eofs = 0
+
+    def stop(reason: str) -> None:
+        proc.kill()
+        raise Halt(reason)
+
+    with out_path.open("w", encoding="utf-8") as fh:
+        while eofs < 2:  # both stdout and stderr drained
+            now = time.monotonic()
+            if now - start > hard_timeout:
+                stop(f"phase '{label}' exceeded {hard_timeout}s hard timeout (see {out_path.name})")
+            if stall_timeout and now - last_event > stall_timeout:
+                stop(f"phase '{label}' stalled — no output for {stall_timeout}s (see {out_path.name})")
+            try:
+                tag, line = q.get(timeout=2.0)
+            except queue.Empty:
+                if now - last_beat >= heartbeat:
+                    log.say(f"    … {label}: idle {int(now - last_event)}s")
+                    last_beat = now
+                continue
+            if line is None:
+                eofs += 1
+                continue
+            last_event = time.monotonic()
+            if tag == "err":
+                err_chunks.append(line)
+                continue
+            fh.write(line)
+            try:
+                evt = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if evt.get("type") == "result":
+                result_evt = evt
+            if not seen_any or time.monotonic() - last_beat >= heartbeat:
+                log.say(f"    … {label}: {_summarize_event(evt)}")
+                last_beat = time.monotonic()
+                seen_any = True
+
+    rc = proc.wait()
+    if err_chunks:
+        (log.run_dir / f"{label}.stderr.txt").write_text("".join(err_chunks), encoding="utf-8")
+    if rc != 0:
+        raise Halt(f"phase '{label}' exited {rc} (see {out_path.name})")
+    if result_evt is None:
+        raise Halt(f"phase '{label}' produced no result event (see {out_path.name})")
+    if result_evt.get("is_error"):
         raise Halt(f"phase '{label}' reported is_error (see {out_path.name})")
 
-    cost = env.get("total_cost_usd")
-    turns = env.get("num_turns")
+    cost = result_evt.get("total_cost_usd")
+    turns = result_evt.get("num_turns")
     log.say(f"    done ({label}): turns={turns} cost_usd={cost}")
 
 

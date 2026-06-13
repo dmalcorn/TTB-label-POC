@@ -13,8 +13,11 @@ model         = "claude-opus-4-8"   # explicit: the `opus` alias resolves to 4.5
 fallback_model = ""        # e.g. "sonnet" to survive overnight Opus rate limits; "" = none
 permission_mode = "bypassPermissions"   # no prompts. unattended.
 max_turns     = 250        # safety bound per phase; a phase that hits this is treated as FAILURE
-phase_timeout_sec = 5400   # 90 min per claude phase; a hang past this is killed -> FAILURE
-extra_args    = []         # any extra claude flags, e.g. ["--verbose"]
+phase_timeout_sec = 5400   # 90 min HARD cap per claude phase; a run past this is killed -> FAILURE
+stall_timeout_sec = 600    # abort a phase after this many seconds with NO stream output (0 = off);
+                           # catches a hang far sooner than phase_timeout_sec (see FINDINGS-01).
+heartbeat_sec     = 30     # log a live progress line from the event stream at most this often
+extra_args    = []         # any extra claude flags (--output-format/--verbose are set automatically)
 
 [ci]
 fix_attempts = 2           # if CI is red, run an LLM "fix" phase then re-check, up to N times
