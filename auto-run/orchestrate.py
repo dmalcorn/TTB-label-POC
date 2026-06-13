@@ -80,6 +80,15 @@ class Halt(Exception):
     """Unrecoverable: stop the run, leave the tree as-is for morning review."""
 
 
+class Stopped(Exception):
+    """User-initiated stop (Ctrl-C). A clean exit — NOT a failure, no alarm."""
+
+
+# A child killed by a console Ctrl-C/Break exits with this code on Windows
+# (0xC000013A, STATUS_CONTROL_C_EXIT). It means the operator stopped the run.
+CTRL_C_EXIT = 3221225786
+
+
 # --- config ---------------------------------------------------------------
 
 
@@ -411,6 +420,9 @@ def run_claude(cfg: Config, log: RunLog, prompt: str, label: str) -> None:
     rc = proc.wait()
     if err_chunks:
         (log.run_dir / f"{label}.stderr.txt").write_text("".join(err_chunks), encoding="utf-8")
+    if rc == CTRL_C_EXIT:
+        # The operator pressed Ctrl-C — a clean user stop, not a phase failure.
+        raise Stopped(f"phase '{label}' interrupted by Ctrl-C")
     if rc != 0:
         raise Halt(f"phase '{label}' exited {rc} (see {out_path.name})")
     if result_evt is None:
@@ -814,6 +826,7 @@ def main() -> int:
     wt_path: Path | None = None
     completed = 0
     halted = False
+    user_stopped = False
     try:
         if worktree_enabled:
             # Isolate: branch off the PUSHED base_ref, not the working tree — so a
@@ -835,9 +848,12 @@ def main() -> int:
 
         while True:
             if stop_file.exists():
-                log.say("STOP sentinel present — halting gracefully.")
+                log.say("STOP sentinel present — stopping gracefully.")
+                user_stopped = True
                 break
             if stopping["flag"]:
+                log.say("Stop requested (Ctrl-C) — stopping after the current story.")
+                user_stopped = True
                 break
             if deadline and datetime.now(UTC).timestamp() > deadline:
                 log.say(f"Runtime budget ({hours}h) reached — not starting another story.")
@@ -858,6 +874,11 @@ def main() -> int:
             if once:
                 log.say("--once set — stopping after one story.")
                 break
+    except Stopped as exc:
+        # Operator pressed Ctrl-C mid-phase. Clean stop — NO alarm.
+        user_stopped = True
+        log.say(f"Stopped by user ({exc}). Stories completed this run: {completed}.")
+        return 0
     except Halt as exc:
         halted = True
         log.say(f"HALT: {exc}")
@@ -871,7 +892,9 @@ def main() -> int:
         return 1
     finally:
         if worktree_enabled and wt_path is not None:
-            if halted:
+            # Leave the worktree on a failure OR a user stop (work may be mid-flight);
+            # only auto-remove after a clean, complete finish.
+            if halted or user_stopped:
                 log.say(
                     f"  worktree LEFT for review: {wt_path} (branch {worktree_branch(cfg, run_id)})"
                 )
@@ -881,6 +904,10 @@ def main() -> int:
                 log.say(f"  worktree left (cleanup_on_success=false): {wt_path}")
         lock_path.unlink(missing_ok=True)
 
+    if user_stopped:
+        # User-initiated stop (Ctrl-C between phases, or STOP sentinel) — no alarm.
+        log.say(f"=== stopped by user | stories completed: {completed} ===")
+        return 0
     log.say(f"=== run finished | stories completed: {completed} ===")
     if cfg.raw.get("alert", {}).get("on_success", True):
         alarm(cfg, log, "run finished")
