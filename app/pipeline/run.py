@@ -3,11 +3,12 @@
 :func:`process_submission` is the single background unit of work: it atomically
 claims a ``RECEIVED`` row, runs an ordered list of **stages** behind a stable
 seam, rolls the elapsed time into ``processing_ms``, and advances the row to
-``READY_FOR_REVIEW``. Story 2.2 ships ONE :func:`passthrough_stage` that records
-the ``OCR_STARTED``/``OCR_COMPLETED`` timeline markers and performs no
-extraction; Stories 2.3 (preprocess), 2.4 (OCR), 2.5 (LLM) register their real
-stages into :data:`STAGES` with **zero** changes to the scheduler or the status
-machinery — that is the whole point of the seam.
+``READY_FOR_REVIEW``. Story 2.2 shipped a single ``passthrough_stage`` that only
+recorded the ``OCR_STARTED``/``OCR_COMPLETED`` timeline markers; Stories 2.3
+(preprocess) and 2.4 (OCR) have since replaced it with their real stages —
+``ocr_stage`` now owns those markers — and 2.5 (LLM) registers next, all into
+:data:`STAGES` with **zero** changes to the scheduler or the status machinery —
+that is the whole point of the seam.
 
 Failure posture (FR-9, confirmed design): a stage that raises does NOT abort the
 submission and never bubbles into the scheduler thread. The error is recorded
@@ -35,6 +36,7 @@ from typing import Any
 from app.db import repositories as repo
 from app.db.connection import connect
 from app.pipeline import status
+from app.pipeline.ocr import ocr_stage
 from app.pipeline.preprocess import preprocess_stage
 
 logger = logging.getLogger(__name__)
@@ -58,28 +60,16 @@ class StageContext:
 Stage = Callable[[StageContext], None]
 
 
-def passthrough_stage(ctx: StageContext) -> None:
-    """Story 2.2 placeholder for the OCR phase: records the ``OCR_STARTED`` and
-    ``OCR_COMPLETED`` timeline markers and performs NO extraction.
-
-    Stories 2.3–2.5 replace/extend this in :data:`STAGES`. It exists so the
-    lifecycle (claim → markers → READY) ships green and is testable before any
-    heavy native dependency (cv2/pytesseract/paddleocr/provider SDK) lands.
-    """
-    sid = ctx.submission.id
-    status.record_event(ctx.conn, sid, event_type="OCR_STARTED")
-    # No extraction in 2.2 — the seam is being proven, not the engines.
-    status.record_event(ctx.conn, sid, event_type="OCR_COMPLETED")
-
-
 # The single registration point for the ordered stage sequence (AC3). Swapping
 # this list changes pipeline behavior with no edit to scheduler.py/status.py —
 # the seam asserted by the tests. 2.3/2.4/2.5 append their stages here.
 # Story 2.3 registers `preprocess_stage` at the FRONT (it runs before OCR and
-# produces the enhanced/binarized variants the OCR stage will consume). Its wall-
-# time is inside `process_submission`'s timed loop, so it already rolls into
-# `processing_ms` (AC3) without any scheduler/status change (AC5).
-STAGES: list[Stage] = [preprocess_stage, passthrough_stage]
+# produces the enhanced/binarized variants the OCR stage consumes). Story 2.4's
+# `ocr_stage` follows it, taking over the OCR_STARTED/OCR_COMPLETED timeline markers
+# from 2.2's removed `passthrough_stage` and writing the real ocr_results rows. Each
+# stage's wall-time is inside `process_submission`'s timed loop, so it already rolls
+# into `processing_ms` (AC3) with no scheduler/status change (AC5).
+STAGES: list[Stage] = [preprocess_stage, ocr_stage]
 
 
 def process_submission(db_path: str, submission_id: int) -> None:

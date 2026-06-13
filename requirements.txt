@@ -23,6 +23,20 @@ apscheduler~=3.11
 opencv-python-headless~=4.13
 numpy~=2.4
 
+# Local OCR engines (Story 2.4) — both run CPU-only, zero egress (classified `none`).
+# pytesseract wraps the apt-installed tesseract-ocr 5.5 binary (Dockerfile, Story 1.1).
+# PaddleOCR (PP-OCRv5) weights are BAKED into the image at build time (the Dockerfile
+# warmup populates the PaddleX cache `PADDLE_PDX_CACHE_HOME`). The adapter additionally
+# honors `PADDLEOCR_MODEL_DIR` to explicitly pin det/rec weights when that layout is
+# baked — either way there is no runtime download (AC4); see the Dockerfile bake step.
+pytesseract~=0.3
+paddleocr~=3.4
+# paddleocr does NOT pull in its inference framework — `paddlepaddle` (the `paddle`
+# module) is a required, separate install. The CPU wheel is plain `paddlepaddle`
+# (GPU is `paddlepaddle-gpu`); govt infra is CPU-only (AC4). Without this the build's
+# weight-bake step dies with `ModuleNotFoundError: No module named 'paddle'`.
+paddlepaddle~=3.0
+
 # dev / quality / test
 ruff~=0.15
 pytest~=9.0

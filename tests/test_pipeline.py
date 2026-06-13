@@ -9,9 +9,11 @@ with zero native deps (the same instinct as 2.1's in-test stub adapters).
 from __future__ import annotations
 
 import sqlite3
+from pathlib import Path
 
 import pytest
 
+from app.contracts import OcrResult
 from app.db import repositories as repo
 from app.db.connection import connect, init_db
 from app.pipeline import run, status
@@ -450,3 +452,164 @@ def test_live_scheduler_fires_and_finalizes_via_lifespan(tmp_path, monkeypatch):
                 break
             time.sleep(0.2)
     assert final == "READY_FOR_REVIEW", f"live sweep never finalized the row (stuck at {final})"
+
+
+# ── Story 2.4: OCR stage — engine-aware variant routing + honest failures ─────
+# Offline + native-dep-free: stub OcrEngines are injected via the ocr.build_engines
+# registry seam, so no real Tesseract/Paddle is needed (same instinct as the 2.1/2.2
+# stub adapters). The stubs are named "tesseract"/"paddleocr" so the engine-aware
+# preference map (tesseract↔BINARIZED, paddleocr↔ENHANCED) applies unchanged.
+
+
+class _StubOcr:
+    """A stub OcrEngine for stage tests: returns an OK result keyed to the path it
+    was handed, or raises to exercise the per-engine failure path (AC5)."""
+
+    def __init__(self, name: str, *, raises: bool = False, version: str = "9.9-stub") -> None:
+        self.name = name
+        self.version = version
+        self._raises = raises
+
+    def extract(self, image_path, *, ran_on_cpu: bool = True) -> OcrResult:
+        if self._raises:
+            raise RuntimeError(f"{self.name} simulated crash")
+        return OcrResult(
+            engine_name=self.name,
+            engine_version=self.version,
+            text=f"text::{Path(image_path).name}",
+            confidence=0.9,
+            latency_ms=1,
+            ran_on_cpu=ran_on_cpu,
+            status="OK",
+        )
+
+
+def _stage_ctx(conn, sid, scratch):
+    from app.pipeline.run import StageContext
+
+    return StageContext(
+        conn=conn,
+        submission=repo.get_submission(conn, sid),
+        label_images=repo.list_label_images(conn, sid),
+        scratch=scratch,
+    )
+
+
+def test_ocr_stage_routes_original_plus_preferred_variant_per_engine(tmp_path, monkeypatch):
+    """AC2/AC3: a degraded image (both 2.3 variants present) yields FOUR independent
+    rows — each engine OCRs the ORIGINAL and its preferred variant (Tesseract↔
+    BINARIZED, PaddleOCR↔ENHANCED), each row tagged with the variant it consumed."""
+    from app.pipeline import ocr as ocrmod
+
+    db_path = _make_db(tmp_path)
+    with connect(db_path) as conn:
+        sid = _insert_received(conn, status="PROCESSING")
+        img_id = _insert_image(conn, sid, filename="front.jpg")
+
+    monkeypatch.setattr(
+        ocrmod, "build_engines", lambda: [_StubOcr("tesseract"), _StubOcr("paddleocr")]
+    )
+    scratch = {
+        "variants": {
+            img_id: {
+                "original": "front.jpg",
+                "enhanced": "front__enhanced.png",
+                "binarized": "front__binarized.png",
+            }
+        }
+    }
+    with connect(db_path) as conn:
+        ocrmod.ocr_stage(_stage_ctx(conn, sid, scratch))
+
+    with connect(db_path) as conn:
+        rows = conn.execute(
+            "SELECT engine_name, image_variant FROM ocr_results WHERE submission_id = ? "
+            "ORDER BY engine_name, image_variant",
+            (sid,),
+        ).fetchall()
+    assert [(r["engine_name"], r["image_variant"]) for r in rows] == [
+        ("paddleocr", "ENHANCED"),
+        ("paddleocr", "ORIGINAL"),
+        ("tesseract", "BINARIZED"),
+        ("tesseract", "ORIGINAL"),
+    ]
+
+
+def test_ocr_stage_clean_image_runs_original_only(tmp_path, monkeypatch):
+    """AC3: a clean image (no 2.3 variants) is OCR'd on the ORIGINAL only — one row
+    per engine, all ORIGINAL."""
+    from app.pipeline import ocr as ocrmod
+
+    db_path = _make_db(tmp_path)
+    with connect(db_path) as conn:
+        sid = _insert_received(conn, status="PROCESSING")
+        img_id = _insert_image(conn, sid, filename="clean.jpg")
+
+    monkeypatch.setattr(
+        ocrmod, "build_engines", lambda: [_StubOcr("tesseract"), _StubOcr("paddleocr")]
+    )
+    scratch = {"variants": {img_id: {"original": "clean.jpg", "enhanced": None, "binarized": None}}}
+    with connect(db_path) as conn:
+        ocrmod.ocr_stage(_stage_ctx(conn, sid, scratch))
+
+    with connect(db_path) as conn:
+        rows = conn.execute(
+            "SELECT engine_name, image_variant FROM ocr_results WHERE submission_id = ? "
+            "ORDER BY engine_name",
+            (sid,),
+        ).fetchall()
+    assert [(r["engine_name"], r["image_variant"]) for r in rows] == [
+        ("paddleocr", "ORIGINAL"),
+        ("tesseract", "ORIGINAL"),
+    ]
+
+
+def test_ocr_stage_engine_failure_writes_error_row_sibling_survives(tmp_path, monkeypatch):
+    """AC5: a raising engine → an ERROR ocr_results row WITH error_text; the sibling
+    engine's row is still written and the submission still finalizes (not stuck)."""
+    from app.pipeline import ocr as ocrmod
+
+    db_path = _make_db(tmp_path)
+    with connect(db_path) as conn:
+        sid = _insert_received(conn, ttb_id="26001000000400")
+        _insert_image(conn, sid, filename="missing.jpg")  # no file ⇒ original-only routing
+
+    monkeypatch.setattr(
+        ocrmod,
+        "build_engines",
+        lambda: [_StubOcr("tesseract", raises=True), _StubOcr("paddleocr")],
+    )
+
+    run.process_submission(str(db_path), sid)
+
+    with connect(db_path) as conn:
+        sub = repo.get_submission(conn, sid)
+        rows = conn.execute(
+            "SELECT engine_name, status, error_text FROM ocr_results WHERE submission_id = ?",
+            (sid,),
+        ).fetchall()
+    assert sub is not None and sub.status == "READY_FOR_REVIEW"  # finalized, not stuck
+    by_engine = {r["engine_name"]: r for r in rows}
+    assert by_engine["tesseract"]["status"] == "ERROR"
+    assert by_engine["tesseract"]["error_text"]  # honest, non-empty note
+    assert by_engine["paddleocr"]["status"] == "OK"  # sibling unaffected
+
+
+def test_ocr_results_stores_raw_text_only_no_per_field_columns(tmp_path):
+    """AC2 structural guard: ocr_results holds raw text + metadata, NOT a column per
+    matchable field — per-field parsing into field_comparisons is Epic 3, not 2.4."""
+    db_path = _make_db(tmp_path)
+    with connect(db_path) as conn:
+        cols = {r["name"] for r in conn.execute("PRAGMA table_info(ocr_results)").fetchall()}
+    assert {"extracted_text", "image_variant"} <= cols
+    forbidden = {
+        "brand_name",
+        "fanciful_name",
+        "abv",
+        "alcohol_content",
+        "net_contents",
+        "class_type_designation",
+        "grape_varietal",
+        "wine_appellation",
+    }
+    assert cols.isdisjoint(forbidden)

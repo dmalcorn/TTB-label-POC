@@ -147,16 +147,24 @@ def insert_ocr_result(
     submission_id: int,
     label_image_id: int,
     result: OcrResult,
+    image_variant: str = "ORIGINAL",
     error_text: str | None = None,
 ) -> int:
-    """Insert one :class:`OcrResult` as an ``ocr_results`` row; return its id."""
+    """Insert one :class:`OcrResult` as an ``ocr_results`` row; return its id.
+
+    ``image_variant`` (Story 2.4) records WHICH image variant this row OCR'd —
+    ``'ORIGINAL'`` / ``'ENHANCED'`` / ``'BINARIZED'`` — so the both-variants rows
+    are distinguishable for the Epic-5 benchmark (AR-7). It is a writer-supplied
+    discriminator, not part of the centralized ``OcrResult`` shape; it defaults to
+    ``'ORIGINAL'`` so the clean-image path and any pre-2.4 caller need no change.
+    """
     cur = conn.execute(
         """
         INSERT INTO ocr_results
             (label_image_id, submission_id, engine_name, engine_version,
              extracted_text, confidence, word_boxes, latency_ms, ran_on_cpu,
-             status, error_text)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             image_variant, status, error_text)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             label_image_id,
@@ -168,6 +176,7 @@ def insert_ocr_result(
             json.dumps(result.word_boxes) if result.word_boxes is not None else None,
             result.latency_ms,
             result.ran_on_cpu,
+            image_variant,
             result.status,
             error_text,
         ),

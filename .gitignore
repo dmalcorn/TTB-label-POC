@@ -47,3 +47,6 @@ data/
 *.db
 *.db-wal
 *.db-shm
+
+# --- Transient Docker build logs (Story 2.4 validation) ---
+build-*.log

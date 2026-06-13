@@ -143,6 +143,13 @@ CREATE TABLE IF NOT EXISTS ocr_results (
     word_boxes       TEXT,           -- JSON (list of per-word {text, box}); Postgres: JSONB
     latency_ms       INTEGER CHECK (latency_ms IS NULL OR latency_ms >= 0),
     ran_on_cpu       BOOLEAN DEFAULT 1,
+    -- Which image variant THIS row OCR'd (Story 2.4 / AR-7). A degraded image is OCR'd on
+    -- both the ORIGINAL and a preprocessed variant (engine-aware: Tesseract↔BINARIZED,
+    -- PaddleOCR↔ENHANCED) so Epic 5 can score preprocessed-vs-original accuracy; a clean
+    -- image (no Story 2.3 variants) is OCR'd on the ORIGINAL only. Default ORIGINAL so
+    -- pre-2.4 inserts and the clean-image path need no caller change.
+    image_variant    TEXT    NOT NULL DEFAULT 'ORIGINAL'
+                       CHECK (image_variant IN ('ORIGINAL','ENHANCED','BINARIZED')),
     status           TEXT DEFAULT 'OK' CHECK (status IN ('OK','ERROR')),
     error_text       TEXT,           -- writer-supplied; not part of the OcrResult shape
     created_at       TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -150,6 +157,8 @@ CREATE TABLE IF NOT EXISTS ocr_results (
 CREATE INDEX IF NOT EXISTS idx_ocr_results_image      ON ocr_results (label_image_id);
 CREATE INDEX IF NOT EXISTS idx_ocr_results_engine     ON ocr_results (engine_name);
 CREATE INDEX IF NOT EXISTS idx_ocr_results_submission ON ocr_results (submission_id);
+-- Per-(engine, variant) roll-up for the Epic-5 preprocessed-vs-original benchmark.
+CREATE INDEX IF NOT EXISTS idx_ocr_results_variant    ON ocr_results (engine_name, image_variant);
 -- TODO(postgres): word_boxes -> JSONB for indexed querying. SQLite: store JSON as TEXT.
 
 -- ── llm_results ──────────────────────────────────────────────────────────────

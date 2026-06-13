@@ -168,6 +168,7 @@ with its application value and a `match_status` (see the relocated-fields note b
 | `word_boxes` | Word Boxes (JSON) | TEXT holding JSON (Postgres: JSONB), nullable. | Per-word text + bounding boxes; supports future spatial / field-of-vision logic. |
 | `latency_ms` | OCR Time (ms) | Integer milliseconds, nullable. **CHECK ≥ 0**. | Wall-clock time the engine took on this image, for the speed benchmark ([`discussion-points.md`](../ref-docs/discussion-points.md) §6). |
 | `ran_on_cpu` | Ran on CPU | Boolean, default `1` (true). | Whether the run was CPU-only (govt infra has no guaranteed GPU). |
+| `image_variant` | Image Variant | Enum: `ORIGINAL` \| `ENHANCED` \| `BINARIZED` (TEXT + CHECK), **not null**, default `ORIGINAL`. | Story 2.4 (AR-7): which image variant this row OCR'd. A degraded image is OCR'd on **both** the original and a Story-2.3 preprocessing variant — engine-aware (Tesseract↔`BINARIZED`, PaddleOCR↔`ENHANCED`, see [`image-handling.md`](image-handling.md) §3) — so the Epic-5 benchmark can score preprocessed-vs-original accuracy; a clean image with no variant is OCR'd on the `ORIGINAL` only. |
 | `status` | OCR Status | Enum: `OK` \| `ERROR` (TEXT + CHECK), default `OK`. | Outcome of the OCR run. |
 | `error_text` | Error Text | Text, nullable. | Populated when `status = ERROR`. |
 | `created_at` | OCR Run Timestamp | Timestamp, not null, default `CURRENT_TIMESTAMP`. | When the OCR job wrote this row. |

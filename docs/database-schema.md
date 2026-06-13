@@ -307,6 +307,7 @@ statistics** (discussion-points §6).
 | `word_boxes` | TEXT (JSON) |  | Per-word text + bounding boxes (JSON); supports future spatial/field-of-vision logic. |
 | `latency_ms` | INTEGER |  | Wall-clock time for this engine on this image — the timing stat. |
 | `ran_on_cpu` | BOOLEAN |  | Whether run was CPU-only (govt infra has no guaranteed GPU). |
+| `image_variant` | TEXT (enum) | NOT NULL | Story 2.4 (AR-7): which image variant this row OCR'd — `ORIGINAL` / `ENHANCED` / `BINARIZED`. A degraded image is OCR'd on **both** the original and a preprocessed variant (engine-aware: Tesseract↔`BINARIZED`, PaddleOCR↔`ENHANCED`), so Epic 5 can score preprocessed-vs-original accuracy; a clean image (no Story 2.3 variant) is OCR'd on the `ORIGINAL` only. Default `ORIGINAL`. |
 | `status` | TEXT (enum) |  | `OK` / `ERROR`. |
 | `error_text` | TEXT |  | Populated on `ERROR`. |
 | `created_at` | TIMESTAMP | NOT NULL | When the OCR job wrote this row. |
@@ -323,6 +324,11 @@ CREATE TABLE ocr_results (
     word_boxes       TEXT,           -- JSON; Postgres: JSONB
     latency_ms       INTEGER CHECK (latency_ms IS NULL OR latency_ms >= 0),
     ran_on_cpu       BOOLEAN DEFAULT 1,
+    -- Story 2.4 / AR-7: which image variant this row OCR'd. Both-variant OCR was an
+    -- architecture-era addition (D7/AR-7) — a degraded image is OCR'd on the original AND a
+    -- preprocessed variant so Epic 5 can score the preprocessing benefit. Default ORIGINAL.
+    image_variant    TEXT    NOT NULL DEFAULT 'ORIGINAL'
+                       CHECK (image_variant IN ('ORIGINAL','ENHANCED','BINARIZED')),
     status           TEXT DEFAULT 'OK' CHECK (status IN ('OK','ERROR')),
     error_text       TEXT,
     created_at       TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -330,6 +336,7 @@ CREATE TABLE ocr_results (
 CREATE INDEX idx_ocr_results_image      ON ocr_results (label_image_id);
 CREATE INDEX idx_ocr_results_engine     ON ocr_results (engine_name);
 CREATE INDEX idx_ocr_results_submission ON ocr_results (submission_id);  -- per-submission roll-up
+CREATE INDEX idx_ocr_results_variant    ON ocr_results (engine_name, image_variant);  -- 2.4 benchmark roll-up
 -- TODO(postgres): word_boxes -> JSONB for indexed querying. SQLite: store JSON as TEXT.
 ```
 

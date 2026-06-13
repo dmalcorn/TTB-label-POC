@@ -35,8 +35,13 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 
 generated: 2026-06-12
-last_updated: 2026-06-12
+last_updated: 2026-06-13
 project: TTB-label-POC
+# story 2.4 moved ready-for-dev -> in-progress on 2026-06-13 (dev-story)
+# story 2.4 moved in-progress -> review on 2026-06-13 (dev-story: 12 tests, 156 suite green, 1 skip)
+# story 2.4 moved review -> done on 2026-06-13 (code review: 4 patches applied, AC4 build-host verification carried forward)
+# story 2.4 moved done -> in-progress on 2026-06-13 (Docker build FAILED: missing paddlepaddle dep → AC4 weight-bake unbuildable; status corrected)
+# story 2.4 moved in-progress -> done on 2026-06-13 (Docker validated: +paddlepaddle, +mkldnn-off, +offline-probe-suppress; real Tesseract+PaddleOCR OCR offline under --network none, healthz boots zero-network)
 # story 2.3 moved ready-for-dev -> in-progress on 2026-06-12 (dev-story)
 # story 2.3 moved in-progress -> review on 2026-06-13 (dev-story: 12 tests, 144 suite green)
 # story 1.6 moved review -> done on 2026-06-12 (code review: 4 patches applied, 2 deferred)
@@ -63,7 +68,7 @@ development_status:
   2-1-engine-agnostic-ocr-llm-adapter-contracts: done
   2-2-background-sweep-and-submission-lifecycle: done
   2-3-local-opencv-image-preprocessing: done
-  2-4-tesseract-paddleocr-extraction-both-image-variants: ready-for-dev
+  2-4-tesseract-paddleocr-extraction-both-image-variants: done
   2-5-toggleable-llm-extraction-and-ocr-only-fallback: ready-for-dev
   epic-2-retrospective: optional
 

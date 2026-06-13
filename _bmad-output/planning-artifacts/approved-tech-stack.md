@@ -75,6 +75,7 @@ two lines behind). 3.14.6 is the absolute latest and is viable, but 3.13.x is th
 | **Tesseract** (engine binary, via apt) | **5.5.2** (latest 5.5.x) | `none` | Apache-2.0 | [github.com/tesseract-ocr/tesseract](https://github.com/tesseract-ocr/tesseract/releases) |
 | **pytesseract** (wrapper) | **0.3.13** | `none` | Apache-2.0 | [pypi.org/project/pytesseract](https://pypi.org/project/pytesseract/) |
 | **PaddleOCR** (+ PP-OCRv5 models) | **3.4.0**, 2026-01-29 | `none`¹ | Apache-2.0 | [pypi.org/project/paddleocr](https://pypi.org/project/paddleocr/) |
+| **PaddlePaddle** (CPU inference framework PaddleOCR requires) | **3.0.x** (`~=3.0`, CPU wheel) | `none`¹ | Apache-2.0 | [pypi.org/project/paddlepaddle](https://pypi.org/project/paddlepaddle/) |
 | **OpenCV** (`opencv-python-headless`) | **4.13.0.92**, 2026-02-05 | `none` | Apache-2.0 (OpenCV) / MIT (packaging) | [pypi.org/project/opencv-python](https://pypi.org/project/opencv-python/) |
 
 **Note — Tesseract via apt.** Installed as a system package in the Dockerfile (`apt-get install tesseract-ocr`);
@@ -156,6 +157,7 @@ python-multipart~=0.0.32   # POST form parsing for the token gate (Story 1.5)
 apscheduler~=3.11
 pytesseract~=0.3
 paddleocr~=3.4
+paddlepaddle~=3.0     # CPU inference framework PaddleOCR requires (separate install)
 opencv-python-headless~=4.13
 langchain~=1.3
 openai~=2.41          # internal-endpoint (toggleable)
