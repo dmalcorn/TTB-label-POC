@@ -231,6 +231,68 @@ def child_env() -> dict[str, str]:
     return env
 
 
+# --- vetted tool allowlist (specific grant, NOT a blank check) -------------
+# Each phase gets ONLY the tools it needs; anything not listed is denied by the
+# CLI (headless -p mode can't prompt, so it just denies and the agent continues).
+# Adapted from the BMAD shipyard factory's heavily-vetted list, trimmed to this
+# project's Python/Windows stack. Deliberately ABSENT: git-write (the orchestrator
+# owns commits — and this blocks the git-plumbing-as-write-primitive abuse the
+# shipyard hit), and Docker (validation is host-side per CLAUDE.md).
+_BASH_PYTHON = ",".join(
+    [
+        "Bash(python *)",
+        "Bash(python3 *)",
+        "Bash(pip *)",
+        "Bash(pytest *)",
+        "Bash(ruff *)",
+        "Bash(mypy *)",
+        "Bash(.venv/Scripts/python.exe *)",  # the Windows host-venv interpreter
+        "Bash(bash *)",  # run scripts/ci.sh and other helper scripts
+    ]
+)
+_BASH_INSPECT = ",".join(
+    [
+        "Bash(cat *)",
+        "Bash(ls *)",
+        "Bash(ls)",
+        "Bash(head *)",
+        "Bash(tail *)",
+        "Bash(wc *)",
+        "Bash(find *)",
+        "Bash(file *)",
+        "Bash(echo *)",
+    ]
+)
+# Read-only git only: no add/commit/push/reset/checkout/merge/rebase/stash/rm.
+_BASH_GIT_READONLY = ",".join(
+    [
+        "Bash(git status *)",
+        "Bash(git status)",
+        "Bash(git log *)",
+        "Bash(git log)",
+        "Bash(git diff *)",
+        "Bash(git diff)",
+        "Bash(git show *)",
+        "Bash(git show)",
+        "Bash(git blame *)",
+        "Bash(git ls-files *)",
+        "Bash(git ls-files)",
+        "Bash(git branch *)",
+        "Bash(git branch)",
+        "Bash(git rev-parse *)",
+    ]
+)
+_BASE_TOOLS = "Read,Edit,Write,Glob,Grep,Task,TodoWrite,Skill"
+
+# Per-phase lists. For this single-stack Python project the dev / review / fix
+# surfaces are the same (all do Python edits + host-side validation); kept as
+# separate names so a phase can be tightened independently later.
+TOOLS_DEV = f"{_BASE_TOOLS},{_BASH_PYTHON},{_BASH_INSPECT},{_BASH_GIT_READONLY}"
+TOOLS_CODE_REVIEW = TOOLS_DEV
+TOOLS_FIX = TOOLS_DEV
+TOOLS_FOR_PHASE = {"dev_story": TOOLS_DEV, "code_review": TOOLS_CODE_REVIEW}
+
+
 def _tool_brief(name: str, inp: dict | None, arg_chars: int) -> str:
     """`Edit: app/normalize.py`, `Bash: pytest -q`, etc. — the gist of a tool call."""
     inp = inp or {}
@@ -286,15 +348,14 @@ def _render_event(
     return lines
 
 
-def run_claude(cfg: Config, log: RunLog, prompt: str, label: str) -> None:
+def run_claude(cfg: Config, log: RunLog, prompt: str, label: str, tools: str) -> None:
     """Run one headless phase, printing a live play-by-play. Raises Halt on failure.
 
-    Uses --output-format stream-json so the run isn't blind: we decode each event
-    and print it (model narration, every tool call/edit, tool results) so the
-    operator watching the foreground terminal sees real activity. We also abort
-    EARLY on a stall (no events for stall_timeout_sec) instead of waiting out the
-    full phase_timeout_sec hard cap. See auto-run/FINDINGS-01-stdin-hang.md and
-    auto-run/ANALYSIS-and-RECOMMENDATION.md.
+    `tools` is the vetted --allowedTools allowlist for this phase (specific grant,
+    not a blank check). Uses --output-format stream-json so the run isn't blind: we
+    decode each event and print it so the operator sees real activity, and abort
+    EARLY on a stall instead of waiting out the phase_timeout_sec hard cap. See
+    auto-run/FINDINGS-01-stdin-hang.md and auto-run/ANALYSIS-and-RECOMMENDATION.md.
     """
     c = cfg.claude
     cmd = [
@@ -303,13 +364,24 @@ def run_claude(cfg: Config, log: RunLog, prompt: str, label: str) -> None:
         "--output-format",
         "stream-json",
         "--verbose",  # required by the CLI for stream-json in print (-p) mode
-        "--permission-mode",
-        c["permission_mode"],
+        # --setting-sources project is REQUIRED for the allowlist to actually
+        # ENFORCE: it loads ONLY the project's .claude settings (not the user's
+        # global / local allows), so --allowedTools becomes the sole allow source
+        # and everything else is denied-by-default. Without it, headless -p just
+        # pre-approves the listed tools and runs the rest anyway (verified).
+        "--setting-sources",
+        "project",
+        "--allowedTools",
+        tools,
         "--model",
         c["model"],
         "--max-turns",
         str(c["max_turns"]),
     ]
+    # Only pass --permission-mode when explicitly set (e.g. "bypassPermissions" to
+    # revert to allow-everything). Empty = default mode, where the allowlist governs.
+    if c.get("permission_mode"):
+        cmd += ["--permission-mode", c["permission_mode"]]
     if c.get("fallback_model"):
         cmd += ["--fallback-model", c["fallback_model"]]
     for d in cfg.add_dirs:
@@ -538,7 +610,13 @@ def ci_gate(cfg: Config, log: RunLog) -> None:
             log.say("    CI green")
             return
         log.say(f"    CI red — fix attempt {i + 1}/{attempts} (fresh session, full CI output)")
-        run_claude(cfg, log, prompt_text("fix", CI_OUTPUT=out[-max_chars:]), f"ci-fix-{i + 1}")
+        run_claude(
+            cfg,
+            log,
+            prompt_text("fix", CI_OUTPUT=out[-max_chars:]),
+            f"ci-fix-{i + 1}",
+            tools=TOOLS_FIX,
+        )
         ok, out = run_ci(cfg, log, fix=True)
         if not ok and _gate_failed_to_launch(out):
             (log.run_dir / "ci-final-failure.txt").write_text(out, encoding="utf-8")
@@ -740,7 +818,13 @@ def drive_story(cfg: Config, log: RunLog, story: str) -> None:
         # CS/DS/CR commands — deterministic, and the form BMAD expects.
         m = STORY_KEY_RE.match(story)
         story_id = m.group(0).rstrip("-") if m else story
-        run_claude(cfg, log, prompt_text(phase, STORY_ID=story_id), f"{story}__{phase}")
+        run_claude(
+            cfg,
+            log,
+            prompt_text(phase, STORY_ID=story_id),
+            f"{story}__{phase}",
+            tools=TOOLS_FOR_PHASE[phase],
+        )
 
         new = status_of(cfg, story)
         if STATUS_RANK.get(new, -1) <= STATUS_RANK.get(status, -1):

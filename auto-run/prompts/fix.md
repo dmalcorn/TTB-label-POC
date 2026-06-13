@@ -4,6 +4,10 @@ NEVER ask a question, never wait for input. Make the fix and proceed.
 FIRST ACTION: use the Skill tool to invoke **`bmad-agent-dev`** (the developer
 agent) and work as that persona — do not invoke a task skill bare.
 
+TOOL PERMISSIONS: scoped allowlist. git is READ-ONLY (the pipeline commits) and
+Docker is not granted — validate on the host venv. If a command is denied, it's
+outside the grant; take an allowed path, don't retry it.
+
 The local CI gate failed. Its combined output is below between the markers.
 
 ----- CI OUTPUT BEGIN -----

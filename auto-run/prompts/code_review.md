@@ -3,6 +3,10 @@ operator and stdin is closed. You MUST: never display a menu or greeting, never
 ask a clarifying question, never wait for input or confirmation. Make the best
 decision per the project's conventions and run to completion.
 
+TOOL PERMISSIONS: you have a scoped allowlist. git is READ-ONLY (the pipeline
+commits) and Docker is not granted — validate on the host venv. If a command is
+denied, it's outside the grant; take an allowed path, don't retry it.
+
 IMMEDIATE ACTION REQUIRED — your VERY FIRST action must be to invoke the agent
 persona, NOT a task skill:
 

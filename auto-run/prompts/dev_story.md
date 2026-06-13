@@ -6,6 +6,12 @@ workflow's contract still binds you — derive what the step needs from the trig
 prompt, project state, and git history, and continue. Proceed with best judgment
 on tie-breaks. Do not run `sleep` or poll background tasks.
 
+TOOL PERMISSIONS: you have a scoped allowlist (Read/Edit/Write/Glob/Grep/Skill,
+Python + pytest/ruff/mypy, `bash`, read-only git, file inspection). git is
+READ-ONLY — no add/commit/push (the pipeline commits); Docker is not granted, so
+validate on the host venv. If a command is denied, it's outside the grant — take
+an allowed path, don't retry the same denied command.
+
 IMMEDIATE ACTION REQUIRED — your VERY FIRST action must be to invoke the agent
 persona, NOT a task skill:
 
