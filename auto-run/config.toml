@@ -16,7 +16,7 @@ max_turns     = 250        # safety bound per phase; a phase that hits this is t
 phase_timeout_sec = 5400   # 90 min HARD cap per claude phase; a run past this is killed -> FAILURE
 stall_timeout_sec = 600    # abort a phase after this many seconds with NO stream output (0 = off);
                            # catches a hang far sooner than phase_timeout_sec (see FINDINGS-01).
-heartbeat_sec     = 30     # log a live progress line from the event stream at most this often
+heartbeat_sec     = 30     # during silence (a long tool run), print a "… still working" line this often
 extra_args    = []         # any extra claude flags (--output-format/--verbose are set automatically)
 
 [ci]
@@ -38,7 +38,7 @@ cleanup_on_success = true                   # `git worktree remove` after a full
 
 [git]
 commit = true
-push   = true
+push   = false             # TEMP: supervised 3-1 retry commits locally for review; flip back to true after
 remote = "origin"          # pushes the CURRENT branch (main) to this remote
 # Paths a STORY commit must never include. Walls the harness off from story
 # commits so you can edit auto-run/ in parallel without it being swept in.

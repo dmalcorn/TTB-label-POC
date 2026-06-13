@@ -211,37 +211,67 @@ def child_env() -> dict[str, str]:
     return env
 
 
-def _summarize_event(evt: dict) -> str:
-    """One-line, human-readable gist of a stream-json event for the heartbeat."""
+def _tool_brief(name: str, inp: dict | None) -> str:
+    """`Edit: app/normalize.py`, `Bash: pytest -q`, etc. — the gist of a tool call."""
+    inp = inp or {}
+    for key in ("file_path", "path", "command", "pattern", "description", "prompt", "url", "query"):
+        val = inp.get(key)
+        if val:
+            return f"{name}: {str(val).replace(chr(10), ' ')[:100]}"
+    return name
+
+
+def _render_event(evt: dict) -> list[str]:
+    """Human-readable play-by-play lines for one stream-json event (may be several).
+
+    This is what the operator watches scroll by in the terminal — the model's
+    narration, every tool call/edit, and tool results — not a throttled summary.
+    """
     t = evt.get("type")
+    lines: list[str] = []
     if t == "system":
-        return f"session {evt.get('subtype', 'event')}"
-    if t == "assistant":
-        blocks = (evt.get("message") or {}).get("content") or []
-        tools = [
-            b.get("name")
-            for b in blocks
-            if isinstance(b, dict) and b.get("type") == "tool_use" and b.get("name")
-        ]
-        if tools:
-            return "tool: " + ", ".join(tools)
-        if any(isinstance(b, dict) and b.get("type") == "thinking" for b in blocks):
-            return "thinking"
-        return "writing"
-    if t == "user":
-        return "tool result"
-    if t == "result":
-        return f"result ({evt.get('subtype', '')})"
-    return str(t or "event")
+        lines.append(f"session {evt.get('subtype', 'event')}")
+    elif t == "assistant":
+        for b in (evt.get("message") or {}).get("content") or []:
+            if not isinstance(b, dict):
+                continue
+            bt = b.get("type")
+            if bt == "tool_use":
+                lines.append("-> " + _tool_brief(b.get("name", "?"), b.get("input")))
+            elif bt == "text":
+                txt = (b.get("text") or "").strip()
+                if txt:
+                    lines.append(txt[:500])
+            elif bt == "thinking":
+                lines.append("(thinking…)")
+    elif t == "user":
+        for b in (evt.get("message") or {}).get("content") or []:
+            if not (isinstance(b, dict) and b.get("type") == "tool_result"):
+                continue
+            content = b.get("content")
+            snippet = ""
+            if isinstance(content, list):
+                for c in content:
+                    if isinstance(c, dict) and c.get("type") == "text":
+                        snippet = (c.get("text") or "").strip().replace("\n", " ")
+                        break
+            elif isinstance(content, str):
+                snippet = content.strip().replace("\n", " ")
+            flag = "error" if b.get("is_error") else "ok"
+            lines.append(f"<- result ({flag}) {snippet[:80]}")
+    # 'result' is the terminal event — the caller reports cost/turns; nothing here.
+    return lines
 
 
 def run_claude(cfg: Config, log: RunLog, prompt: str, label: str) -> None:
-    """Run one headless phase, streaming events for a live heartbeat. Raises Halt on failure.
+    """Run one headless phase, printing a live play-by-play. Raises Halt on failure.
 
-    Uses --output-format stream-json so the run isn't blind: we log a progress
-    line as events arrive, and abort EARLY on a stall (no events for
-    stall_timeout_sec) instead of waiting out the full phase_timeout_sec hard cap.
-    See auto-run/FINDINGS-01-stdin-hang.md.
+    Uses --output-format stream-json so the run isn't blind: we decode each event
+    and print it (model narration, every tool call/edit, tool results) so the
+    operator watching the foreground terminal sees real activity. We also abort
+    EARLY on a stall (no events for stall_timeout_sec) instead of waiting out the
+    full phase_timeout_sec hard cap. See auto-run/FINDINGS-01-stdin-hang.md and
+    auto-run/ANALYSIS-and-RECOMMENDATION.md.
     """
     c = cfg.claude
     cmd = [
@@ -262,7 +292,10 @@ def run_claude(cfg: Config, log: RunLog, prompt: str, label: str) -> None:
     for d in cfg.add_dirs:
         cmd += ["--add-dir", d]
     cmd += list(c.get("extra_args", []))
-    cmd.append(prompt)  # positional prompt last
+    # `--` end-of-options separator BEFORE the prompt. Without it the CLI fails
+    # with "Input must be provided … when using --print" on a real multi-line
+    # prompt (a short one slips through). Both proven factories use `-- <prompt>`.
+    cmd += ["--", prompt]
 
     hard_timeout = int(c["phase_timeout_sec"])
     stall_timeout = int(c.get("stall_timeout_sec", 0))  # 0 = disabled
@@ -304,10 +337,10 @@ def run_claude(cfg: Config, log: RunLog, prompt: str, label: str) -> None:
     threading.Thread(target=drain, args=(proc.stdout, "out"), daemon=True).start()
     threading.Thread(target=drain, args=(proc.stderr, "err"), daemon=True).start()
 
+    short = label.split("__")[-1]  # "dev_story", not the full story__phase
     start = time.monotonic()
     last_event = start
     last_beat = start
-    seen_any = False
     result_evt: dict | None = None
     err_chunks: list[str] = []
     eofs = 0
@@ -326,8 +359,9 @@ def run_claude(cfg: Config, log: RunLog, prompt: str, label: str) -> None:
             try:
                 tag, line = q.get(timeout=2.0)
             except queue.Empty:
+                # silence during a long tool run — reassure the watcher it's alive.
                 if now - last_beat >= heartbeat:
-                    log.say(f"    … {label}: idle {int(now - last_event)}s")
+                    log.say(f"    [{short} {int(now - start)}s] … still working")
                     last_beat = now
                 continue
             if line is None:
@@ -344,10 +378,10 @@ def run_claude(cfg: Config, log: RunLog, prompt: str, label: str) -> None:
                 continue
             if evt.get("type") == "result":
                 result_evt = evt
-            if not seen_any or time.monotonic() - last_beat >= heartbeat:
-                log.say(f"    … {label}: {_summarize_event(evt)}")
-                last_beat = time.monotonic()
-                seen_any = True
+            el = int(time.monotonic() - start)
+            for disp in _render_event(evt):
+                log.say(f"    [{short} {el}s] {disp}")
+            last_beat = time.monotonic()
 
     rc = proc.wait()
     if err_chunks:
