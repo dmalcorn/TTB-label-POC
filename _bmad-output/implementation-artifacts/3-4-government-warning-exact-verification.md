@@ -4,7 +4,7 @@ baseline_commit: c00d92dea980abab228640ea2c38af8897881a8e
 
 # Story 3.4: Government Warning exact verification
 
-Status: ready-for-dev
+Status: done
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -38,40 +38,23 @@ so that wording deviations are caught exactly the same way every time, with no m
 
 ## Tasks / Subtasks
 
-- [ ] **Task 1 — Canonical §16.21 text + formatting rules as ruleset DATA (AC4)**
-  - [ ] Store the exact §16.21 statement and its formatting rules in the ruleset **data** layer (e.g. `app/engine/rulesets/government_warning.py` as DATA — distinct from the `checks/government_warning.py` logic — or as `params`/`expected` on the `government_warning` `Check` row). The Government Warning (27 CFR Part 16) applies to **all** beverage types, so this is shared data, not spirits-specific.
-  - [ ] Canonical text (verbatim from `docs/regulatory-rules-distilled-spirits.md` §5.1, verified against `ref-docs/27 CFR Part 16.pdf` §16.21):
-    > **GOVERNMENT WARNING:** (1) According to the Surgeon General, women should not drink alcoholic beverages during pregnancy because of the risk of birth defects. (2) Consumption of alcoholic beverages impairs your ability to drive a car or operate machinery, and may cause health problems.
-  - [ ] Carry the formatting rules as data too (from §5.2): header `GOVERNMENT WARNING:` in all-caps; capital `S` in *Surgeon*, capital `G` in *General*; one contiguous statement; the `(1)`/`(2)` segment markers. `cfr_citation = "27 CFR 16.21"`, `source_date` per Part 16.
-  - [ ] The check **imports** this data; it must not inline the warning string in its comparison logic (AC4).
+- [x] **Task 1 — Canonical §16.21 text + formatting rules as ruleset DATA (AC4)**
+  - [x] Stored the exact §16.21 statement + formatting rules in `app/engine/rulesets/government_warning.py` (DATA — distinct from the `checks/` logic), shared across all beverage types. `HEADER`, `BODY`, `FULL_TEXT`, `FormattingRules`/`RULES`, `CFR_CITATION = "27 CFR 16.21"`, `SOURCE_DATE`.
+  - [x] Canonical text verbatim from §5.1; formatting rules (header all-caps; capital `S`/`G`; one statement; `(1)`/`(2)` markers; bold-but-unverifiable) carried as the `FormattingRules` dataclass.
+  - [x] The check **imports** `government_warning as data` and never inlines the warning string (AC4 guard test asserts the body + `27 CFR` literal do NOT appear in `checks/government_warning.py`).
 
-- [ ] **Task 2 — `app/engine/checks/government_warning.py` deterministic verifier (AC1, AC2, AC3)**
-  - [ ] Register an evaluator on Story 3.2's dispatch seam under the `government_warning` strategy so the ruleset's `government_warning` Check (`check_type=DETERMINISTIC`, `27 CFR 16.21`) routes here. **No executor edit.** **Never import or construct an LLM adapter** — this check is deterministic by contract (AC1).
-  - [ ] Pipeline (from `docs/regulatory-rules-distilled-spirits.md` §5.4):
-    1. **Locate** the warning by anchoring on the `GOVERNMENT WARNING:` token in the submission's OCR text (`repo.get_submission_ocr_text`). Not found anywhere ⇒ **AC3(b)**: FAIL, `detail` = plain "Government Warning not found on any label" — **no char-diff**.
-    2. **Header caps check** — require the literal `GOVERNMENT WARNING:` token in **all-caps**. A title-case/`Government Warning:` header ⇒ FAIL (deviation: header casing).
-    3. **Body wording check** — collapse whitespace (runs of spaces/line breaks → single space) and compare the body **case-insensitively** against the §16.21 expected body, requiring **exact wording + punctuation** including the `(1)`/`(2)` markers. Reworded / mis-punctuated ⇒ **AC3(a)**: FAIL with a **char-diff** (expected vs found) in `detail`.
-    4. **Surgeon General casing** — require capital `S`/`G` **unless** the body is all-caps (all-caps is compliant per AC1). Lowercase `s`/`g` in an otherwise mixed-case body ⇒ FAIL (casing deviation).
-    5. **One statement / separate & apart** — body is a single contiguous block (no foreign text interleaved between the `(1)` and `(2)` clauses).
-    6. **Bold/visual styling undeterminable** ⇒ **AC3(c)**: REVIEW ("couldn't verify bold/visual styling from a photo"), never a silent PASS. (Bold is a styling attribute OCR cannot recover — flag for human, do not pass-or-fail on it.)
-    7. **Verdict:** exact wording + correct header caps + casing ⇒ **PASS**.
-  - [ ] **⚠️ Do NOT route the warning body through `app/normalize.py`.** `normalize()` casefolds and strips trailing punctuation — which would destroy the exact-punctuation and casing checks this story depends on. Use a **local whitespace-collapse helper** here (whitespace only; preserve punctuation + case for the targeted assertions). This is the deliberate exception to "always use normalize()": that contract is for field-match *equality*; the Gov Warning needs punctuation- and case-sensitive comparison.
+- [x] **Task 2 — `app/engine/checks/government_warning.py` deterministic verifier (AC1, AC2, AC3)**
+  - [x] Registered the evaluator on Story 3.2's dispatch seam under `government_warning` (one line in `app/engine/checks/__init__.py`). **No executor edit.** No model import/construction (AC1 AST + source guards).
+  - [x] Pipeline implemented: (1) locate via whitespace-tolerant case-insensitive header regex → absent ⇒ plain FAIL no-diff; (2) header all-caps (whitespace-collapsed) → title-case FAIL; (3) body whitespace-collapse + case-insensitive exact-prefix match (punctuation + `(1)`/`(2)` preserved) → reworded ⇒ char-diff FAIL; (4) Surgeon/General capitals enforced only on a mixed-case body; (5) one-statement prefix-match; (6) bold-undeterminable (scratch signal) ⇒ REVIEW; (7) else PASS.
+  - [x] Did NOT route the body through `app/normalize.py` — used a local whitespace-only `_collapse_ws` helper (punctuation + case preserved).
 
-- [ ] **Task 3 — Deviation/char-diff payload + provenance (AC3, FR-13)**
-  - [ ] On a wording-deviation FAIL, compute a char-level diff (stdlib `difflib` — no new dependency) of expected-vs-found body and store it in `checklist_items.detail` as the deviation data Epic 4's Government Warning comparison card (Story **4.5**) renders. 3.4 produces the **data**; 4.5 renders the visual char-diff + its text equivalent. Keep the three outcomes structurally distinguishable in `detail` (reworded-with-diff vs absent-plain vs couldn't-verify) so 4.5 never shows a diff-against-empty.
-  - [ ] **No `field_comparisons` row** — the Government Warning's "expected" side is the *regulation*, not a `submissions` field, so it is not an app↔OCR field-match. Record provenance via the returned `CheckResult` and `source_ocr_result_id` where the matched text came from; `run_checks` (3.2) writes the single `checklist_items` row. [Source: approach.md §4 "Government Warning … compares against the statute rather than a maker field"]
+- [x] **Task 3 — Deviation/char-diff payload + provenance (AC3, FR-13)**
+  - [x] On a wording-deviation FAIL, computed a stdlib `difflib` char-level diff (`_char_diff`, opcode list expected→found) stored in `checklist_items.detail` as a JSON payload with an `outcome` discriminator (`reworded` w/ `diff`+`expected`+`found` · `absent` plain no-diff · `couldnt_verify` · `pass`) so Story 4.5 never diffs against empty.
+  - [x] **No `field_comparisons` row** — verified by test; provenance travels in the returned `CheckResult`, `run_checks` (3.2) writes the single `checklist_items` row.
 
-- [ ] **Task 4 — Tests (`tests/test_government_warning.py`) — THE three outcomes (all ACs)**
-  - [ ] **PASS:** exact §16.21 text with all-caps header; correct text with **incidental whitespace** (extra spaces/line breaks); **all-caps body** ⇒ PASS.
-  - [ ] **FAIL — wording deviation:** reworded/paraphrased, omitted clause, mis-punctuation, missing `(1)`/`(2)` marker ⇒ FAIL with a char-diff in `detail`.
-  - [ ] **FAIL — absent:** warning not present in any image's OCR text ⇒ FAIL with plain copy, **no diff** (assert no diff payload).
-  - [ ] **FAIL — header casing:** `Government Warning:` (title case) ⇒ FAIL; lowercase `s`/`g` in a mixed-case "surgeon general" body ⇒ FAIL.
-  - [ ] **REVIEW — undeterminable:** the bold/visual-styling case ⇒ REVIEW "couldn't verify", **never** a silent PASS.
-  - [ ] **No-LLM guard (AC1):** a structural test asserting the check never imports/constructs a model adapter (mirrors the egress rigor of `test_token_gate.py`). This is the named highest-value test `test_government_warning.py` (the three outcomes) in project-context.
-  - [ ] **AC4 guard:** the warning text appears only in the ruleset data module (+ tests), not in `checks/government_warning.py` logic.
+- [x] **Task 4 — Tests (`tests/test_government_warning.py`) — THE three outcomes (all ACs)** — 24 tests: PASS (exact / incidental-whitespace / all-caps body / surrounded), FAIL-reworded (reworded/omitted-clause/missing-marker/mis-punctuation w/ char-diff), FAIL-header-casing, FAIL-Surgeon/General-casing, FAIL-absent (plain, no diff; + no-OCR), REVIEW-bold-undeterminable, no-`field_comparisons`, run_checks integration, AC4 data-only guards, AC1 no-LLM AST + source guards.
 
-- [ ] **Task 5 — Validate + finalize**
-  - [ ] `ruff check` + `ruff format` (line length 100); full `pytest` green (no regressions). Update File List + Change Log + Completion Notes.
+- [x] **Task 5 — Validate + finalize** — `bash scripts/ci.sh`: format ✅ · lint ✅ · mypy clean on story files (the sole mypy error is the pre-existing walled-off `auto-run/orchestrate.py:562`, untouched by this story) · **308 passed / 1 skip**. Updated three stale `test_run_checks.py` assertions whose hardcoded `== "REVIEW"` was a 3.2-era all-placeholder artifact (now real `field_match`/`government_warning` evaluators run) — re-pointed them to assert agreement with `verdict.rollup` + legality, preserving each test's intent.
 
 ## Dev Notes
 
@@ -121,16 +104,45 @@ project-context anti-pattern: "CFR text hard-coded in Python." The §16.21 text 
 
 ### Agent Model Used
 
+Amelia (DEV / Senior Software Engineer persona) — Claude Opus 4.
+
 ### Debug Log References
+
+- Two red-after-green misses fixed during the green phase: (a) whitespace-tolerant header locator (the incidental-whitespace PASS case doubled spaces inside `GOVERNMENT  WARNING:`) → regex now joins header words on `\s+`; (b) AC4 guard tripped on a `27 CFR` literal in the check docstring → rephrased the prose to `§16.21` so the check module carries no CFR citation literal at all.
+- No-LLM guard hardened: the initial bare-substring `"llm"` scan would false-positive on docstring prose; replaced with an AST import scan (`test_check_never_imports_a_model_adapter`) + a targeted code-path token scan (`test_check_constructs_no_model_client`).
 
 ### Completion Notes List
 
-- Ultimate context engine analysis completed - comprehensive developer guide created.
+- Deterministic (no-LLM) Government Warning verifier implemented on the Story-3.2 dispatch seam — no executor edit. The §16.21 text + formatting rules live as ruleset DATA (`app/engine/rulesets/government_warning.py`), imported by the check; the check module contains neither the warning body nor a CFR citation literal (AC4 guards).
+- The three outcomes stay structurally distinct via a JSON `outcome` discriminator in `checklist_items.detail`: `reworded` (char-diff via stdlib `difflib`, expected+found), `absent` (plain copy, NO diff against empty), `couldnt_verify` (bold/visual REVIEW), `pass`. Story 4.5 renders these; 3.4 produces the data.
+- Deliberate `normalize()` exception honored: a local whitespace-only `_collapse_ws` preserves punctuation + case (normalize would casefold + strip trailing punctuation, destroying the exact-match assertions). Body compared case-insensitively (all-caps body compliant); header all-caps + Surgeon/General capitals enforced on mixed-case bodies only.
+- No `field_comparisons` row (the expected side is the statute, not an application field) — verified by test; `run_checks` writes the single `checklist_items` row.
+- Validation: `bash scripts/ci.sh` — ruff format + lint clean; mypy clean on story files (the only error is the pre-existing walled-off `auto-run/orchestrate.py:562`); full suite **308 passed / 1 skip**.
+- Regression-touch: three `test_run_checks.py` assertions hardcoding the 3.2-era all-placeholder `"REVIEW"` roll-up were re-pointed to assert agreement with `verdict.rollup` + legality (real `field_match`/`government_warning` evaluators now run). No test weakened; intent preserved.
+
+### Code Review (2026-06-13)
+
+Three parallel adversarial layers (Blind Hunter diff-only, Edge Case Hunter, Acceptance Auditor). Two confirmed false-FAIL classes were empirically reproduced and patched; all four ACs verified satisfied; §16.21 BODY confirmed verbatim against §5.1.
+
+- **Patch 1 — casing check (false-FAIL on over-/under-capitalization).** The substring-membership casing test (`if word not in matched_body`) false-FAILed two compliant shapes: an *over-capitalized* "Surgeon General" (extra capitals are compliant per §5.2 — only the S/G initials are mandated) and an all-caps body carrying one OCR-lowercased stray word. Replaced with a positional initial-letter check `_initial_is_capital(body, word)` that locates each mandated word case-insensitively and asserts only its first letter is uppercase. Anchored to docs/regulatory-rules-distilled-spirits.md §5.2 ("The S in Surgeon and the G in General are capitalized").
+- **Patch 2 — multi-occurrence header locate (decoy / reworded-first false-FAIL).** The verifier evaluated only the *first* `GOVERNMENT WARNING` header match, so a decoy header before the real warning — or a reworded front label preceding a compliant back label — false-FAILed. Refactored `government_warning()` to `finditer` all header occurrences and PASS if *any* occurrence is compliant, reporting the first non-pass otherwise. Per-occurrence logic extracted into `_evaluate_occurrence(ctx, ocr_text, match)`.
+- **Regression tests (+8 net):** lowercase-surgeon-only / lowercase-general-only FAIL, over-capitalized Surgeon General PASS, all-caps body with one OCR-lowercased word PASS, interleaved-foreign-text-between-clauses FAIL, decoy-header-before-correct-warning PASS, reworded-front-then-correct-back PASS, all-occurrences-deviate FAIL.
+- **Deferred** (to `deferred-work.md`): three declared-but-unconsulted `FormattingRules` flags (AC4-intent gap, deferred per anti-over-engineering); whitespace-only normalization does not fold non-whitespace unicode OCR artifacts (latent, ASCII-only corpus today).
+- **Dismissed as by-design:** prefix-match trailing-superset (intended), bold→REVIEW path (intended visual-undeterminable seam), casefold length-change slice (unreachable on ASCII).
+- Re-validation: `bash scripts/ci.sh` — ruff format + lint clean; mypy clean on story files (only the pre-existing walled-off `auto-run/orchestrate.py:562`); full suite **316 passed / 1 skip**.
 
 ### File List
+
+- `app/engine/rulesets/government_warning.py` — NEW (§16.21 text + formatting rules as DATA, AC4)
+- `app/engine/checks/government_warning.py` — NEW (deterministic verifier; the three outcomes; char-diff; no-LLM)
+- `app/engine/checks/__init__.py` — UPDATED (register the `government_warning` evaluator on the seam)
+- `tests/test_government_warning.py` — NEW (32 tests; the three outcomes + AC4 data-only + AC1 no-LLM guards + 8 code-review regression tests)
+- `tests/test_run_checks.py` — UPDATED (3 stale `== "REVIEW"` roll-up assertions re-pointed to `verdict.rollup` agreement)
 
 ### Change Log
 
 | Date | Description |
 |------|-------------|
 | 2026-06-13 | Story 3.4 drafted — deterministic (no-LLM) Government Warning verifier on the 3.2 seam: §16.21 expected text + casing rules as ruleset DATA, whitespace-normalized case-insensitive body match with enforced header/Surgeon-General casing, and the three non-conflated outcomes (reworded→char-diff FAIL, absent→plain FAIL, bold/caps undeterminable→REVIEW). Status → ready-for-dev. |
+| 2026-06-13 | Story 3.4 implemented (test-first) — §16.21 text/rules as DATA module + deterministic verifier registered on the 3.2 seam (no executor edit), JSON `outcome` discriminator with stdlib char-diff, local whitespace-only normalization (the deliberate `normalize()` exception), AC1 no-LLM AST/source guards, AC4 data-only guards, no `field_comparisons` row. 24 new tests; 3 stale 3.2-era roll-up assertions in `test_run_checks.py` re-pointed to `verdict.rollup`. ci.sh format/lint clean, 308 passed / 1 skip. Status → review. |
+| 2026-06-13 | Code review (3 parallel adversarial layers) → 2 patches applied + 8 regression tests, 2 deferrals, 4 by-design dismissals. Patch 1: casing check moved from substring-membership to positional initial-letter (`_initial_is_capital`) — fixes false-FAIL on over-capitalized Surgeon/General and all-caps body with one OCR-lowercased word (anchored to §5.2). Patch 2: header locate scans ALL `GOVERNMENT WARNING` occurrences (`finditer`), PASS if any is compliant — fixes decoy-header-first and reworded-front/correct-back false-FAILs; per-occurrence logic extracted to `_evaluate_occurrence`. ci.sh format/lint/mypy clean, 316 passed / 1 skip. Status → done. |

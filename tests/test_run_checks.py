@@ -156,8 +156,13 @@ def test_run_checks_writes_one_row_per_check_with_provenance(tmp_path):
         assert row["label"] == check.label
         assert row["verdict"] in {"PASS", "REVIEW", "FAIL", "NA"}
         assert row["detail"]  # an advisory note is recorded
-    # With only placeholder (REVIEW) evaluators, the submission rolls up to REVIEW.
-    assert result == "REVIEW"
+    # The returned roll-up is the centralized rollup over the per-check verdicts (not a
+    # hardcoded value — real evaluators now run: field_match (3.3), government_warning
+    # (3.4)). It must be a legal submission-level verdict and agree with rollup().
+    from app import verdict
+
+    assert result == verdict.rollup([r["verdict"] for r in rows])
+    assert result in {"PASS", "REVIEW", "FAIL"}
 
 
 def test_run_checks_sets_engine_verdict_equal_to_rollup(tmp_path):
@@ -175,7 +180,11 @@ def test_run_checks_sets_engine_verdict_equal_to_rollup(tmp_path):
         stored = _get_submission(conn, sid).engine_verdict
 
     expected = verdict.rollup([r["verdict"] for r in rows])
-    assert stored == expected == "REVIEW"
+    # The single centralized roll-up: the stored engine_verdict equals rollup over the
+    # per-check verdicts (engine & UI can never disagree). The concrete value depends on
+    # the now-real evaluators, so assert agreement + legality, not a hardcoded literal.
+    assert stored == expected
+    assert stored in {"PASS", "REVIEW", "FAIL"}
 
 
 def test_run_checks_empty_ruleset_rolls_up_to_review(tmp_path):
@@ -278,13 +287,16 @@ def test_engine_stage_persist_failure_rolls_back_and_preserves_prior_checklist(
         sid = _insert_submission(conn)
         submission = _get_submission(conn, sid)
 
-        # 1) A clean run writes the full, valid checklist (all placeholder REVIEW).
+        # 1) A clean run writes the full, valid checklist. Capture the resulting
+        #    (now real-evaluator) verdict as the known-good baseline to compare against
+        #    after the forced-failure rollback — this test asserts INTEGRITY (the prior
+        #    good state survives), not a specific verdict value.
         rc.run_checks(conn, submission)
         conn.commit()
         good_count = len(_checklist_rows(conn, sid))
         good_verdict = _get_submission(conn, sid).engine_verdict
         assert good_count == len(get_ruleset("DISTILLED_SPIRITS"))
-        assert good_verdict == "REVIEW"
+        assert good_verdict in {"PASS", "REVIEW", "FAIL"}
 
         # 2) Register an evaluator that returns an ILLEGAL verdict for one strategy —
         #    the INSERT trips the verdict CHECK constraint ⇒ IntegrityError mid-loop.

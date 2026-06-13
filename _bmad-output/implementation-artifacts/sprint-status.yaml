@@ -1,5 +1,5 @@
 # generated: 2026-06-12
-# last_updated: 2026-06-13 (story 3.3 → done via code-review)
+# last_updated: 2026-06-13 (story 3.4 → done via code-review)
 # project: TTB-label-POC
 # project_key: NOKEY
 # tracking_system: file-system
@@ -94,7 +94,10 @@ development_status:
   # story 3.3 moved ready-for-dev -> review on 2026-06-13 (dev-story: field_match evaluator on the 3.2 dispatch seam [no executor edit], three-band tolerance PASS/REVIEW/FAIL via centralized normalize/parse_numeric, all four matchable fields re-pointed to field_match, field_comparisons writes with LLM-first/OCR-fallback provenance [exactly one source FK], tunable constants [ABV ±0.3-pt, net_contents exact, REVIEW_FLOOR 0.85, OCR_CONFIDENCE_FLOOR 0.50], delete-then-insert idempotency + scratch forwarding; 21 new tests, 281 suite green / 1 skip; ruff + story-scope mypy clean)
   # story 3.3 moved review -> done on 2026-06-13 (code review: 3 patches applied [F1 wrong-unit numeric stray ⇒ UNVERIFIABLE/REVIEW not false-FAIL; F2 low-OCR-confidence valve now softens FAIL→REVIEW symmetrically; F3 non-scalar LLM field value degrades to OCR fallback] + 5 regression tests, 1 deferred [F4 short-value substring over-match] + 1 provenance watch-item; dead splitlines branch tidied; 286 suite green / 1 skip; ruff clean)
   3-3-field-match-check-with-tolerance-bands: done
-  3-4-government-warning-exact-verification: ready-for-dev
+  # story 3.4 moved ready-for-dev -> in-progress on 2026-06-13 (dev-story)
+  # story 3.4 moved in-progress -> review on 2026-06-13 (dev-story: deterministic no-LLM Government Warning verifier on the 3.2 seam [no executor edit]; §16.21 text + formatting rules as ruleset DATA, the three non-conflated outcomes via a JSON `outcome` discriminator [reworded→stdlib char-diff FAIL, absent→plain FAIL no-diff, bold/visual→REVIEW], local whitespace-only normalization [the deliberate normalize() exception], no field_comparisons row, AC1 no-LLM AST+source guards, AC4 data-only guards; 24 new tests + 3 stale 3.2-era roll-up assertions re-pointed to verdict.rollup; 308 suite green / 1 skip; ruff + story-scope mypy clean)
+  # story 3.4 moved review -> done on 2026-06-13 (code review: 2 patches applied + 8 regression tests, 2 deferred, 4 by-design dismissals; P1 casing check substring⇒positional initial-letter [_initial_is_capital] fixing false-FAIL on over-capitalized Surgeon/General + all-caps body w/ one OCR-lowercased word [anchored §5.2]; P2 header locate scans ALL GOVERNMENT WARNING occurrences via finditer, PASS if any compliant [_evaluate_occurrence], fixing decoy-header-first + reworded-front/correct-back false-FAILs; §16.21 BODY confirmed verbatim, all 4 ACs satisfied; 316 suite green / 1 skip; ruff + story-scope mypy clean)
+  3-4-government-warning-exact-verification: done
   3-5-per-type-deterministic-format-checks: backlog
   3-6-hybrid-class-type-designation-check: backlog
   3-7-flag-only-checks-surface-as-review: backlog
