@@ -30,11 +30,19 @@ def _label_bgr(angle: float = 0.0, w: int = 600, h: int = 400) -> np.ndarray:
     """A clean, evenly-lit black-text-on-white label (optionally rotated by
     ``angle`` degrees) as a 3-channel BGR array — what a decoded JPEG looks like."""
     gray: np.ndarray = np.full((h, w), 255, np.uint8)
+    # Colors as 3-tuples (not bare scalars): cv2 uses component [0] for a 1-channel
+    # image, so (0,0,0)=black and (255,)*3=white render identically to 0/255 — but
+    # they satisfy the cv2 stubs' Sequence[float] typing (host-side mypy missed this
+    # because cv2 isn't installed there; the dev container has it).
     for i, line in enumerate(_LINES):
-        cv2.putText(gray, line, (40, 70 + i * 60), cv2.FONT_HERSHEY_SIMPLEX, 1.1, 0, 2, cv2.LINE_AA)
+        cv2.putText(
+            gray, line, (40, 70 + i * 60), cv2.FONT_HERSHEY_SIMPLEX, 1.1, (0, 0, 0), 2, cv2.LINE_AA
+        )
     if angle:
         matrix = cv2.getRotationMatrix2D((w / 2, h / 2), angle, 1.0)
-        gray = cv2.warpAffine(gray, matrix, (w, h), flags=cv2.INTER_CUBIC, borderValue=255)
+        gray = cv2.warpAffine(
+            gray, matrix, (w, h), flags=cv2.INTER_CUBIC, borderValue=(255, 255, 255)
+        )
     return cv2.cvtColor(gray, cv2.COLOR_GRAY2BGR)
 
 
