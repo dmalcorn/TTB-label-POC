@@ -2,3 +2,4 @@
 logs/
 STOP
 state.json
+.run.lock
