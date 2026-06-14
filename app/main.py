@@ -26,6 +26,7 @@ from app.pipeline.scheduler import shutdown_scheduler, start_scheduler
 from app.web.deps import gate_enabled, has_valid_access, is_exempt
 from app.web.routes_access import router as access_router
 from app.web.routes_benchmark import router as benchmark_router
+from app.web.routes_ops import router as ops_router
 from app.web.routes_queue import router as queue_router
 from app.web.routes_review import router as review_router
 
@@ -139,6 +140,10 @@ def create_app() -> FastAPI:
     # A pure pre-computed DB read (AR-5) that CONSUMES the 5.2 scorer + 5.3 cost stats;
     # carries no exemption, so the token gate protects it like every screen.
     app.include_router(benchmark_router)
+    # Demo Operations (Story 6.1) — POST /reset re-arms the demo (transactional
+    # re-seed + derived-images purge). Carries no exemption, so the token gate
+    # protects /reset like every screen (operator route behind the gate).
+    app.include_router(ops_router)
 
     @app.get("/healthz")
     def healthz() -> dict[str, str]:

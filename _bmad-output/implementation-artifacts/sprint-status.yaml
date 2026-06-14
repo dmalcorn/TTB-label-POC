@@ -35,7 +35,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 
 generated: 2026-06-12
-last_updated: 2026-06-14 (story 4.10 → done via code-review)
+last_updated: 2026-06-14 (story 6.1 → done via code-review)
 project: TTB-label-POC
 # story 3.1 moved ready-for-dev -> in-progress on 2026-06-13 (dev-story)
 # story 3.1 moved in-progress -> review on 2026-06-13 (dev-story: 51 new tests, 234 suite green / 1 skip; contracts #2 normalize + #3 verdict.rollup + field_comparisons/checklist_items schema)
@@ -175,8 +175,10 @@ development_status:
   epic-5-retrospective: optional
 
   # Epic 6: Evaluator Deliverables & Demo Operations
-  epic-6: backlog
-  6-1-demo-data-reset: backlog
+  # epic-6 backlog -> in-progress; story 6.1 backlog -> review on 2026-06-14 (create-story verified + dev-story in one session: POST /reset operator route — transactional re-seed via seed() [FK cascade clears all children + review_progress + decision columns], generated-images purge [best-effort, swallowed], 303 -> /queue, behind the token gate; found+fixed the ops router never wired into main.py; tests/test_routes_ops.py 11 passed; full CI gate green 770 passed / 1 skip)
+  # story 6.1 moved review -> done on 2026-06-14 (code review: 3 patches to app/web/ops.py [path-safety guard refusing repo-root/fixtures/ancestor purges — AC-2 hardening; non-directory-root handling; broadened best-effort FS-purge swallow OSError->Exception per Task-2 "DB commit is the success boundary"] + 4 regression tests [AC-1 atomic-rollback, AC-2 swallow, path-safety, non-dir root] + tightened the no-leak assertion; 15 ops tests / 774 suite green / 1 skip; ruff + mypy clean; symlink-root purge, reset-during-live-sweep, CSRF deferred)
+  epic-6: in-progress
+  6-1-demo-data-reset: done
   6-2-live-fixture-enqueue: backlog
   6-3-documentation-deliverable-set-and-outbound-call-inventory: backlog
   epic-6-retrospective: optional
