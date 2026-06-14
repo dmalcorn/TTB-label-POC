@@ -122,6 +122,32 @@ class ChecklistItem(BaseModel):
     created_at: str
 
 
+class FieldComparison(BaseModel):
+    """One APPLICATION-vs-EXTRACTED field comparison (``v_field_comparisons`` row).
+
+    The read shape the stacked comparison cards (Story 4.4) render. Read from the
+    ``v_field_comparisons`` VIEW — never the raw table — so ``extracted_source`` is
+    the DERIVED display label (``ocr:<engine_name>`` / ``llm:<model_id>``, or
+    ``None`` when neither source FK is set) the schema reconstructs by joining the
+    source row, never re-derived in Python. ``application_value`` / ``extracted_value``
+    are the RAW (un-normalized) stored text — the UI shows raw; normalization is
+    comparison-only (Contract #2). Field names mirror the view's columns 1:1
+    (snake_case); the enum-ish ``match_status`` stays plain ``str`` (the write-time
+    ``CHECK`` is the source of truth)."""
+
+    id: int
+    submission_id: int
+    field_key: str
+    application_value: str | None = None
+    extracted_value: str | None = None
+    source_ocr_result_id: int | None = None
+    source_llm_result_id: int | None = None
+    match_status: str | None = None
+    similarity: float | None = None
+    extracted_source: str | None = None
+    created_at: str
+
+
 def get_submission(conn: sqlite3.Connection, submission_id: int) -> Submission | None:
     """Read one submission by surrogate id; ``None`` if absent."""
     row = conn.execute(
@@ -162,6 +188,22 @@ def list_checklist_items(conn: sqlite3.Connection, submission_id: int) -> list[C
         (submission_id,),
     ).fetchall()
     return [ChecklistItem.model_validate(dict(row)) for row in rows]
+
+
+def list_field_comparisons(conn: sqlite3.Connection, submission_id: int) -> list[FieldComparison]:
+    """List a submission's field comparisons in id order (the stacked cards read).
+
+    Reads the ``v_field_comparisons`` VIEW (Story 4.4) — never the raw table — so
+    ``extracted_source`` is the DERIVED display label the schema reconstructs by
+    joining the source OCR/LLM row, never re-derived here. Ordered by ``id`` so the
+    order matches the field-match evaluator that produced them; problems-first
+    re-ordering is a presentation concern handled in the view layer. Returns ``[]``
+    for a submission with no comparisons. A pure pre-computed read (AR-5)."""
+    rows = conn.execute(
+        "SELECT * FROM v_field_comparisons WHERE submission_id = ? ORDER BY id",
+        (submission_id,),
+    ).fetchall()
+    return [FieldComparison.model_validate(dict(row)) for row in rows]
 
 
 def get_submission_ocr_text(conn: sqlite3.Connection, submission_id: int) -> str:

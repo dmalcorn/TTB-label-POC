@@ -73,20 +73,38 @@
     </div>
   </section>
 
-  {# ── Field-group placeholder sections (later-story anchor targets) ───────────
-     Inert, clearly-deferred sections that the chevron anchors resolve to NOW. Stories
-     4.4–4.8 replace each with the real field cards / Gov-Warning card / checklist /
-     image panel / disposition bar. These are NOT fake live controls. #}
-  <section id="group-identity" class="review-placeholder" aria-label="Identity">
-    <span class="review-placeholder__tag">Identity</span>
-    <p class="review-placeholder__note">Brand name, class/type, name &amp; address comparison
-      cards arrive in Story 4.4.</p>
-  </section>
+  {# ── Stacked field comparison cards (Story 4.4) ─────────────────────────────
+     Each FIELD_MATCH checklist row that links a field_comparisons row becomes one
+     stacked card (application value above the OCR/LLM value), grouped problems-first.
+     The per-card verdict is the engine's stored value, rendered as a chip with ICON +
+     WORD (never tint alone, A11Y). The discrepancy is explained per state — a char
+     diff for soft/mismatch (soft = amber, never red), a plain note for not-found /
+     unreadable / blank-application. The "Why?" <details> carries the CFR citation
+     (CFR-as-data, from the row), the extracted source (ocr:…/llm:…) and the engine
+     detail. Raw values are shown verbatim (Contract #2: DB stores raw).
 
-  <section id="group-mandatory-text" class="review-placeholder" aria-label="Mandatory text">
-    <span class="review-placeholder__tag">Mandatory text</span>
-    <p class="review-placeholder__note">Alcohol content, net contents and format checks
-      arrive in Story 4.4.</p>
+     The Identity / Mandatory-text chevron anchors resolve to this region so the
+     progress map keeps working; the visible grouping is problems-first per the mockup. #}
+  <section id="group-identity" class="field-cards" aria-label="Field comparison">
+    <span id="group-mandatory-text" class="field-cards__anchor" aria-hidden="true"></span>
+
+    {% if field_cards_problems %}
+    <h2 class="field-cards__heading">Field comparison — problems first</h2>
+    {% for card in field_cards_problems %}
+    {% include "_field_card.html" %}
+    {% endfor %}
+    {% endif %}
+
+    {% if field_cards_clean %}
+    <h2 class="field-cards__heading field-cards__heading--clean">Verified automatically</h2>
+    {% for card in field_cards_clean %}
+    {% include "_field_card.html" %}
+    {% endfor %}
+    {% endif %}
+
+    {% if not field_cards_problems and not field_cards_clean %}
+    <p class="field-cards__empty">No field comparisons for this submission.</p>
+    {% endif %}
   </section>
 
   <section id="group-gov-warning" class="review-placeholder" aria-label="Government Warning">

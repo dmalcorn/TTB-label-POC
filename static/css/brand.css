@@ -566,3 +566,179 @@ a {
   font-size: 15px;
   margin: 0;
 }
+
+/* ── Stacked field comparison cards (Story 4.4) ──────────────────────────────
+ * One card per FIELD_MATCH comparison: the application value stacked above the
+ * OCR/LLM value, a verdict chip (icon + word, never tint alone), an explained
+ * discrepancy. The left accent + chip tint resolve to the shared --verdict-*
+ * tokens so a card can never disagree with the engine register. */
+.field-cards {
+  margin: 20px 0 0;
+}
+.field-cards__heading {
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--brand-ink);
+  margin: 20px 0 10px;
+}
+.field-cards__heading--clean {
+  color: var(--brand-ink-muted);
+}
+.field-cards__empty {
+  color: var(--brand-ink-muted);
+  font-size: 15px;
+  margin: 0;
+}
+
+.field-card {
+  border: 1px solid var(--brand-border);
+  border-left: 4px solid var(--brand-border);
+  border-radius: var(--brand-radius-md);
+  background-color: var(--brand-surface);
+  padding: 14px 16px;
+  margin: 0 0 12px;
+}
+/* the left accent encodes the state; the chip + word still carry the meaning. */
+.field-card--mismatch {
+  border-left-color: var(--verdict-fail);
+  background-color: var(--verdict-fail-bg);
+}
+.field-card--soft,
+.field-card--near_miss,
+.field-card--not_found,
+.field-card--unreadable,
+.field-card--blank_application {
+  border-left-color: var(--verdict-review);
+  background-color: var(--verdict-review-bg);
+}
+.field-card--match {
+  border-left-color: var(--verdict-pass);
+}
+
+.field-card__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+.field-card__label {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--brand-ink);
+  margin: 0;
+}
+
+/* status chip: pill, tinted, ALWAYS icon + word (never color alone). */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 10px;
+  border-radius: var(--brand-radius-pill);
+  font-size: 13px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.chip__icon {
+  font-weight: 700;
+}
+.chip--pass {
+  color: var(--verdict-pass);
+  background-color: var(--verdict-pass-bg);
+}
+.chip--review {
+  color: var(--verdict-review);
+  background-color: var(--verdict-review-bg);
+}
+.chip--fail {
+  color: var(--verdict-fail);
+  background-color: var(--verdict-fail-bg);
+}
+
+/* stacked application-over-extracted key/value rows. */
+.field-card__kv {
+  margin: 0;
+}
+.field-card__kv-term {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--brand-ink-muted);
+  margin-top: 6px;
+}
+/* Comparison values are sized up for older eyes (DESIGN.md type-scale): the
+ * application/OCR values the specialist reads most are 19px, above the 16px body
+ * floor; the OCR raw value is Roboto Mono 17px so character-level diff spans line
+ * up column-for-column between the application and on-label strings. */
+.field-card__kv-val {
+  font-size: 19px;
+  color: var(--brand-ink);
+  margin: 0 0 4px;
+  word-break: break-word;
+}
+/* Generic mono helper (also used by the Why? raw-value <code>); the kv-val gets a
+ * 17px size so the diff lines up column-for-column with the 19px application row. */
+.mono {
+  font-family: var(--brand-font-mono);
+}
+.field-card__kv-val.mono {
+  font-size: 17px;
+}
+.field-card__empty-val {
+  color: var(--brand-ink-muted);
+  font-style: italic;
+}
+
+/* char-diff spans: soft = amber (capitalization only, never alarming red);
+ * del/ins = red, with underline/strike so the diff survives without color. */
+.diff-equal {
+  /* unchanged run — no decoration */
+}
+.diff-soft {
+  background-color: var(--verdict-review-bg);
+  color: var(--verdict-review);
+  text-decoration: underline;
+  text-decoration-style: dotted;
+}
+.diff-del {
+  background-color: var(--verdict-fail-bg);
+  color: var(--verdict-fail);
+  text-decoration: line-through;
+}
+.diff-ins {
+  background-color: var(--verdict-fail-bg);
+  color: var(--verdict-fail);
+  text-decoration: underline;
+}
+
+.field-card__note {
+  font-size: 14px;
+  color: var(--brand-ink-muted);
+  margin: 8px 0 0;
+}
+
+/* "Why?" disclosure: collapsed by default, carries the CFR citation (data),
+ * the engine detail, and the extracted source. */
+.field-card__why {
+  margin-top: 10px;
+}
+.field-card__why-summary {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--brand-ink-muted);
+  cursor: pointer;
+}
+.field-card__why-body {
+  margin-top: 6px;
+  font-size: 14px;
+  color: var(--brand-ink-muted);
+}
+.field-card__why-body p {
+  margin: 2px 0;
+}
+.field-card__why-cite {
+  font-weight: 700;
+  color: var(--brand-ink);
+}

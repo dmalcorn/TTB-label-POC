@@ -1,0 +1,77 @@
+{#
+  One stacked field comparison card (Story 4.4). Rendered once per ``card`` dict
+  produced by ``app/web/review_view.py:field_cards`` — the view-model is fully
+  pre-shaped (no presentation logic leaks here beyond rendering). The application
+  value stacks ABOVE the extracted (OCR/LLM) value. The verdict chip carries ICON +
+  WORD alongside its color (A11Y: never tint alone). The discrepancy is explained per
+  state: a char diff (soft = amber ``diff-soft``; mismatch = red ``diff-del`` /
+  ``diff-ins``), or a plain ``note`` for not-found / unreadable / blank-application.
+  The "Why?" <details> carries the CFR citation (CFR-as-data, from the row), the
+  extracted source (ocr:…/llm:…) and the engine detail. Raw values shown verbatim.
+#}
+<article class="field-card field-card--{{ card.state }}" aria-label="{{ card.field_label }}">
+  <header class="field-card__head">
+    <h3 class="field-card__label">{{ card.field_label }}</h3>
+    <span class="chip {{ card.chip_class }}">
+      <span class="chip__icon" aria-hidden="true">{{ card.icon }}</span>
+      <span class="chip__word">{{ card.chip_word }}</span>
+    </span>
+  </header>
+
+  {# A11Y hard requirement: when a char-diff is drawn, name the difference in plain
+     text (visually-hidden, USWDS usa-sr-only) so it is never conveyed by colored spans
+     alone — survives forced-colors mode and is announced to screen readers. #}
+  {% if card.diff_text_equivalent %}
+  <p class="usa-sr-only">{{ card.diff_text_equivalent }}</p>
+  {% endif %}
+
+  <dl class="field-card__kv">
+    <dt class="field-card__kv-term">Application value</dt>
+    <dd class="field-card__kv-val field-card__kv-val--application">
+      {%- if card.diff_application -%}
+        {%- for seg in card.diff_application -%}<span class="diff-{{ seg.kind }}">{{ seg.text }}</span>{%- endfor -%}
+      {%- elif card.application_value -%}
+        {{ card.application_value }}
+      {%- else -%}
+        <span class="field-card__empty-val">(blank)</span>
+      {%- endif -%}
+    </dd>
+
+    <dt class="field-card__kv-term">On label (OCR)</dt>
+    <dd class="field-card__kv-val field-card__kv-val--extracted mono">
+      {%- if card.diff_extracted -%}
+        {%- for seg in card.diff_extracted -%}<span class="diff-{{ seg.kind }}">{{ seg.text }}</span>{%- endfor -%}
+      {%- elif card.extracted_value -%}
+        {{ card.extracted_value }}
+      {%- else -%}
+        <span class="field-card__empty-val">(not found)</span>
+      {%- endif -%}
+    </dd>
+  </dl>
+
+  {% if card.note %}
+  <p class="field-card__note">{{ card.note }}</p>
+  {% endif %}
+
+  <details class="field-card__why">
+    <summary class="field-card__why-summary">Why?</summary>
+    <div class="field-card__why-body">
+      {% if card.cfr_citation %}
+      <p class="field-card__why-cite">{{ card.cfr_citation }}</p>
+      {% endif %}
+      {% if card.detail %}
+      <p class="field-card__why-detail">{{ card.detail }}</p>
+      {% endif %}
+      {# The RAW (un-diffed) extracted value, per AC5 "the raw OCR/LLM value" — for a
+         mismatch/soft card the kv slot shows the segmented diff, so the clean raw value
+         is surfaced here. #}
+      {% if card.extracted_value %}
+      <p class="field-card__why-raw">Raw value read:
+        <code class="mono">{{ card.extracted_value }}</code></p>
+      {% endif %}
+      {% if card.extracted_source %}
+      <p class="field-card__why-source">Read from: <code>{{ card.extracted_source }}</code></p>
+      {% endif %}
+    </div>
+  </details>
+</article>

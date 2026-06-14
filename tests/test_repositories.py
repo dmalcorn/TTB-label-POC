@@ -375,3 +375,147 @@ def test_list_checklist_items_scoped_to_submission(tmp_path):
         _insert_checklist_item(conn, b, check_key="net_contents")
         items_a = repo.list_checklist_items(conn, a)
     assert [i.check_key for i in items_a] == ["brand_name"]
+
+
+# ── field-comparison read helper (Story 4.4) ─────────────────────────────────
+# The stacked comparison cards read the `v_field_comparisons` VIEW (not the raw
+# table) so `extracted_source` is the DERIVED display label (`ocr:<engine_name>`
+# / `llm:<model_id>`) the schema reconstructs — never re-derived in Python.
+
+
+def _insert_field_comparison(conn: sqlite3.Connection, submission_id: int, **overrides) -> int:
+    cols = {
+        "submission_id": submission_id,
+        "field_key": "brand_name",
+        "application_value": "Stone's Throw",
+        "extracted_value": "Stone's Throw",
+        "match_status": "MATCH",
+        "similarity": 1.0,
+        "source_ocr_result_id": None,
+        "source_llm_result_id": None,
+    }
+    cols.update(overrides)
+    placeholders = ", ".join("?" for _ in cols)
+    sql = f"INSERT INTO field_comparisons ({', '.join(cols)}) VALUES ({placeholders})"  # noqa: S608
+    cur = conn.execute(sql, tuple(cols.values()))
+    conn.commit()
+    assert cur.lastrowid is not None
+    return cur.lastrowid
+
+
+def _insert_ocr_result(conn: sqlite3.Connection, submission_id: int, **overrides) -> int:
+    image_id = _insert_label_image(conn, submission_id)
+    cols = {
+        "label_image_id": image_id,
+        "submission_id": submission_id,
+        "engine_name": "tesseract",
+        "extracted_text": "Stone's Throw",
+        "status": "OK",
+    }
+    cols.update(overrides)
+    placeholders = ", ".join("?" for _ in cols)
+    sql = f"INSERT INTO ocr_results ({', '.join(cols)}) VALUES ({placeholders})"  # noqa: S608
+    cur = conn.execute(sql, tuple(cols.values()))
+    conn.commit()
+    assert cur.lastrowid is not None
+    return cur.lastrowid
+
+
+def _insert_llm_result(conn: sqlite3.Connection, submission_id: int, **overrides) -> int:
+    cols = {
+        "submission_id": submission_id,
+        "task": "extract_fields",
+        "model_id": "claude-opus-4",
+        "result_text": "{}",
+        "status": "OK",
+    }
+    cols.update(overrides)
+    placeholders = ", ".join("?" for _ in cols)
+    sql = f"INSERT INTO llm_results ({', '.join(cols)}) VALUES ({placeholders})"  # noqa: S608
+    cur = conn.execute(sql, tuple(cols.values()))
+    conn.commit()
+    assert cur.lastrowid is not None
+    return cur.lastrowid
+
+
+def test_list_field_comparisons_returns_in_id_order(tmp_path):
+    db_path = _make_db(tmp_path)
+    with connect(db_path) as conn:
+        sid = _insert_submission(conn)
+        first = _insert_field_comparison(conn, sid, field_key="brand_name")
+        second = _insert_field_comparison(
+            conn, sid, field_key="alcohol_content", match_status="MISMATCH", similarity=0.5
+        )
+        rows = repo.list_field_comparisons(conn, sid)
+    assert [r.id for r in rows] == [first, second]
+    assert all(isinstance(r, repo.FieldComparison) for r in rows)
+    assert rows[0].field_key == "brand_name"
+    assert rows[1].field_key == "alcohol_content"
+    assert rows[1].match_status == "MISMATCH"
+
+
+def test_list_field_comparisons_empty_when_none(tmp_path):
+    db_path = _make_db(tmp_path)
+    with connect(db_path) as conn:
+        sid = _insert_submission(conn)
+        rows = repo.list_field_comparisons(conn, sid)
+    assert rows == []
+
+
+def test_list_field_comparisons_scoped_to_submission(tmp_path):
+    db_path = _make_db(tmp_path)
+    with connect(db_path) as conn:
+        a = _insert_submission(conn, ttb_id="26001000000001")
+        b = _insert_submission(conn, ttb_id="26001000000002")
+        _insert_field_comparison(conn, a, field_key="brand_name")
+        _insert_field_comparison(conn, b, field_key="net_contents")
+        rows_a = repo.list_field_comparisons(conn, a)
+    assert [r.field_key for r in rows_a] == ["brand_name"]
+
+
+def test_list_field_comparisons_derives_ocr_source(tmp_path):
+    db_path = _make_db(tmp_path)
+    with connect(db_path) as conn:
+        sid = _insert_submission(conn)
+        ocr_id = _insert_ocr_result(conn, sid, engine_name="tesseract")
+        _insert_field_comparison(conn, sid, source_ocr_result_id=ocr_id)
+        rows = repo.list_field_comparisons(conn, sid)
+    assert rows[0].extracted_source == "ocr:tesseract"
+
+
+def test_list_field_comparisons_derives_llm_source(tmp_path):
+    db_path = _make_db(tmp_path)
+    with connect(db_path) as conn:
+        sid = _insert_submission(conn)
+        llm_id = _insert_llm_result(conn, sid, model_id="claude-opus-4")
+        _insert_field_comparison(conn, sid, source_llm_result_id=llm_id)
+        rows = repo.list_field_comparisons(conn, sid)
+    assert rows[0].extracted_source == "llm:claude-opus-4"
+
+
+def test_list_field_comparisons_source_none_when_no_fk(tmp_path):
+    db_path = _make_db(tmp_path)
+    with connect(db_path) as conn:
+        sid = _insert_submission(conn)
+        _insert_field_comparison(conn, sid, match_status="MISSING")
+        rows = repo.list_field_comparisons(conn, sid)
+    assert rows[0].extracted_source is None
+
+
+def test_list_field_comparisons_round_trips_raw_values(tmp_path):
+    db_path = _make_db(tmp_path)
+    with connect(db_path) as conn:
+        sid = _insert_submission(conn)
+        _insert_field_comparison(
+            conn,
+            sid,
+            application_value="45% Alc./Vol.",
+            extracted_value="45 % ALC/VOL",
+            match_status="MISMATCH",
+            similarity=0.8,
+        )
+        rows = repo.list_field_comparisons(conn, sid)
+    # raw (un-normalized) text round-trips verbatim — the UI shows raw
+    assert rows[0].application_value == "45% Alc./Vol."
+    assert rows[0].extracted_value == "45 % ALC/VOL"
+    assert rows[0].similarity == 0.8
