@@ -148,6 +148,22 @@ class FieldComparison(BaseModel):
     created_at: str
 
 
+class ReviewProgress(BaseModel):
+    """The specialist's IN-PROGRESS review state (``review_progress`` row, AR-14).
+
+    WEB-LAYER-written, kept strictly separate from the pipeline-owned
+    ``checklist_items`` — this is the smart-checklist tick-state (Story 4.6) and
+    the draft Notes (``draft_notes``, written by Story 4.8). ``ticked_check_keys``
+    is the parsed JSON array of manually-ticked ``check_key``s (validated at the
+    read boundary, AR-13); the stored array is kept sorted + de-duplicated. Field
+    names mirror the columns 1:1 (snake_case)."""
+
+    submission_id: int
+    ticked_check_keys: list[str] = []
+    draft_notes: str | None = None
+    updated_at: str
+
+
 def get_submission(conn: sqlite3.Connection, submission_id: int) -> Submission | None:
     """Read one submission by surrogate id; ``None`` if absent."""
     row = conn.execute(
@@ -711,3 +727,64 @@ def get_latest_llm_extraction(
     if row is None:
         return None
     return (int(row["id"]), row["result_text"])
+
+
+# ── review-progress read + upsert helpers (Story 4.6, AR-14) ─────────────────
+# The smart checklist's IN-PROGRESS tick-state — the ONE web-layer write the
+# Review Workspace makes (via POST /review/{id}/progress). Read back by the
+# AR-5-pure GET /review/{id} to rehydrate ticks across navigate-away + reload.
+# Strictly separate from the pipeline-owned `checklist_items`. The web handler
+# owns the unit of work — these helpers issue SQL but DO NOT commit (the
+# `connect()` context manager commits on clean exit).
+
+
+def get_review_progress(conn: sqlite3.Connection, submission_id: int) -> ReviewProgress | None:
+    """Read a submission's in-progress review state; ``None`` if no row yet.
+
+    ``ticked_check_keys`` is parsed from its stored JSON array at the read
+    boundary (AR-13) into a ``list[str]``.
+    """
+    row = conn.execute(
+        "SELECT * FROM review_progress WHERE submission_id = ?",
+        (submission_id,),
+    ).fetchone()
+    if row is None:
+        return None
+    data = dict(row)
+    data["ticked_check_keys"] = json.loads(data["ticked_check_keys"])
+    return ReviewProgress.model_validate(data)
+
+
+def get_ticked_check_keys(conn: sqlite3.Connection, submission_id: int) -> set[str]:
+    """The set of manually-ticked ``check_key``s for a submission (empty if none)."""
+    progress = get_review_progress(conn, submission_id)
+    return set(progress.ticked_check_keys) if progress is not None else set()
+
+
+def set_check_tick(
+    conn: sqlite3.Connection,
+    submission_id: int,
+    *,
+    check_key: str,
+    ticked: bool,
+) -> None:
+    """Add or remove one ``check_key`` from a submission's manual tick-state (upsert).
+
+    Reads the current set, applies the tick/un-tick, and writes back a sorted +
+    de-duplicated JSON array — bumping ``updated_at``. An ``ON CONFLICT`` upsert
+    keyed on ``submission_id`` creates the row on first tick and preserves any
+    Story-4.8 ``draft_notes`` already present. The caller commits.
+    """
+    keys = get_ticked_check_keys(conn, submission_id)
+    if ticked:
+        keys.add(check_key)
+    else:
+        keys.discard(check_key)
+    encoded = json.dumps(sorted(keys))
+    conn.execute(
+        "INSERT INTO review_progress (submission_id, ticked_check_keys, updated_at) "
+        "VALUES (?, ?, CURRENT_TIMESTAMP) "
+        "ON CONFLICT(submission_id) DO UPDATE SET "
+        "ticked_check_keys = excluded.ticked_check_keys, updated_at = CURRENT_TIMESTAMP",
+        (submission_id, encoded),
+    )

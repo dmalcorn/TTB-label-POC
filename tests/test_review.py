@@ -680,7 +680,238 @@ def test_review_gov_warning_token_gated(monkeypatch, tmp_path) -> None:
 
 
 def test_review_route_imports_no_heavy_work() -> None:
-    """The review route is a pre-computed DB read — no OCR/LLM/pipeline-run import."""
+    """The review route is a pre-computed DB read — no OCR/LLM/pipeline-run import.
+
+    Covers BOTH the GET render and the POST /progress write (Story 4.6 AC7): the tick
+    upsert is the ONE permitted cheap web-layer write, never an engine/OCR run.
+    """
     src = (REPO_ROOT / "app/web/routes_review.py").read_text(encoding="utf-8")
     for forbidden in ("run_checks", "adapters.ocr", "adapters.llm", "pipeline.run", "pytesseract"):
         assert forbidden not in src, f"review route must not import {forbidden!r} (AR-5)"
+
+
+# ── Story 4.6: smart checklist GET render + POST /progress persistence ────────
+
+
+def test_review_get_renders_checklist_header_and_counter(monkeypatch, tmp_path) -> None:
+    """AC1/AC3: GET renders the `Smart checklist — <Type>` header + the `N of M done`
+    counter (an aria-live region) over the engine's checklist_items."""
+    client = _client(monkeypatch, tmp_path)
+    with connect(_db_path(tmp_path)) as conn:
+        sid = _insert_submission(conn, beverage_type="DISTILLED_SPIRITS")
+        _insert_check(conn, sid, check_key="brand_name", verdict="PASS")
+        _insert_check(conn, sid, check_key="alcohol_content", verdict="REVIEW")
+    body = client.get(f"/review/{sid}").text
+    assert "Smart checklist" in body
+    assert "Distilled Spirits" in body
+    # one auto-PASS done out of two rows — counter is split across the
+    # data-done-count / data-total-count spans (live region), so assert structurally
+    assert "<span data-done-count>1</span>" in body
+    assert "<span data-total-count>2</span>" in body
+    assert 'aria-live="polite"' in body
+
+
+def test_review_get_checklist_states_render(monkeypatch, tmp_path) -> None:
+    """AC2: auto-PASS → done (muted); REVIEW → open (amber); FAIL → openfail (red)."""
+    client = _client(monkeypatch, tmp_path)
+    with connect(_db_path(tmp_path)) as conn:
+        sid = _insert_submission(conn)
+        _insert_check(conn, sid, check_key="brand_name", verdict="PASS")
+        _insert_check(conn, sid, check_key="alcohol_content", verdict="REVIEW")
+        _insert_check(
+            conn, sid, check_key="government_warning", check_type="DETERMINISTIC", verdict="FAIL"
+        )
+    body = client.get(f"/review/{sid}").text
+    assert "cli--done" in body
+    assert "cli--open" in body
+    assert "cli--openfail" in body
+
+
+def test_review_get_checklist_empty_state_is_calm(monkeypatch, tmp_path) -> None:
+    """AC8: a submission with no checklist_items renders the calm empty state (never 500)."""
+    client = _client(monkeypatch, tmp_path)
+    with connect(_db_path(tmp_path)) as conn:
+        sid = _insert_submission(conn)
+    resp = client.get(f"/review/{sid}")
+    assert resp.status_code == 200
+    body = resp.text
+    assert "<span data-done-count>0</span>" in body
+    assert "<span data-total-count>0</span>" in body
+    assert "No checks ran for this submission." in body
+
+
+def test_review_post_progress_persists_and_rehydrates(monkeypatch, tmp_path) -> None:
+    """AC5/AC6: POST a manual tick on a REVIEW row, then a FRESH GET ("reload") shows
+    the row in the `usercheck` state + the incremented counter (server-side rehydration)."""
+    client = _client(monkeypatch, tmp_path)
+    with connect(_db_path(tmp_path)) as conn:
+        sid = _insert_submission(conn)
+        _insert_check(conn, sid, check_key="brand_name", verdict="PASS")
+        _insert_check(conn, sid, check_key="alcohol_content", verdict="REVIEW")
+    # before: 1 of 2 done, the REVIEW row is `open`
+    before = client.get(f"/review/{sid}").text
+    assert "<span data-done-count>1</span>" in before
+    assert "cli--open" in before
+    # POST the manual tick
+    resp = client.post(
+        f"/review/{sid}/progress", data={"check_key": "alcohol_content", "ticked": "true"}
+    )
+    assert resp.status_code == 204
+    # after a fresh GET: the REVIEW row is now `usercheck`, counter is 2 of 2
+    after = client.get(f"/review/{sid}").text
+    assert "cli--usercheck" in after
+    assert "<span data-done-count>2</span>" in after
+    assert "<span data-total-count>2</span>" in after
+
+
+def test_review_post_progress_untick_removes_key(monkeypatch, tmp_path) -> None:
+    """AC5: an untick (ticked=false) removes the key — the counter drops back."""
+    client = _client(monkeypatch, tmp_path)
+    with connect(_db_path(tmp_path)) as conn:
+        sid = _insert_submission(conn)
+        _insert_check(conn, sid, check_key="brand_name", verdict="PASS")
+        _insert_check(conn, sid, check_key="alcohol_content", verdict="REVIEW")
+    client.post(f"/review/{sid}/progress", data={"check_key": "alcohol_content", "ticked": "true"})
+    assert "<span data-done-count>2</span>" in client.get(f"/review/{sid}").text
+    # untick
+    resp = client.post(
+        f"/review/{sid}/progress", data={"check_key": "alcohol_content", "ticked": "false"}
+    )
+    assert resp.status_code == 204
+    assert "<span data-done-count>1</span>" in client.get(f"/review/{sid}").text
+
+
+def test_review_post_progress_is_idempotent(monkeypatch, tmp_path) -> None:
+    """AC5: re-posting an already-ticked key is a no-op (the set is de-duplicated)."""
+    client = _client(monkeypatch, tmp_path)
+    with connect(_db_path(tmp_path)) as conn:
+        sid = _insert_submission(conn)
+        _insert_check(conn, sid, check_key="brand_name", verdict="PASS")
+        _insert_check(conn, sid, check_key="alcohol_content", verdict="REVIEW")
+    for _ in range(3):
+        resp = client.post(
+            f"/review/{sid}/progress", data={"check_key": "alcohol_content", "ticked": "true"}
+        )
+        assert resp.status_code == 204
+    # still exactly 2 of 2 — never double-counted
+    assert "<span data-done-count>2</span>" in client.get(f"/review/{sid}").text
+
+
+def test_review_post_progress_missing_id_is_404(monkeypatch, tmp_path) -> None:
+    """AC5: posting to a missing submission ⇒ calm 404 (not a 500)."""
+    client = _client(monkeypatch, tmp_path)
+    resp = client.post(
+        "/review/999999/progress", data={"check_key": "brand_name", "ticked": "true"}
+    )
+    assert resp.status_code == 404
+
+
+def test_review_post_progress_is_token_gated(monkeypatch, tmp_path) -> None:
+    """AC5: the POST stays token-gated — a no-cookie request redirects to /access."""
+    client = _client(monkeypatch, tmp_path, token="s3cret")
+    with connect(_db_path(tmp_path)) as conn:
+        sid = _insert_submission(conn)
+        _insert_check(conn, sid, check_key="brand_name", verdict="PASS")
+    resp = client.post(
+        f"/review/{sid}/progress",
+        data={"check_key": "brand_name", "ticked": "true"},
+        follow_redirects=False,
+    )
+    assert resp.status_code == 303
+    assert resp.headers["location"] == "/access"
+
+
+# ── Story 4.6: review.js progressive enhancement (same-origin, no build) ──────
+
+
+def test_review_html_loads_review_js_same_origin(monkeypatch, tmp_path) -> None:
+    """AC4: the review screen references review.js via a same-origin /static path
+    (no CDN/build — NFR-2/UX-DR-6); the render is correct without it."""
+    client = _client(monkeypatch, tmp_path)
+    with connect(_db_path(tmp_path)) as conn:
+        sid = _insert_submission(conn)
+        _insert_check(conn, sid, check_key="brand_name", verdict="PASS")
+    body = client.get(f"/review/{sid}").text
+    assert "/static/js/review.js" in body
+
+
+def test_review_js_is_served_static(monkeypatch, tmp_path) -> None:
+    """AC4/AC5: review.js is served same-origin from the static mount (no egress)."""
+    client = _client(monkeypatch, tmp_path)
+    resp = client.get("/static/js/review.js")
+    assert resp.status_code == 200
+    assert "javascript" in resp.headers["content-type"].lower()
+
+
+def test_review_js_posts_to_progress_endpoint_no_egress() -> None:
+    """AC5: review.js POSTs the tick to the same-origin /progress endpoint and makes no
+    cross-origin/CDN request (firewall/offline boundary, NFR-2)."""
+    src = (REPO_ROOT / "static/js/review.js").read_text(encoding="utf-8")
+    # the persisted-tick POST targets the same-origin progress endpoint
+    assert "/progress" in src
+    # progressive enhancement must reference the live-counter / tick data hooks
+    assert "data-check-key" in src
+    assert "data-checklist-count" in src or "data-done-count" in src
+    # no external origin / CDN fetch (same-origin only)
+    for forbidden in ("http://", "https://", "//cdn", "unpkg", "jsdelivr"):
+        assert forbidden not in src, f"review.js must not reference {forbidden!r} (NFR-2 no egress)"
+
+
+def test_brand_css_has_checklist_states_on_spine_tokens() -> None:
+    """AC2/AC9: the checklist state classes exist and resolve to the spine --verdict-*
+    tokens — NOT the mockup's inline hex (#2E8540). Reuses the shared palette."""
+    css = (REPO_ROOT / "static/css/brand.css").read_text(encoding="utf-8")
+    for cls in (".cli--done", ".cli--usercheck", ".cli--open", ".cli--openfail"):
+        assert cls in css, f"brand.css missing checklist state {cls}"
+    assert "Smart checklist (Story 4.6)" in css
+    # the verdict colors resolve to the spine tokens, never the mockup's raw hex
+    assert "--verdict-pass" in css
+    assert "--verdict-review" in css
+    assert "--verdict-fail" in css
+    # the mockup's PASS-green hex must not leak into the spine (check both cases)
+    assert "#2e8540" not in css.lower()
+
+
+def test_brand_css_usercheck_box_is_secondary_accent_not_verdict_pass() -> None:
+    """AC9 fidelity: a human-confirmed (usercheck) tick is an acknowledgement, NOT
+    the engine's PASS — so its box uses the secondary/civic accent (mockup
+    var(--secondary)), never the green --verdict-pass tint. This keeps "I looked"
+    visually distinct from "the engine passed it" (contract #3/#4)."""
+    css = (REPO_ROOT / "static/css/brand.css").read_text(encoding="utf-8")
+    block = css.split(".cli--usercheck .cli__box", 1)[1].split("}", 1)[0]
+    assert "--brand-secondary" in block
+    assert "--verdict-pass" not in block
+
+
+def test_review_get_group_anchors_are_focusable_for_checklist_jump(monkeypatch, tmp_path) -> None:
+    """AC4: the smart-checklist rows jump to their field group. The JS moves focus
+    to the target group so keyboard users land there — which only works if the
+    target <section>s are programmatically focusable (tabindex=-1). Without it the
+    focus call was a silent no-op."""
+    client = _client(monkeypatch, tmp_path)
+    with connect(_db_path(tmp_path)) as conn:
+        sid = _insert_submission(conn)
+        _insert_check(conn, sid, check_key="brand_name", verdict="PASS")
+    body = client.get(f"/review/{sid}").text
+    for anchor in ("group-identity", "group-gov-warning", "group-decide"):
+        # the group <section> carries id + tabindex="-1" (focusable, not in tab order)
+        assert f'id="{anchor}"' in body
+        section = body.split(f'id="{anchor}"', 1)[1].split(">", 1)[0]
+        assert 'tabindex="-1"' in section, f"{anchor} must be focusable (AC4 focus jump)"
+
+
+def test_review_get_na_row_reads_not_applicable_not_review(monkeypatch, tmp_path) -> None:
+    """AC2 regression: an NA check is a muted auto-tick — it must render its own
+    'N/A' word, never the REVIEW fail-safe ('! REVIEW') that would mislabel a
+    not-applicable check as a problem needing eyes."""
+    client = _client(monkeypatch, tmp_path)
+    with connect(_db_path(tmp_path)) as conn:
+        sid = _insert_submission(conn, beverage_type="WINE")
+        _insert_check(conn, sid, check_key="standards_of_fill", check_type="MANUAL", verdict="NA")
+    body = client.get(f"/review/{sid}").text
+    # the NA row is its own muted done row carrying the N/A word
+    assert "N/A" in body
+    # it must NOT show the REVIEW "needs your eyes" copy for a not-applicable check
+    na_row = body.split('data-check-key="standards_of_fill"', 1)[1].split("</a>", 1)[0]
+    assert "needs your eyes" not in na_row
+    assert "REVIEW" not in na_row

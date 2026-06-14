@@ -1,0 +1,64 @@
+{#
+  Smart checklist (Story 4.6) — the per-type table-of-contents over the SAME
+  ``checklist_items`` rows. Rendered from the ``checklist`` view-model produced by
+  ``app/web/review_view.py:smart_checklist`` (fully pre-shaped — no presentation
+  logic leaks here). Reproduces mockups/review-workspace.html lines 539–551 with
+  the brand-prefixed BEM classes (``cli``/``cli__box``/…, NOT the mockup's bare
+  ``cli``/``box``), consistent with the field-card / gov-warning partials.
+
+  Each row is a real ``<a href="#group-…">`` so the mouse path (scroll to the
+  field group) works WITHOUT JS; ``static/js/review.js`` adds smooth-scroll/focus
+  and, for an actionable (REVIEW/FAIL) row, the persisted tick POST. The
+  per-row verdict is the engine's stored value (chip ICON + WORD, never tint
+  alone); a manual tick is an acknowledgement, never a disposition.
+
+  "N of M done" sits in an ``aria-live="polite"`` region so a manual tick
+  announces the new count (UX-DR-15).
+#}
+<div class="checklist">
+  <div class="checklist__head">
+    <span class="checklist__title">Smart checklist &mdash; {{ checklist.type_word }}</span>
+    <span class="checklist__count" aria-live="polite" data-checklist-count>
+      <span data-done-count>{{ checklist.done_count }}</span> of
+      <span data-total-count>{{ checklist.total }}</span> done
+    </span>
+  </div>
+
+  {% for row in checklist.rows %}
+  <a class="cli cli--{{ row.state }}"
+     href="#{{ row.anchor }}"
+     data-check-key="{{ row.check_key }}"
+     data-verdict="{{ row.verdict|lower }}"
+     data-ticked="{{ 'true' if row.ticked else 'false' }}"
+     {% if not row.machine_tag %}data-actionable="true"{% endif %}>
+    {# The box glyph: ✓ for ticked (done / usercheck), ✗ for an open FAIL,
+       empty for an open REVIEW. Always paired with the right-side WORD below
+       so state is never conveyed by the box color alone (A11Y). #}
+    <span class="cli__box" aria-hidden="true">
+      {%- if row.state == 'openfail' -%}&#10007;
+      {%- elif row.ticked -%}&#10003;
+      {%- endif -%}
+    </span>
+    <span class="cli__label">{{ row.label }}</span>
+    <span class="cli__right cli__right--{{ row.verdict|lower }}">
+      <span class="cli__icon" aria-hidden="true">{{ row.icon }}</span>
+      {#- The confirmation / machine phrase — verbatim from the mockup, keyed on
+          state so icon + WORD always travel together. -#}
+      {% if row.state == 'done' %}
+      <span class="cli__word">{{ row.chip_word }}</span>
+      <span class="cli__machine">{{ row.machine_tag }}</span>
+      {% elif row.state == 'usercheck' %}
+      <span class="cli__word">you confirmed</span>
+      {% elif row.state == 'openfail' %}
+      <span class="cli__word">{{ row.chip_word }} &mdash; needs your call</span>
+      {% else %}
+      <span class="cli__word">{{ row.chip_word }} &mdash; needs your eyes</span>
+      {% endif %}
+    </span>
+  </a>
+  {% endfor %}
+
+  {% if not checklist.rows %}
+  <p class="checklist__empty">No checks ran for this submission.</p>
+  {% endif %}
+</div>

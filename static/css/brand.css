@@ -860,3 +860,148 @@ a {
   font-weight: 700;
   color: var(--brand-ink);
 }
+
+/* ── Smart checklist (Story 4.6) ──────────────────────────────────────────────
+ * The per-type table-of-contents over the SAME checklist_items rows: auto-PASS/NA
+ * pre-ticked + muted (done), REVIEW highlighted amber (open), FAIL red (openfail),
+ * a human-ticked REVIEW/FAIL becomes usercheck. Every row carries icon + WORD (never
+ * tint alone, A11Y); the colors resolve to the shared --verdict-* tokens (spine wins
+ * over the mockup's inline PASS-green hex etc.). Rows ≥16px (older-eyes floor; the mockup's
+ * 15px is below the spine floor). The right-side verdict word reuses the .chip palette
+ * conceptually but is rendered inline here (the row IS the chip). */
+.checklist-group {
+  margin: 20px 0 0;
+}
+.checklist {
+  border: 1px solid var(--brand-border);
+  border-radius: var(--brand-radius-md);
+  background-color: var(--brand-surface);
+  padding: 12px 14px;
+}
+.checklist__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+.checklist__title {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--brand-ink);
+}
+/* the aria-live "N of M done" counter — visible (not sr-only) so the sighted
+ * specialist sees progress too. */
+.checklist__count {
+  font-size: 15px;
+  color: var(--brand-ink-muted);
+  white-space: nowrap;
+}
+.checklist__empty {
+  font-size: 15px;
+  color: var(--brand-ink-muted);
+  margin: 0;
+}
+
+/* one checklist row: a real focusable anchor (mouse path works without JS). */
+.cli {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 6px;
+  border-top: 1px solid var(--brand-border);
+  font-size: 16px;
+  color: var(--brand-ink);
+  text-decoration: none;
+}
+.cli:first-of-type {
+  border-top: 0;
+}
+.cli:hover,
+.cli:focus {
+  background-color: var(--verdict-review-bg);
+}
+/* the box glyph (✓ / ✗ / empty): a square that carries the tick, always paired
+ * with the right-side WORD so it never conveys state by color alone. */
+.cli__box {
+  flex: 0 0 auto;
+  width: 20px;
+  height: 20px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px solid var(--brand-border);
+  border-radius: var(--brand-radius-sm);
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1;
+}
+.cli__label {
+  flex: 1 1 auto;
+}
+/* the right-side verdict cluster: icon + WORD + machine/confirmation tag. */
+.cli__right {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 14px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.cli__icon {
+  font-weight: 700;
+}
+.cli__machine {
+  font-weight: 400;
+  font-style: italic;
+  color: var(--brand-ink-muted);
+}
+
+/* verdict tint on the right cluster — resolves to spine --verdict-* tokens. */
+.cli__right--pass {
+  color: var(--verdict-pass);
+}
+.cli__right--review {
+  color: var(--verdict-review);
+}
+.cli__right--fail {
+  color: var(--verdict-fail);
+}
+
+/* ── Row states ──────────────────────────────────────────────────────────────
+ * done: auto-verified PASS/NA — muted, grey filled ✓ box (quiet, already handled).
+ * usercheck: a human confirmed a REVIEW/FAIL — navy-filled ✓ box (acknowledged).
+ * open: a REVIEW awaiting eyes — amber, outline box.
+ * openfail: a FAIL needing a call — red, ✗ box, highlighted background. */
+.cli--done {
+  color: var(--brand-ink-muted);
+}
+.cli--done .cli__box {
+  background-color: var(--brand-border);
+  border-color: var(--brand-border);
+  color: var(--brand-surface);
+}
+.cli--usercheck .cli__box {
+  /* A human-confirmed tick is an acknowledgement (a throughput cue), NOT the
+     engine's PASS verdict — so the box uses the secondary/civic accent
+     (mockup: var(--secondary)), never the green verdict-PASS tint. Keeping it
+     distinct from .cli--done's auto-PASS box also keeps "I looked" visually
+     separate from "the engine passed it" (contract #3/#4). */
+  background-color: var(--brand-secondary);
+  border-color: var(--brand-secondary);
+  color: var(--brand-secondary-foreground);
+}
+.cli--open {
+  background-color: var(--verdict-review-bg);
+}
+.cli--open .cli__box {
+  border-color: var(--verdict-review);
+}
+.cli--openfail {
+  background-color: var(--verdict-fail-bg);
+}
+.cli--openfail .cli__box {
+  border-color: var(--verdict-fail);
+  color: var(--verdict-fail);
+}

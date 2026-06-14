@@ -632,3 +632,130 @@ def government_warning_card(items: Iterable[ChecklistItem]) -> dict[str, object]
         cfr_citation=cfr_citation,
         note=_GW_COULDNT_VERIFY_NOTE,
     )
+
+
+# ── Smart checklist (Story 4.6) ──────────────────────────────────────────────
+# The per-type table-of-contents over the SAME `checklist_items` rows. Each row
+# carries the engine verdict chip + a state derived from (verdict, ticked):
+#
+#   - auto-ticked (verdict PASS or NA)        → `done`     (muted, pre-ticked)
+#   - REVIEW, ticked by the human             → `usercheck` ("you confirmed")
+#   - REVIEW, untouched                       → `open`      (amber, needs eyes)
+#   - FAIL,   ticked by the human             → `usercheck`
+#   - FAIL,   untouched                       → `openfail`  (red, needs your call)
+#
+# "N of M done" counts the MERGED ticked set (auto ∪ manual) so a manual tick on
+# an already-auto-PASS row never double-counts. The verdict is the engine's
+# stored value — never recomputed (contract #3); a manual TICK is an
+# acknowledgement ("I looked at this"), NOT a disposition and not a verdict
+# change. Anchors reuse the chevron's `CHECK_KEY_STEP` → `STEP_ANCHOR` data (no
+# second mapping). Pure read-model, AR-5-safe.
+
+# The verdicts that the engine auto-verified — pre-ticked + muted. NA is "not
+# applicable" (nothing to look at), so it counts as done alongside PASS.
+_AUTO_TICK_VERDICTS: frozenset[str] = frozenset({verdict.PASS, verdict.NA})
+
+# verdict → smart-checklist chip word. Unlike the field card ("match" for PASS),
+# the checklist shows the verdict word itself (mockup `✓ PASS  auto`). NA is an
+# auto-tick (muted "done") row, so it carries its own honest word/icon — without
+# them it would inherit the REVIEW fail-safe and read "! REVIEW auto", wrongly
+# flagging a not-applicable check as a problem (AC2: NA is not a problem).
+_CHECKLIST_CHIP_WORD: dict[str, str] = {
+    verdict.PASS: "PASS",
+    verdict.REVIEW: "REVIEW",
+    verdict.FAIL: "FAIL",
+    verdict.NA: "N/A",
+}
+# Per-row icon for the smart checklist. Reuses the Story 4.3 _ALERT_ICON glyphs
+# but adds NA's ✓ (an auto-verified "done" row, same muted check as PASS) so an
+# NA row reads "✓ N/A auto", not the "!" REVIEW fail-safe.
+_CHECKLIST_ICON: dict[str, str] = {
+    **_ALERT_ICON,
+    verdict.NA: "\u2713",  # ✓
+}
+
+
+def _checklist_anchor(item: ChecklistItem) -> str:
+    """Map a checklist row to its field-group anchor — reusing the chevron data.
+
+    A mapped ``check_key`` targets its ``CHECK_KEY_STEP`` → ``STEP_ANCHOR`` group;
+    an unmapped row falls to the Conditional bucket (``group-conditional``), the
+    same bucket :func:`_is_conditional` routes the chevron's ④ step to. No second
+    mapping is invented (rules-as-data)."""
+    step = CHECK_KEY_STEP.get(item.check_key)
+    if step is not None:
+        return STEP_ANCHOR[step]
+    return STEP_ANCHOR[_CONDITIONAL]
+
+
+def smart_checklist(
+    items: Iterable[ChecklistItem],
+    *,
+    beverage_type: str | None,
+    ticked_keys: set[str],
+) -> dict[str, object]:
+    """Build the smart-checklist view-model (Story 4.6).
+
+    One row per ``checklist_items`` row, in the order given (ruleset / ``id``
+    order — the checklist does NOT re-sort). ``ticked_keys`` is the MANUAL set
+    (``review_progress.ticked_check_keys``); the auto-tick set (verdict ``PASS``/
+    ``NA``) is unioned in here so ``done_count = len(auto ∪ manual)``.
+
+    Returns ``{"type_word", "rows", "done_count", "total"}``. Each row:
+    ``{"check_key", "label", "verdict", "chip_class", "icon", "chip_word",
+    "is_problem", "state", "ticked", "anchor", "machine_tag"}``. Empty input ⇒
+    ``rows=[]``, ``done_count=0``, ``total=0`` (AC8). The header ``type_word`` is
+    the title-cased beverage word ("Distilled Spirits", matching the mockup — NOT
+    the all-caps banner word); an unknown type degrades to the type title-cased,
+    never blank.
+
+    Fail-safe: an unmapped / garbled verdict is treated as a problem (rendered
+    ``open``, never silently muted) — carrying the ambiguity⇒REVIEW instinct.
+    The per-row verdict is the engine's stored value — never recomputed
+    (contract #3). Emits NO disposition word."""
+    item_list = list(items)
+
+    rows: list[dict[str, object]] = []
+    done_count = 0
+    for item in item_list:
+        vdt = item.verdict
+        auto = vdt in _AUTO_TICK_VERDICTS
+        manual = item.check_key in ticked_keys
+        ticked = auto or manual
+        if ticked:
+            done_count += 1
+
+        if auto:
+            state = "done"
+        elif manual:
+            # A human-confirmed REVIEW/FAIL (or any non-auto row the human ticked).
+            state = "usercheck"
+        elif vdt == verdict.FAIL:
+            state = "openfail"
+        else:
+            # REVIEW, or any unmapped/garbled verdict ⇒ fail-safe to the amber
+            # "needs your eyes" state (never a silent muted done).
+            state = "open"
+
+        rows.append(
+            {
+                "check_key": item.check_key,
+                "label": item.label or item.check_key.replace("_", " ").title(),
+                "verdict": vdt,
+                "chip_class": _CHIP_CLASS.get(vdt or "", "chip--review"),
+                "icon": _CHECKLIST_ICON.get(vdt or "", "!"),
+                "chip_word": _CHECKLIST_CHIP_WORD.get(vdt or "", "REVIEW"),
+                "is_problem": not ticked,
+                "state": state,
+                "ticked": ticked,
+                "anchor": _checklist_anchor(item),
+                "machine_tag": "auto" if auto else "",
+            }
+        )
+
+    return {
+        "type_word": banner(beverage_type)["word"].title(),
+        "rows": rows,
+        "done_count": done_count,
+        "total": len(item_list),
+    }

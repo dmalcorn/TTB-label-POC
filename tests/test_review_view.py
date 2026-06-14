@@ -916,3 +916,213 @@ def test_gov_warning_template_has_no_cfr_literal():
     for tpl in ("templates/_gov_warning_card.html", "templates/review.html"):
         src = (REPO_ROOT / tpl).read_text(encoding="utf-8")
         assert "27 CFR" not in src, f"{tpl} must not hard-code a CFR citation (CFR-as-data)"
+
+
+# ── Smart checklist presenter (Story 4.6) ────────────────────────────────────
+# `smart_checklist` turns the SAME `checklist_items` rows into the per-type
+# table-of-contents: one row per check, pre-ticking auto-PASS/NA (muted `done`),
+# highlighting REVIEW (`open`) / FAIL (`openfail`), promoting a manually-ticked
+# REVIEW/FAIL to `usercheck`, and counting "N of M done" over the merged set
+# (auto ∪ manual). Pure read-model, AR-5-safe (no OCR/LLM/engine import).
+
+
+def _ck(check_key: str, vdt: str, *, check_type: str = "FIELD_MATCH", item_id: int = 1):
+    return _item(check_key, vdt, check_type=check_type, item_id=item_id)
+
+
+def test_smart_checklist_header_type_word_title_cased():
+    vm = review_view.smart_checklist(
+        [_ck("brand_name", "PASS")], beverage_type="DISTILLED_SPIRITS", ticked_keys=set()
+    )
+    # Header word is title-cased (mockup "Distilled Spirits"), NOT the all-caps banner.
+    assert vm["type_word"] == "Distilled Spirits"
+
+
+def test_smart_checklist_one_row_per_item_in_id_order():
+    items = [
+        _ck("brand_name", "PASS", item_id=1),
+        _ck("alcohol_content", "REVIEW", item_id=2),
+        _ck("net_contents", "FAIL", item_id=3),
+    ]
+    vm = review_view.smart_checklist(items, beverage_type="WINE", ticked_keys=set())
+    assert [r["check_key"] for r in vm["rows"]] == ["brand_name", "alcohol_content", "net_contents"]
+    assert vm["total"] == 3
+
+
+def test_smart_checklist_auto_pass_is_done_and_ticked_muted():
+    vm = review_view.smart_checklist(
+        [_ck("brand_name", "PASS")], beverage_type="WINE", ticked_keys=set()
+    )
+    row = vm["rows"][0]
+    assert row["state"] == "done"
+    assert row["ticked"] is True
+    assert row["is_problem"] is False
+    assert row["chip_word"] == "PASS"
+    assert row["machine_tag"] == "auto"
+
+
+def test_smart_checklist_na_is_done_and_ticked():
+    vm = review_view.smart_checklist(
+        [_ck("standards_of_fill", "NA")], beverage_type="WINE", ticked_keys=set()
+    )
+    row = vm["rows"][0]
+    assert row["state"] == "done"
+    assert row["ticked"] is True
+    assert row["is_problem"] is False
+
+
+def test_smart_checklist_na_renders_own_word_and_check_icon_not_review_failsafe():
+    """Regression: an NA row is a muted auto-tick (state=done), so the template
+    renders ``icon  chip_word  machine_tag``. NA must carry its OWN word/icon —
+    without them it inherited the REVIEW fail-safe and read "! REVIEW auto",
+    wrongly flagging a not-applicable check as a problem (AC2)."""
+    vm = review_view.smart_checklist(
+        [_ck("standards_of_fill", "NA")], beverage_type="WINE", ticked_keys=set()
+    )
+    row = vm["rows"][0]
+    assert row["chip_word"] == "N/A"
+    assert row["icon"] == "\u2713"  # ✓ (the auto-verified check, NOT "!")
+    assert row["machine_tag"] == "auto"
+
+
+def test_smart_checklist_review_unticked_is_open():
+    vm = review_view.smart_checklist(
+        [_ck("alcohol_content", "REVIEW")], beverage_type="WINE", ticked_keys=set()
+    )
+    row = vm["rows"][0]
+    assert row["state"] == "open"
+    assert row["ticked"] is False
+    assert row["is_problem"] is True
+    assert row["chip_word"] == "REVIEW"
+
+
+def test_smart_checklist_fail_unticked_is_openfail():
+    vm = review_view.smart_checklist(
+        [_ck("net_contents", "FAIL")], beverage_type="WINE", ticked_keys=set()
+    )
+    row = vm["rows"][0]
+    assert row["state"] == "openfail"
+    assert row["ticked"] is False
+    assert row["is_problem"] is True
+    assert row["chip_word"] == "FAIL"
+
+
+def test_smart_checklist_review_manually_ticked_is_usercheck():
+    vm = review_view.smart_checklist(
+        [_ck("alcohol_content", "REVIEW")],
+        beverage_type="WINE",
+        ticked_keys={"alcohol_content"},
+    )
+    row = vm["rows"][0]
+    assert row["state"] == "usercheck"
+    assert row["ticked"] is True
+
+
+def test_smart_checklist_fail_manually_ticked_is_usercheck():
+    vm = review_view.smart_checklist(
+        [_ck("net_contents", "FAIL")],
+        beverage_type="WINE",
+        ticked_keys={"net_contents"},
+    )
+    row = vm["rows"][0]
+    assert row["state"] == "usercheck"
+    assert row["ticked"] is True
+
+
+def test_smart_checklist_done_count_unions_auto_and_manual():
+    items = [
+        _ck("brand_name", "PASS", item_id=1),  # auto-tick
+        _ck("class_type_designation", "NA", item_id=2),  # auto-tick
+        _ck("alcohol_content", "REVIEW", item_id=3),  # manual-tick
+        _ck("net_contents", "FAIL", item_id=4),  # untouched
+    ]
+    vm = review_view.smart_checklist(items, beverage_type="WINE", ticked_keys={"alcohol_content"})
+    # 2 auto-ticked + 1 manual = 3 done of 4.
+    assert vm["done_count"] == 3
+    assert vm["total"] == 4
+
+
+def test_smart_checklist_manual_tick_on_auto_pass_not_double_counted():
+    """A manual tick that duplicates an auto-PASS must not inflate the count."""
+    items = [_ck("brand_name", "PASS", item_id=1), _ck("net_contents", "FAIL", item_id=2)]
+    vm = review_view.smart_checklist(items, beverage_type="WINE", ticked_keys={"brand_name"})
+    assert vm["done_count"] == 1
+    assert vm["total"] == 2
+
+
+def test_smart_checklist_empty_is_zero_of_zero():
+    vm = review_view.smart_checklist([], beverage_type="WINE", ticked_keys=set())
+    assert vm["rows"] == []
+    assert vm["done_count"] == 0
+    assert vm["total"] == 0
+
+
+def test_smart_checklist_anchor_maps_identity_to_group_anchor():
+    vm = review_view.smart_checklist(
+        [_ck("brand_name", "PASS")], beverage_type="WINE", ticked_keys=set()
+    )
+    assert vm["rows"][0]["anchor"] == "group-identity"
+
+
+def test_smart_checklist_anchor_maps_gov_warning():
+    vm = review_view.smart_checklist(
+        [_ck("government_warning", "FAIL", check_type="DETERMINISTIC")],
+        beverage_type="WINE",
+        ticked_keys=set(),
+    )
+    assert vm["rows"][0]["anchor"] == "group-gov-warning"
+
+
+def test_smart_checklist_anchor_conditional_for_unmapped_manual():
+    vm = review_view.smart_checklist(
+        [_ck("allergen_disclosure", "REVIEW", check_type="MANUAL")],
+        beverage_type="WINE",
+        ticked_keys=set(),
+    )
+    assert vm["rows"][0]["anchor"] == "group-conditional"
+
+
+def test_smart_checklist_unknown_verdict_treated_as_problem_not_muted():
+    """Fail-safe: an unmapped/garbled verdict renders as a problem (open), never a
+    silent muted done (carry 4.5's ambiguity⇒REVIEW instinct)."""
+    vm = review_view.smart_checklist(
+        [_ck("brand_name", "WAT")], beverage_type="WINE", ticked_keys=set()
+    )
+    row = vm["rows"][0]
+    assert row["ticked"] is False
+    assert row["is_problem"] is True
+    assert row["state"] in ("open", "openfail")
+
+
+def test_smart_checklist_unknown_beverage_type_degrades_word():
+    vm = review_view.smart_checklist(
+        [_ck("brand_name", "PASS")], beverage_type="CIDER", ticked_keys=set()
+    )
+    # Unknown type still yields a word (title-cased), never blank / crash.
+    assert vm["type_word"] == "Cider"
+
+
+def test_smart_checklist_emits_no_disposition_word():
+    items = [_ck("net_contents", "FAIL")]
+    vm = review_view.smart_checklist(items, beverage_type="WINE", ticked_keys=set())
+    blob = " ".join(str(v) for v in vm["rows"][0].values()).lower()
+    for disposition in ("approved", "needs_correction", "rejected", "needs correction"):
+        assert disposition not in blob
+
+
+def test_smart_checklist_reuses_chip_class_and_icon():
+    vm = review_view.smart_checklist(
+        [
+            _ck("brand_name", "PASS", item_id=1),
+            _ck("alcohol_content", "REVIEW", item_id=2),
+            _ck("net_contents", "FAIL", item_id=3),
+        ],
+        beverage_type="WINE",
+        ticked_keys=set(),
+    )
+    by_key = {r["check_key"]: r for r in vm["rows"]}
+    assert by_key["brand_name"]["chip_class"] == "chip--pass"
+    assert by_key["alcohol_content"]["chip_class"] == "chip--review"
+    assert by_key["net_contents"]["chip_class"] == "chip--fail"
+    assert by_key["brand_name"]["icon"] == "\u2713"
+    assert by_key["net_contents"]["icon"] == "\u2717"

@@ -9,12 +9,13 @@
   banner, the progress chevron, and the suggested-verdict alert. Spine wins: tokens
   resolve to static/css/brand.css vars, not the mockup's inline hex.
 
-  Scope: SHELL only. The field comparison cards (4.4), Government Warning card (4.5),
-  smart checklist (4.6), label-image panel + Enhance (4.7), and the disposition action
-  bar + Notes (4.8) are LATER stories — represented here by inert, clearly-deferred
-  placeholder sections that the chevron anchors target (so anchors resolve now and
-  later stories fill them). Mockup-only scaffolding (device frame, J. Park placeholder
-  agent name, fabricated "SUB-2026-04871"/"Ready in 4.6s" demo data) is excluded.
+  Now landed on the shell: the field comparison cards (4.4), the Government Warning
+  card (4.5) and the smart checklist (4.6). Still LATER: the label-image panel +
+  Enhance (4.7) and the disposition action bar + Notes (4.8) — represented here by
+  inert, clearly-deferred placeholder sections that the chevron anchors target (so
+  anchors resolve now and later stories fill them). Mockup-only scaffolding (device
+  frame, J. Park placeholder agent name, fabricated "SUB-2026-04871"/"Ready in 4.6s"
+  demo data) is excluded.
 
   The suggested-verdict alert is the advisory roll-up via the centralized
   app/verdict.py:rollup (the SAME roll-up the engine used) — engine register only
@@ -85,7 +86,7 @@
 
      The Identity / Mandatory-text chevron anchors resolve to this region so the
      progress map keeps working; the visible grouping is problems-first per the mockup. #}
-  <section id="group-identity" class="field-cards" aria-label="Field comparison">
+  <section id="group-identity" class="field-cards" aria-label="Field comparison" tabindex="-1">
     <span id="group-mandatory-text" class="field-cards__anchor" aria-hidden="true"></span>
 
     {% if field_cards_problems %}
@@ -116,7 +117,7 @@
      note), never a disposition. When the submission has no government_warning row
      the block renders a calm honest empty state. The chevron ③ anchor resolves to
      this section. #}
-  <section id="group-gov-warning" class="gov-warning-group" aria-label="Government Warning">
+  <section id="group-gov-warning" class="gov-warning-group" aria-label="Government Warning" tabindex="-1">
     {% if gov_warning %}
     {% include "_gov_warning_card.html" %}
     {% else %}
@@ -124,19 +125,36 @@
     {% endif %}
   </section>
 
-  {% for step in chevron %}{% if step.label == 'Conditional' %}
-  <section id="group-conditional" class="review-placeholder" aria-label="Conditional">
-    <span class="review-placeholder__tag">Conditional</span>
-    <p class="review-placeholder__note">Conditional / flag-only disclosures arrive in
-      Story 4.6.</p>
+  {# ── Smart checklist (Story 4.6) ────────────────────────────────────────────
+     The per-type table-of-contents over the SAME checklist_items rows: auto-PASS/NA
+     rows are pre-ticked + muted (done), REVIEW is highlighted amber (open), FAIL red
+     (openfail), and a human-ticked REVIEW/FAIL becomes usercheck. "N of M done"
+     counts the merged set (auto ∪ manual). Each row is a real anchor to its field
+     group (works without JS); a manual tick persists via POST /review/{id}/progress
+     and rehydrates on GET (AR-14) — review.js adds the scroll/focus + tick polish.
+     A manual tick is an acknowledgement, never a disposition (contract #3). The
+     checklist sits LAST in the right column (mockup ordering: cards → checklist). #}
+  <section id="group-checklist" class="checklist-group" aria-label="Smart checklist">
+    {% include "_checklist.html" %}
   </section>
+
+  {% for step in chevron %}{% if step.label == 'Conditional' %}
+  <span id="group-conditional" class="review-anchor" aria-hidden="true"></span>
   {% endif %}{% endfor %}
 
-  <section id="group-decide" class="review-placeholder" aria-label="Decide">
+  <section id="group-decide" class="review-placeholder" aria-label="Decide" tabindex="-1">
     <span class="review-placeholder__tag">Decide</span>
     <p class="review-placeholder__note">The disposition action bar and Notes arrive in
       Story 4.8.</p>
   </section>
 
 </div>
+{% endblock %}
+
+{% block scripts %}
+{# Smart-checklist progressive enhancement (Story 4.6) — same-origin, no build.
+   Adds smooth-scroll + focus on a row click and the persisted tick POST + live
+   "N of M done" counter. The render is correct without it (rows are real anchors;
+   the tick is a power feature). #}
+<script src="/static/js/review.js" defer></script>
 {% endblock %}

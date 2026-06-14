@@ -31,5 +31,8 @@
   </main>
 
   <script src="/static/uswds/js/uswds.min.js"></script>
+  {# Per-screen progressive-enhancement scripts (same-origin, no CDN/build —
+     NFR-2/UX-DR-6). The render is correct without these; they only add polish. #}
+  {% block scripts %}{% endblock %}
 </body>
 </html>

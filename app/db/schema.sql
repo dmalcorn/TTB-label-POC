@@ -254,3 +254,24 @@ CREATE TABLE IF NOT EXISTS checklist_items (
     created_at           TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 CREATE INDEX IF NOT EXISTS idx_checklist_items_submission ON checklist_items (submission_id);
+
+-- ── review_progress ──────────────────────────────────────────────────────────
+-- The specialist's IN-PROGRESS review state (architecture Addendum A / AR-14).
+-- Created here by Story 4.6, the first to need it. One row per submission,
+-- WEB-LAYER-WRITTEN — never by the pipeline (it is kept strictly separate from the
+-- pipeline-owned checklist_items, which is the engine's read-only verdict store).
+-- ``ticked_check_keys`` is a JSON array of the check_keys the specialist MANUALLY
+-- ticked on the smart checklist (Story 4.6); ``draft_notes`` is the in-progress
+-- Notes text (declared now so Story 4.8's disposition bar needs no migration — NOT
+-- written by 4.6). Upserted via POST /review/{id}/progress and rehydrated by
+-- GET /review/{id} so a navigate-away or full browser reload resumes; these are
+-- cheap single-row writes on explicit POST actions, so the GET render stays a pure
+-- pre-computed read (AR-5 intact). The row is RETAINED through a recorded
+-- disposition (so Undo can restore the work, Story 4.8) and purged by POST /reset
+-- (Epic 6). ON DELETE CASCADE keeps it tied to its submission.
+CREATE TABLE IF NOT EXISTS review_progress (
+    submission_id     INTEGER PRIMARY KEY REFERENCES submissions(id) ON DELETE CASCADE,
+    ticked_check_keys TEXT NOT NULL DEFAULT '[]',   -- JSON array of manually-ticked check_keys
+    draft_notes       TEXT,                         -- in-progress Notes (written by Story 4.8)
+    updated_at        TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);

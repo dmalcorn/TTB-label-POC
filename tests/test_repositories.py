@@ -65,13 +65,13 @@ def test_init_creates_tables(tmp_path):
     assert {"submissions", "label_images"} <= names
 
 
-def test_deferred_tables_not_created(tmp_path):
-    """Scope guard: tables still deferred to later stories must not exist yet.
+def test_review_progress_table_created(tmp_path):
+    """``review_progress`` is created by its web-layer writer, Story 4.6.
 
-    ``ocr_results`` / ``llm_results`` moved out of this guard in Story 2.1, which
-    creates them; ``field_comparisons`` / ``checklist_items`` moved out in Story
-    3.1, which creates them (see ``tests/test_schema_epic3.py``). ``review_progress``
-    is still deferred to its web-layer writer (Epic 4).
+    It moved out of the deferred-tables guard once Story 4.6 (the smart checklist /
+    in-progress review state, AR-14) became the first to need it. The remaining
+    tables are all created by their owning stories now, so there is no longer a
+    deferred-table scope guard.
     """
     db_path = _make_db(tmp_path)
     with connect(db_path) as conn:
@@ -79,8 +79,7 @@ def test_deferred_tables_not_created(tmp_path):
             r["name"]
             for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()
         }
-    for deferred in ("review_progress",):
-        assert deferred not in names
+    assert "review_progress" in names
 
 
 def test_wal_mode_enabled(tmp_path):
@@ -519,3 +518,124 @@ def test_list_field_comparisons_round_trips_raw_values(tmp_path):
     assert rows[0].application_value == "45% Alc./Vol."
     assert rows[0].extracted_value == "45 % ALC/VOL"
     assert rows[0].similarity == 0.8
+
+
+# ── review-progress read + upsert helpers (Story 4.6, AR-14) ─────────────────
+# `review_progress` is the specialist's IN-PROGRESS review state — web-layer
+# written, kept strictly separate from the pipeline-owned `checklist_items`.
+# Story 4.6 owns the `ticked_check_keys` JSON array (manual tick-state); the
+# `draft_notes` column is declared now but written by Story 4.8.
+
+
+def test_get_review_progress_none_when_absent(tmp_path):
+    db_path = _make_db(tmp_path)
+    with connect(db_path) as conn:
+        sid = _insert_submission(conn)
+        progress = repo.get_review_progress(conn, sid)
+    assert progress is None
+
+
+def test_get_ticked_check_keys_empty_when_absent(tmp_path):
+    db_path = _make_db(tmp_path)
+    with connect(db_path) as conn:
+        sid = _insert_submission(conn)
+        keys = repo.get_ticked_check_keys(conn, sid)
+    assert keys == set()
+
+
+def test_set_check_tick_inserts_row_and_key(tmp_path):
+    db_path = _make_db(tmp_path)
+    with connect(db_path) as conn:
+        sid = _insert_submission(conn)
+        repo.set_check_tick(conn, sid, check_key="brand_name", ticked=True)
+        progress = repo.get_review_progress(conn, sid)
+        keys = repo.get_ticked_check_keys(conn, sid)
+    assert progress is not None
+    assert isinstance(progress, repo.ReviewProgress)
+    assert progress.submission_id == sid
+    assert progress.ticked_check_keys == ["brand_name"]
+    assert progress.draft_notes is None
+    assert keys == {"brand_name"}
+
+
+def test_set_check_tick_accumulates_keys_sorted_and_deduped(tmp_path):
+    db_path = _make_db(tmp_path)
+    with connect(db_path) as conn:
+        sid = _insert_submission(conn)
+        repo.set_check_tick(conn, sid, check_key="net_contents", ticked=True)
+        repo.set_check_tick(conn, sid, check_key="brand_name", ticked=True)
+        # ticking the same key again must not duplicate it
+        repo.set_check_tick(conn, sid, check_key="brand_name", ticked=True)
+        keys = repo.get_ticked_check_keys(conn, sid)
+        progress = repo.get_review_progress(conn, sid)
+    assert keys == {"brand_name", "net_contents"}
+    # stored array is sorted + de-duplicated
+    assert progress is not None
+    assert progress.ticked_check_keys == ["brand_name", "net_contents"]
+
+
+def test_set_check_tick_untick_removes_key(tmp_path):
+    db_path = _make_db(tmp_path)
+    with connect(db_path) as conn:
+        sid = _insert_submission(conn)
+        repo.set_check_tick(conn, sid, check_key="brand_name", ticked=True)
+        repo.set_check_tick(conn, sid, check_key="net_contents", ticked=True)
+        repo.set_check_tick(conn, sid, check_key="brand_name", ticked=False)
+        keys = repo.get_ticked_check_keys(conn, sid)
+    assert keys == {"net_contents"}
+
+
+def test_set_check_tick_untick_absent_key_is_noop(tmp_path):
+    db_path = _make_db(tmp_path)
+    with connect(db_path) as conn:
+        sid = _insert_submission(conn)
+        repo.set_check_tick(conn, sid, check_key="brand_name", ticked=False)
+        keys = repo.get_ticked_check_keys(conn, sid)
+        progress = repo.get_review_progress(conn, sid)
+    # un-ticking with no existing row creates an empty row, not an error
+    assert keys == set()
+    assert progress is not None
+    assert progress.ticked_check_keys == []
+
+
+def test_set_check_tick_preserves_draft_notes(tmp_path):
+    """Upserting tick-state must not clobber the Story-4.8 ``draft_notes`` column."""
+    db_path = _make_db(tmp_path)
+    with connect(db_path) as conn:
+        sid = _insert_submission(conn)
+        conn.execute(
+            "INSERT INTO review_progress (submission_id, ticked_check_keys, draft_notes) "
+            "VALUES (?, '[]', ?)",
+            (sid, "a draft note"),
+        )
+        conn.commit()
+        repo.set_check_tick(conn, sid, check_key="brand_name", ticked=True)
+        progress = repo.get_review_progress(conn, sid)
+    assert progress is not None
+    assert progress.ticked_check_keys == ["brand_name"]
+    assert progress.draft_notes == "a draft note"
+
+
+def test_set_check_tick_round_trips_through_json(tmp_path):
+    db_path = _make_db(tmp_path)
+    with connect(db_path) as conn:
+        sid = _insert_submission(conn)
+        repo.set_check_tick(conn, sid, check_key="government_warning", ticked=True)
+        # read the stored column raw to confirm it is JSON, not a Python repr
+        raw = conn.execute(
+            "SELECT ticked_check_keys FROM review_progress WHERE submission_id = ?", (sid,)
+        ).fetchone()[0]
+    assert raw == '["government_warning"]'
+
+
+def test_set_check_tick_scoped_to_submission(tmp_path):
+    db_path = _make_db(tmp_path)
+    with connect(db_path) as conn:
+        a = _insert_submission(conn, ttb_id="26001000000001")
+        b = _insert_submission(conn, ttb_id="26001000000002")
+        repo.set_check_tick(conn, a, check_key="brand_name", ticked=True)
+        repo.set_check_tick(conn, b, check_key="net_contents", ticked=True)
+        keys_a = repo.get_ticked_check_keys(conn, a)
+        keys_b = repo.get_ticked_check_keys(conn, b)
+    assert keys_a == {"brand_name"}
+    assert keys_b == {"net_contents"}

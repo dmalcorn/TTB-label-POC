@@ -9,7 +9,7 @@
   The "Why?" <details> carries the CFR citation (CFR-as-data, from the row), the
   extracted source (ocr:…/llm:…) and the engine detail. Raw values shown verbatim.
 #}
-<article class="field-card field-card--{{ card.state }}" aria-label="{{ card.field_label }}">
+<article id="field-{{ card.field_key }}" class="field-card field-card--{{ card.state }}" aria-label="{{ card.field_label }}" tabindex="-1">
   <header class="field-card__head">
     <h3 class="field-card__label">{{ card.field_label }}</h3>
     <span class="chip {{ card.chip_class }}">
