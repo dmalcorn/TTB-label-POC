@@ -254,6 +254,86 @@ def get_submission_ocr_text(conn: sqlite3.Connection, submission_id: int) -> str
     return "\n".join(row["extracted_text"] for row in rows)
 
 
+# ── benchmark scoring read helpers (Story 5.2) ───────────────────────────────
+# SELECT-only readers that surface the per-engine/per-model RAW rows so the
+# accuracy scorer can score EVERY engine (× image variant) and EVERY model
+# independently against ground truth (AR-4 — per-engine/per-model storage is
+# already separate; these just expose it). Read-only: no writes here.
+
+
+class OcrScoringRow(BaseModel):
+    """One ``OK`` ``ocr_results`` row, the subset the accuracy scorer needs.
+
+    Keyed for scoring by ``(engine_name, image_variant)`` so the both-variants
+    rows (Story 2.4 / AR-7: ORIGINAL vs ENHANCED/BINARIZED) score separately and
+    preprocessed-vs-original stays comparable (Story 5.2 AC5)."""
+
+    engine_name: str
+    image_variant: str
+    extracted_text: str | None = None
+    confidence: float | None = None
+
+
+class LlmScoringRow(BaseModel):
+    """One ``OK`` ``extract_fields`` ``llm_results`` row for accuracy scoring."""
+
+    model_id: str | None = None
+    model_name: str | None = None
+    provider: str | None = None
+    result_text: str | None = None
+
+
+class ScoringSubmission(BaseModel):
+    """The minimal submission identity the corpus scorer iterates (Story 5.2)."""
+
+    id: int
+    ttb_id: str
+    beverage_type: BeverageType
+
+
+def list_submissions_for_scoring(conn: sqlite3.Connection) -> list[ScoringSubmission]:
+    """Every submission's ``(id, ttb_id, beverage_type)`` in ``ttb_id`` order.
+
+    Sorted by ``ttb_id`` so the corpus scorer iterates in a stable, reproducible
+    order (Story 5.2 AC4). Read-only."""
+    rows = conn.execute(
+        "SELECT id, ttb_id, beverage_type FROM submissions ORDER BY ttb_id, id"
+    ).fetchall()
+    return [ScoringSubmission.model_validate(dict(row)) for row in rows]
+
+
+def list_ocr_results_for_scoring(
+    conn: sqlite3.Connection, submission_id: int
+) -> list[OcrScoringRow]:
+    """The submission's ``OK`` OCR rows for scoring, in ``(engine, variant, id)`` order.
+
+    Returns one row per ``(engine_name, image_variant)`` OCR result so the scorer
+    can break accuracy out by variant (AC5). ``ERROR`` rows are skipped. Read-only."""
+    rows = conn.execute(
+        "SELECT engine_name, image_variant, extracted_text, confidence "
+        "FROM ocr_results WHERE submission_id = ? AND status = 'OK' "
+        "ORDER BY engine_name, image_variant, id",
+        (submission_id,),
+    ).fetchall()
+    return [OcrScoringRow.model_validate(dict(row)) for row in rows]
+
+
+def list_llm_results_for_scoring(
+    conn: sqlite3.Connection, submission_id: int
+) -> list[LlmScoringRow]:
+    """The submission's ``OK`` ``extract_fields`` LLM rows for scoring, in id order.
+
+    Only the displayed/extraction task is scored for accuracy (``classify`` and
+    other tasks are not field extractions). Read-only."""
+    rows = conn.execute(
+        "SELECT model_id, model_name, provider, result_text "
+        "FROM llm_results WHERE submission_id = ? AND status = 'OK' "
+        "AND task = 'extract_fields' ORDER BY id",
+        (submission_id,),
+    ).fetchall()
+    return [LlmScoringRow.model_validate(dict(row)) for row in rows]
+
+
 # ── pipeline write helpers (Story 2.1) ───────────────────────────────────────
 # Persist the centralized adapter shapes. Each engine/model gets its OWN row
 # (per-engine/per-model storage, never merged — AR-4). The contract→column
