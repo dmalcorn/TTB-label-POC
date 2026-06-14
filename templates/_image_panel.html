@@ -1,0 +1,62 @@
+{#
+  Label-image panel (Story 4.7) — the left column of the two-column workspace.
+
+  Renders the ``image_panel`` view-model built by app/web/review_view.py:image_panel:
+  the role WORD + "image N of M" counter, JS-free prev/next paging links (?image=<pos>
+  on the review URL — works without JavaScript, AC3), a real <img> pointing at the
+  same-origin /review/{id}/image/{id} route (no CDN, NFR-2), and an Enhance toggle that
+  shows the local-OpenCV preprocessed variant ALONGSIDE the original — offered ONLY when
+  the image has one (enhanced present), omitted entirely for a clean image (UX-DR-13
+  "omitted, not inert", AC4). A submission with no images renders the calm empty state.
+
+  All tokens resolve to static/css/brand.css spine vars; no mockup inline hex (AC6).
+#}
+{% if image_panel.is_empty %}
+<p class="image-panel__empty">No label image was provided for this submission.</p>
+{% else %}
+<figure class="image-panel">
+  <div class="image-panel__header">
+    <span class="image-panel__role">{{ image_panel.role_word }}</span>
+    <span class="image-panel__counter">{{ image_panel.counter }}</span>
+  </div>
+
+  {% if image_panel.pager %}
+  <nav class="image-panel__pager" aria-label="Label image paging">
+    {% if image_panel.pager.prev_href %}
+    <a class="image-panel__pager-link" href="{{ image_panel.pager.prev_href }}" rel="prev">&larr; Previous</a>
+    {% endif %}
+    {% if image_panel.pager.next_href %}
+    <a class="image-panel__pager-link" href="{{ image_panel.pager.next_href }}" rel="next">Next &rarr;</a>
+    {% endif %}
+  </nav>
+  {% endif %}
+
+  {% if image_panel.enhanced %}
+  {# Enhance toggle — a JS-free <details>: opening it reveals the preprocessed image
+     ALONGSIDE the original (neither replaces the other, AC4). Present ONLY because this
+     image has an enhanced variant; a clean image renders none of this block. #}
+  <details class="image-panel__enhance">
+    <summary class="image-panel__enhance-summary">Enhance</summary>
+    <p class="image-panel__enhance-note">
+      Showing the local-OpenCV preprocessed image ({{ image_panel.enhanced.caption }})
+      alongside the original — a reading aid; neither replaces the other.
+    </p>
+    <div class="image-panel__panes">
+      <div class="image-panel__pane">
+        <img class="image-panel__img" src="{{ image_panel.src }}" alt="{{ image_panel.alt }}">
+        <figcaption class="image-panel__pane-cap">Original</figcaption>
+      </div>
+      <div class="image-panel__pane">
+        <img class="image-panel__img" src="{{ image_panel.enhanced.src }}" alt="{{ image_panel.enhanced.alt }}">
+        <figcaption class="image-panel__pane-cap">Preprocessed ({{ image_panel.enhanced.caption }})</figcaption>
+      </div>
+    </div>
+  </details>
+  {% else %}
+  {# Clean image (no enhanced variant): the original alone, no Enhance affordance. #}
+  <div class="image-panel__pane">
+    <img class="image-panel__img" src="{{ image_panel.src }}" alt="{{ image_panel.alt }}">
+  </div>
+  {% endif %}
+</figure>
+{% endif %}

@@ -1005,3 +1005,114 @@ a {
   border-color: var(--verdict-fail);
   color: var(--verdict-fail);
 }
+
+/* ── Label image panel + Enhance toggle (Story 4.7) ──────────────────────────
+ * The two-column review workspace: a sticky left column carrying the label
+ * image (+ JS-free Enhance <details>) and the right column carrying the
+ * existing 4.4–4.6 sections. All colors/radii resolve to spine --brand-*
+ * tokens — no mockup inline hex (AC6). On a narrow viewport the columns stack
+ * (left panel above the right cluster), so the image stays visible first. */
+.work {
+  display: grid;
+  grid-template-columns: minmax(0, 22rem) minmax(0, 1fr);
+  gap: 24px;
+  align-items: start;
+}
+@media (max-width: 60rem) {
+  .work {
+    grid-template-columns: 1fr;
+  }
+}
+
+.review-col-left {
+  position: sticky;
+  top: 16px;
+}
+.review-col-right {
+  min-width: 0;
+}
+
+.image-panel {
+  margin: 0;
+  padding: 16px;
+  background-color: var(--brand-surface);
+  border: 1px solid var(--brand-border);
+  border-radius: var(--brand-radius-lg);
+}
+.image-panel__header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.image-panel__role {
+  font-weight: 700;
+  color: var(--brand-ink);
+}
+.image-panel__counter {
+  font-size: 0.85rem;
+  color: var(--brand-ink-muted);
+}
+.image-panel__pager {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.image-panel__pager-link {
+  color: var(--brand-primary-light);
+  text-decoration: none;
+  font-size: 0.9rem;
+}
+.image-panel__pager-link:hover {
+  text-decoration: underline;
+}
+.image-panel__pane {
+  margin: 0;
+}
+.image-panel__img {
+  display: block;
+  width: 100%;
+  height: auto;
+  border: 1px solid var(--brand-border);
+  border-radius: var(--brand-radius-md);
+  background-color: var(--brand-surface);
+}
+.image-panel__pane-cap {
+  margin-top: 6px;
+  font-size: 0.8rem;
+  color: var(--brand-ink-muted);
+}
+.image-panel__enhance {
+  margin-top: 12px;
+}
+.image-panel__enhance-summary {
+  cursor: pointer;
+  font-weight: 600;
+  color: var(--brand-primary-light);
+}
+.image-panel__enhance-note {
+  margin: 8px 0;
+  font-size: 0.85rem;
+  color: var(--brand-ink-muted);
+}
+.image-panel__panes {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+@media (max-width: 40rem) {
+  .image-panel__panes {
+    grid-template-columns: 1fr;
+  }
+}
+.image-panel__empty {
+  margin: 0;
+  padding: 24px 16px;
+  text-align: center;
+  color: var(--brand-ink-muted);
+  background-color: var(--brand-surface);
+  border: 1px dashed var(--brand-border);
+  border-radius: var(--brand-radius-lg);
+}

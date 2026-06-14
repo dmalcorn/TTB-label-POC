@@ -32,7 +32,7 @@ from difflib import SequenceMatcher
 from typing import cast
 
 from app import verdict
-from app.db.repositories import ChecklistItem, FieldComparison
+from app.db.repositories import ChecklistItem, FieldComparison, LabelImage
 
 # ── Beverage-type banner (DESIGN.md beverage accents) ────────────────────────
 # The stored enum → displayed word. The word is ALWAYS rendered (colorblind + the
@@ -758,4 +758,151 @@ def smart_checklist(
         "rows": rows,
         "done_count": done_count,
         "total": len(item_list),
+    }
+
+
+# ── Label-image panel + Enhance toggle (Story 4.7) ───────────────────────────
+# The stored ``image_role`` enum → the display WORD. The word is ALWAYS rendered
+# (never role-by-color alone, A11Y / AC1). A NULL role degrades to "Label image".
+IMAGE_ROLE_WORD: dict[str, str] = {
+    "BRAND": "Brand (front)",
+    "BACK": "Back",
+    "NECK": "Neck",
+    "STRIP": "Strip",
+    "OTHER": "Other",
+}
+
+# The corrective preprocess_log step name → the honest one-word caption fragment.
+# Only the CORRECTIVE steps appear (decode/grayscale/binarize are structural). The
+# caption names ONLY the steps actually ``applied`` on the image (AC4 honesty).
+_PREPROCESS_CAPTION: dict[str, str] = {
+    "deskew": "deskew",
+    "normalize_illumination_glare": "glare",
+    "clahe_contrast": "contrast",
+    "denoise": "denoise",
+    "perspective_correct": "perspective",
+}
+
+
+def _enhance_caption(preprocess_log: str | None) -> str:
+    """Build the honest "deskew · glare · contrast" caption from the stored log.
+
+    Reads the JSON ``preprocess_log`` and names ONLY the corrective steps that were
+    actually ``applied`` (AC4). Degrades to a plain "preprocessed" caption when the log
+    is NULL / unparseable / shaped unexpectedly — never raises."""
+    if not preprocess_log:
+        return "preprocessed"
+    try:
+        entries = json.loads(preprocess_log)
+    except json.JSONDecodeError:
+        return "preprocessed"
+    # The pipeline writes a JSON ARRAY of step entries (preprocess.py). Anything else —
+    # a top-level object/string/number — is an unexpected shape: degrade honestly to a
+    # plain caption rather than iterate keys/characters and silently drop real steps.
+    if not isinstance(entries, list):
+        return "preprocessed"
+    applied = [
+        _PREPROCESS_CAPTION[e["step"]]
+        for e in entries
+        if isinstance(e, dict) and e.get("applied") and e.get("step") in _PREPROCESS_CAPTION
+    ]
+    return " · ".join(applied) if applied else "preprocessed"
+
+
+def _pager_selector(images: list[LabelImage], idx: int) -> int:
+    """The ``?image=`` selector for the image at list index ``idx``.
+
+    Prefer the DB ``position`` (the natural deep-link), falling back to the 1-based
+    ordinal when ``position`` is NULL — so a NULL-position neighbor still gets a working
+    link instead of a dead ``?image=None``. The selection loop in ``image_panel`` tries a
+    position match first and the ordinal second, so both selector forms resolve."""
+    pos = images[idx].position
+    return pos if pos is not None else idx + 1
+
+
+def _image_src(submission_id: int, image_id: int, variant: str = "original") -> str:
+    """Build the same-origin URL for the image-serving route (NFR-2: relative path)."""
+    base = f"/review/{submission_id}/image/{image_id}"
+    return base if variant == "original" else f"{base}?variant={variant}"
+
+
+def image_panel(
+    images: list[LabelImage],
+    *,
+    submission_id: int,
+    current_position: int | None = None,
+) -> dict[str, object]:
+    """The left-column label-image panel view-model (Stories 4.7 AC1/AC3/AC4/AC5).
+
+    Pure, AR-5-safe. ``images`` is ``repo.list_label_images`` output (already in
+    ``position`` order). Returns a view-model with:
+
+    - ``is_empty`` — ``True`` when the submission has no images (the calm empty state);
+    - ``role_word`` / ``counter`` — the current image's role WORD + "image N of M";
+    - ``src`` / ``alt`` — the original ``<img>`` source (same-origin route) + alt text;
+    - ``enhanced`` — the Enhance sub-model ONLY when ``enhanced_path`` is non-NULL (a
+      clean image ⇒ ``None`` ⇒ NO Enhance toggle, omitted-not-inert, AC4);
+    - ``pager`` — prev/next positions + their review-URL hrefs, or ``None`` when ≤1 image.
+
+    The selected image is the one whose ``position`` matches ``current_position``;
+    failing that (sparse / NULL positions) it falls back to the 1-based ORDINAL, so
+    ``?image=N`` always resolves to a real face. An out-of-range / unknown selector
+    degrades to the first image (never raises)."""
+    if not images:
+        return {"is_empty": True}
+
+    total = len(images)
+    # Select by DB position first (the natural ?image=<position> link); if no row carries
+    # that position — positions are nullable and may be sparse — fall back to the 1-based
+    # ordinal so every face stays reachable. Default to the first; degrade cleanly.
+    index = 0
+    if current_position is not None:
+        by_position = next(
+            (i for i, img in enumerate(images) if img.position == current_position), None
+        )
+        if by_position is not None:
+            index = by_position
+        elif 1 <= current_position <= total:
+            index = current_position - 1
+    current = images[index]
+
+    role_word = IMAGE_ROLE_WORD.get(current.image_role or "", "Label image")
+
+    enhanced: dict[str, str] | None = None
+    if current.enhanced_path:
+        enhanced = {
+            "src": _image_src(submission_id, current.id, "enhanced"),
+            "caption": _enhance_caption(current.preprocess_log),
+            "alt": f"{role_word} label image, preprocessed (reading aid)",
+        }
+
+    pager: dict[str, object] | None = None
+    if total > 1:
+        # The review-URL ?image=<selector> links — real same-origin anchors so paging
+        # works with JS disabled (AC3). prev/next wrap is intentionally NOT done; the
+        # first image has no prev, the last has no next (the template hides absent ends).
+        # Each neighbor's selector is its DB ``position`` when present, else its 1-based
+        # ORDINAL — because ``position`` is nullable/sparse in the schema (CHECK is 1-10
+        # OR NULL; SQLite does not coalesce multiple NULLs under UNIQUE), a raw NULL
+        # position would emit a dead ``?image=None`` link. Selecting on the ordinal
+        # fallback (mirrored in the selection loop above) keeps every face reachable.
+        prev_sel = _pager_selector(images, index - 1) if index > 0 else None
+        next_sel = _pager_selector(images, index + 1) if index < total - 1 else None
+        pager = {
+            "prev_href": f"/review/{submission_id}?image={prev_sel}"
+            if prev_sel is not None
+            else None,
+            "next_href": f"/review/{submission_id}?image={next_sel}"
+            if next_sel is not None
+            else None,
+        }
+
+    return {
+        "is_empty": False,
+        "role_word": role_word,
+        "counter": f"image {index + 1} of {total}",
+        "src": _image_src(submission_id, current.id, "original"),
+        "alt": f"{role_word} label image",
+        "enhanced": enhanced,
+        "pager": pager,
     }

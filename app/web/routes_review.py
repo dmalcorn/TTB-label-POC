@@ -32,8 +32,11 @@ FAIL), advisory only; this route emits no disposition.
 
 from __future__ import annotations
 
+import mimetypes
+from pathlib import Path
+
 from fastapi import APIRouter, Form, HTTPException, Request, Response
-from fastapi.responses import HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse
 
 from app.db import repositories as repo
 from app.db.connection import connect
@@ -41,14 +44,46 @@ from app.web import review_view
 
 router = APIRouter()
 
+# The read-only seeded source root for ORIGINAL images. Mirrors
+# ``app/pipeline/preprocess.py:SOURCE_IMAGES_DIR`` = ``<repo>/fixtures/images``;
+# duplicated as a constant here (not imported) so this read route never reaches into
+# the pipeline layer (AR-5 read-path purity).
+_SOURCE_IMAGES_DIR: Path = Path(__file__).resolve().parents[2] / "fixtures" / "images"
+
+# The constrained ``variant`` query values → the LabelImage attribute holding the
+# stored (relative) path. ``original`` is special-cased (it lives under the seeded
+# source root by ``filename``, not under the generated-images root).
+_VARIANT_ATTR: dict[str, str] = {
+    "enhanced": "enhanced_path",
+    "binarized": "binarized_path",
+}
+
+
+def _media_type_for(row: repo.LabelImage, variant: str) -> str:
+    """Pick the Content-Type for the streamed file.
+
+    The ``original`` carries the row's own ``mime_type`` (the seeded source's true type).
+    The derived ``enhanced`` / ``binarized`` variants are OpenCV PNG outputs and do NOT
+    inherit the original's mime — so sniff their type from the variant file's suffix
+    (a JPEG original must not stream its PNG enhanced variant as ``image/jpeg``). Falls
+    back to ``image/jpeg`` only when nothing better is known.
+    """
+    if variant == "original":
+        return row.mime_type or "image/jpeg"
+    rel = getattr(row, _VARIANT_ATTR[variant], None)
+    guessed, _ = mimetypes.guess_type(rel) if rel else (None, None)
+    return guessed or "image/png"
+
 
 @router.get("/review/{submission_id}", response_class=HTMLResponse)
-def review(request: Request, submission_id: int) -> HTMLResponse:
+def review(request: Request, submission_id: int, image: int | None = None) -> HTMLResponse:
     """Render the Review Workspace shell for one submission (pure read, AR-5).
 
     Reads the submission + its checklist + its single ``review_progress`` row, builds
     the banner / chevron / suggested-verdict / field-card / gov-warning / smart-checklist
-    view-models, and renders ``review.html``. A missing id ⇒ calm 404.
+    view-models + the label-image panel (Story 4.7), and renders ``review.html``. The
+    optional ``image`` query param selects which face (by ``position``) the panel shows
+    so paging works without JS (AC3). A missing id ⇒ calm 404.
     """
     settings = request.app.state.settings
     templates = request.app.state.templates
@@ -61,6 +96,8 @@ def review(request: Request, submission_id: int) -> HTMLResponse:
         # The human-tick layer (Story 4.6): the MANUAL ticked set. The presenter
         # unions in the auto-tick set (PASS/NA) itself, keeping the merge in one place.
         ticked_keys = repo.get_ticked_check_keys(conn, submission_id)
+        # The label-image set (Story 4.7), in position order; ``[]`` ⇒ calm empty state.
+        images = repo.list_label_images(conn, submission_id)
 
     cards = review_view.field_cards(items, comparisons)
     return templates.TemplateResponse(
@@ -71,6 +108,11 @@ def review(request: Request, submission_id: int) -> HTMLResponse:
             "banner": review_view.banner(submission.beverage_type),
             "chevron": review_view.chevron(items),
             "alert": review_view.suggested_verdict(items),
+            # The label-image panel (Story 4.7) — the left column. Pure read-model over
+            # the already-read ``images``; the selected face follows ``?image=<pos>``.
+            "image_panel": review_view.image_panel(
+                images, submission_id=submission_id, current_position=image
+            ),
             "field_cards_problems": [c for c in cards if c["is_problem"]],
             "field_cards_clean": [c for c in cards if not c["is_problem"]],
             # The Government Warning card (Story 4.5) — built from the SAME ``items``
@@ -112,3 +154,57 @@ def set_progress(
             raise HTTPException(status_code=404, detail="Submission not found")
         repo.set_check_tick(conn, submission_id, check_key=check_key, ticked=ticked)
     return Response(status_code=204)
+
+
+@router.get("/review/{submission_id}/image/{image_id}")
+def review_image(
+    request: Request, submission_id: int, image_id: int, variant: str = "original"
+) -> FileResponse:
+    """Stream one label image from disk (Story 4.7 AC2 — same-origin, AR-5-pure).
+
+    A pure single-row DB read + a file stream: read the ``label_images`` row by
+    ``image_id``, verify its ``submission_id`` matches the path (no cross-submission
+    enumeration), resolve the on-disk path ENTIRELY from the row (never a client path —
+    no traversal), and ``FileResponse`` it with the row's ``mime_type``.
+
+    The only client inputs are the integer ``image_id`` and the constrained ``variant``
+    (``original`` default / ``enhanced`` / ``binarized``; anything else ⇒ 404).
+    ``original`` resolves under the read-only seeded source root by ``filename``;
+    ``enhanced`` / ``binarized`` resolve under ``settings.generated_images_dir`` by the
+    stored relative path. A missing row, a foreign row, a NULL variant path, or a file
+    absent on disk ⇒ calm 404 (never a 500, never a directory listing). No OCR / LLM /
+    engine / pipeline import (AR-5).
+    """
+    settings = request.app.state.settings
+    with connect(settings.database_path) as conn:
+        row = repo.get_label_image(conn, image_id)
+    if row is None or row.submission_id != submission_id:
+        raise HTTPException(status_code=404, detail="Image not found")
+
+    if variant == "original":
+        root = _SOURCE_IMAGES_DIR
+        file_path = root / row.filename
+    elif variant in _VARIANT_ATTR:
+        rel = getattr(row, _VARIANT_ATTR[variant])
+        if not rel:  # NULL variant path ⇒ clean image had no such variant (AC4/AC5)
+            raise HTTPException(status_code=404, detail="Image variant not available")
+        root = Path(settings.generated_images_dir)
+        file_path = root / rel
+    else:  # an unrecognized variant is treated as not-found (no 500, no guessing)
+        raise HTTPException(status_code=404, detail="Unknown image variant")
+
+    # ENFORCE — not merely assume — the advertised "no traversal" guarantee. The path is
+    # built from DB columns the pipeline writes as basenames today, but the route promises
+    # a security property, so make it real: resolve symlinks / ``..`` and require the
+    # result to stay under its root. A stored ``..`` / absolute path (or an out-of-root
+    # symlink) ⇒ calm 404, never an arbitrary-file read. (project-context.md: prefer the
+    # more restrictive option around the firewall boundary.)
+    resolved = file_path.resolve()
+    root_resolved = root.resolve()
+    if root_resolved != resolved and root_resolved not in resolved.parents:
+        raise HTTPException(status_code=404, detail="Image not found")
+
+    if not resolved.is_file():  # absent on disk ⇒ calm 404 (AC5)
+        raise HTTPException(status_code=404, detail="Image file not found")
+
+    return FileResponse(resolved, media_type=_media_type_for(row, variant))

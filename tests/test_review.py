@@ -16,12 +16,14 @@ from __future__ import annotations
 import json
 import sqlite3
 from pathlib import Path
+from typing import cast
 
 import pytest
 from fastapi.testclient import TestClient
 
 from app import verdict
 from app.db.connection import connect, init_db
+from app.db.repositories import LabelImage
 from app.main import create_app
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -915,3 +917,347 @@ def test_review_get_na_row_reads_not_applicable_not_review(monkeypatch, tmp_path
     na_row = body.split('data-check-key="standards_of_fill"', 1)[1].split("</a>", 1)[0]
     assert "needs your eyes" not in na_row
     assert "REVIEW" not in na_row
+
+
+# ── Story 4.7: label-image panel + Enhance toggle ────────────────────────────
+#
+# A real fixture file under fixtures/images/ — the original-serve test seeds a row
+# whose ``filename`` is this basename so FileResponse finds it on disk.
+_FIXTURE_IMAGE = "26150000000001_01_BRAND.jpg"
+
+# A 1x1 PNG (the smallest valid PNG) — written into settings.generated_images_dir
+# for the enhanced-variant serve test.
+_TINY_PNG = bytes.fromhex(
+    "89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c4"
+    "890000000a49444154789c63000100000500010d0a2db40000000049454e44ae426082"
+)
+
+
+def _insert_image(conn: sqlite3.Connection, submission_id: int, **overrides) -> int:
+    """Seed one ``label_images`` row; return its id."""
+    cols: dict[str, object] = {
+        "submission_id": submission_id,
+        "image_role": "BRAND",
+        "position": 1,
+        "filename": _FIXTURE_IMAGE,
+        "mime_type": "image/jpeg",
+    }
+    cols.update(overrides)
+    placeholders = ", ".join("?" for _ in cols)
+    sql = f"INSERT INTO label_images ({', '.join(cols)}) VALUES ({placeholders})"  # noqa: S608
+    cur = conn.execute(sql, tuple(cols.values()))
+    conn.commit()
+    assert cur.lastrowid is not None
+    return cur.lastrowid
+
+
+# ── AC1: two-column workspace + left image panel ─────────────────────────────
+
+
+def test_review_renders_two_column_with_image_panel(monkeypatch, tmp_path) -> None:
+    """AC1: the workspace is the mockup's two-column layout — a left-column image
+    panel + the unchanged right-column field cards/gov-warning/checklist. The panel
+    header names the current image's role WORD + an "image N of M" counter."""
+    client = _client(monkeypatch, tmp_path)
+    with connect(_db_path(tmp_path)) as conn:
+        sid = _insert_submission(conn)
+        _insert_image(conn, sid, image_role="BRAND", position=1)
+        _insert_check(conn, sid, check_key="brand_name", verdict="PASS")
+    body = client.get(f"/review/{sid}").text
+    # two-column scaffold
+    assert 'class="work"' in body
+    assert "review-col-left" in body
+    assert "review-col-right" in body
+    # the role WORD is rendered (never role-by-color alone) + the N-of-M counter
+    assert "Brand (front)" in body
+    assert "image 1 of 1" in body
+    # the right column still carries the existing 4.4-4.6 region anchors
+    assert 'id="group-identity"' in body
+    assert 'id="group-checklist"' in body
+
+
+# ── AC2: same-origin, token-gated, AR-5-pure image route ─────────────────────
+
+
+def test_image_route_serves_original(monkeypatch, tmp_path) -> None:
+    """AC2: GET /review/{sid}/image/{img} streams the original file from disk with an
+    image/* content-type, resolving the path from the DB row (fixtures/images)."""
+    client = _client(monkeypatch, tmp_path)
+    with connect(_db_path(tmp_path)) as conn:
+        sid = _insert_submission(conn)
+        img = _insert_image(conn, sid)
+    resp = client.get(f"/review/{sid}/image/{img}")
+    assert resp.status_code == 200
+    assert resp.headers["content-type"].startswith("image/")
+    assert len(resp.content) > 0
+
+
+def test_image_route_serves_enhanced_variant(monkeypatch, tmp_path) -> None:
+    """AC2: ?variant=enhanced serves the enhanced file resolved against
+    settings.generated_images_dir."""
+    gen_dir = tmp_path / "generated"
+    gen_dir.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setenv("GENERATED_IMAGES_DIR", str(gen_dir))
+    client = _client(monkeypatch, tmp_path)
+    (gen_dir / "front_enhanced.png").write_bytes(_TINY_PNG)
+    with connect(_db_path(tmp_path)) as conn:
+        sid = _insert_submission(conn)
+        img = _insert_image(conn, sid, enhanced_path="front_enhanced.png")
+    resp = client.get(f"/review/{sid}/image/{img}?variant=enhanced")
+    assert resp.status_code == 200
+    assert resp.headers["content-type"].startswith("image/")
+
+
+def test_image_route_cross_submission_is_404(monkeypatch, tmp_path) -> None:
+    """AC2: an image_id that does not belong to the path submission_id ⇒ calm 404
+    (no cross-submission enumeration)."""
+    client = _client(monkeypatch, tmp_path)
+    with connect(_db_path(tmp_path)) as conn:
+        sid_a = _insert_submission(conn, ttb_id="26009000000001")
+        sid_b = _insert_submission(conn, ttb_id="26009000000002")
+        img_b = _insert_image(conn, sid_b)
+    resp = client.get(f"/review/{sid_a}/image/{img_b}")
+    assert resp.status_code == 404
+
+
+def test_image_route_null_variant_is_404(monkeypatch, tmp_path) -> None:
+    """AC2/AC5: a NULL variant path (clean image, no enhanced) ⇒ calm 404, never 500."""
+    client = _client(monkeypatch, tmp_path)
+    with connect(_db_path(tmp_path)) as conn:
+        sid = _insert_submission(conn)
+        img = _insert_image(conn, sid, enhanced_path=None)
+    resp = client.get(f"/review/{sid}/image/{img}?variant=enhanced")
+    assert resp.status_code == 404
+
+
+def test_image_route_missing_file_is_404(monkeypatch, tmp_path) -> None:
+    """AC5: a row whose original file is absent on disk ⇒ calm 404, never a 500."""
+    client = _client(monkeypatch, tmp_path)
+    with connect(_db_path(tmp_path)) as conn:
+        sid = _insert_submission(conn)
+        img = _insert_image(conn, sid, filename="does_not_exist_on_disk.jpg")
+    resp = client.get(f"/review/{sid}/image/{img}")
+    assert resp.status_code == 404
+
+
+def test_image_route_is_token_gated(monkeypatch, tmp_path) -> None:
+    """AC2: the image route carries no token-gate exemption — when gated it redirects
+    to /access like every other screen (Story 1.5)."""
+    client = _client(monkeypatch, tmp_path, token="s3cret")
+    with connect(_db_path(tmp_path)) as conn:
+        sid = _insert_submission(conn)
+        img = _insert_image(conn, sid)
+    resp = client.get(f"/review/{sid}/image/{img}", follow_redirects=False)
+    assert resp.status_code == 303
+    assert resp.headers["location"].startswith("/access")
+
+
+# ── AC3: paging across faces (works without JS) ──────────────────────────────
+
+
+def test_review_multi_image_renders_pager(monkeypatch, tmp_path) -> None:
+    """AC3: a multi-image submission renders prev/next as real ?image= links so paging
+    works without JS; the server renders whichever ?image= selects."""
+    client = _client(monkeypatch, tmp_path)
+    with connect(_db_path(tmp_path)) as conn:
+        sid = _insert_submission(conn)
+        _insert_image(conn, sid, image_role="BRAND", position=1)
+        _insert_image(conn, sid, image_role="BACK", position=2, filename="back.jpg")
+    body = client.get(f"/review/{sid}").text
+    # default selects position 1; a next link to position 2 is a real same-origin link
+    assert "image 1 of 2" in body
+    assert "?image=2" in body
+    # selecting ?image=2 renders the Back face
+    body2 = client.get(f"/review/{sid}?image=2").text
+    assert "image 2 of 2" in body2
+    assert "Back" in body2
+    assert "?image=1" in body2
+
+
+def test_review_single_image_renders_no_pager(monkeypatch, tmp_path) -> None:
+    """AC3: a single-image submission renders no active pager link and never errors."""
+    client = _client(monkeypatch, tmp_path)
+    with connect(_db_path(tmp_path)) as conn:
+        sid = _insert_submission(conn)
+        _insert_image(conn, sid, position=1)
+    body = client.get(f"/review/{sid}").text
+    assert "image 1 of 1" in body
+    # no second-position paging link
+    assert "?image=2" not in body
+
+
+# ── AC4: Enhance toggle — preprocessed ALONGSIDE original (omitted-not-inert) ──
+
+
+def test_review_enhance_toggle_present_when_preprocessed(monkeypatch, tmp_path) -> None:
+    """AC4: an image WITH enhanced_path offers the Enhance toggle + the honest
+    side-by-side caption naming the applied steps from preprocess_log."""
+    client = _client(monkeypatch, tmp_path)
+    log = json.dumps(
+        [
+            {"step": "deskew", "applied": True, "ms": 3},
+            {"step": "normalize_illumination_glare", "applied": True, "ms": 2},
+            {"step": "clahe_contrast", "applied": True, "ms": 1},
+            {"step": "denoise", "applied": False, "ms": 0},
+        ]
+    )
+    with connect(_db_path(tmp_path)) as conn:
+        sid = _insert_submission(conn)
+        _insert_image(conn, sid, enhanced_path="front_enhanced.png", preprocess_log=log)
+    body = client.get(f"/review/{sid}").text
+    assert "Enhance" in body
+    assert "?variant=enhanced" in body
+    # the honest caption names ONLY applied corrective steps
+    assert "deskew" in body
+    assert "glare" in body
+    assert "contrast" in body
+    assert "denoise" not in body.split("Enhance", 1)[1].split("</", 1)[0]
+
+
+def test_review_clean_image_omits_enhance_toggle(monkeypatch, tmp_path) -> None:
+    """AC4: a CLEAN image (NULL enhanced_path) renders NO Enhance toggle — omitted,
+    not shown disabled (UX-DR-13)."""
+    client = _client(monkeypatch, tmp_path)
+    with connect(_db_path(tmp_path)) as conn:
+        sid = _insert_submission(conn)
+        _insert_image(conn, sid, enhanced_path=None)
+    body = client.get(f"/review/{sid}").text
+    assert "?variant=enhanced" not in body
+    # no disabled/greyed enhance affordance either
+    assert "image-panel__enhance" not in body
+
+
+# ── AC5: calm empty state, never a 500 ───────────────────────────────────────
+
+
+def test_review_no_images_renders_calm_empty_state(monkeypatch, tmp_path) -> None:
+    """AC5: a submission with no label_images renders the calm left-column empty
+    state (200, never 500) and the right column renders unchanged."""
+    client = _client(monkeypatch, tmp_path)
+    with connect(_db_path(tmp_path)) as conn:
+        sid = _insert_submission(conn)
+        _insert_check(conn, sid, check_key="brand_name", verdict="PASS")
+    resp = client.get(f"/review/{sid}")
+    assert resp.status_code == 200
+    assert "No label image was provided" in resp.text
+    # right column still renders
+    assert 'id="group-checklist"' in resp.text
+
+
+# ── AC6: spine fidelity ──────────────────────────────────────────────────────
+
+
+def test_review_image_panel_uses_route_src(monkeypatch, tmp_path) -> None:
+    """AC6: the panel uses real <img> elements pointing at the new same-origin image
+    route (never the mockup's hand-drawn CSS label / external origin)."""
+    client = _client(monkeypatch, tmp_path)
+    with connect(_db_path(tmp_path)) as conn:
+        sid = _insert_submission(conn)
+        img = _insert_image(conn, sid)
+    body = client.get(f"/review/{sid}").text
+    assert f"/review/{sid}/image/{img}" in body
+    # same-origin only — no external origin in the panel src
+    for forbidden in ("http://", "https://", "//cdn"):
+        assert forbidden not in body.split("review-col-left", 1)[1].split("review-col-right", 1)[0]
+
+
+def test_brand_css_has_image_panel_on_spine_tokens() -> None:
+    """AC6: the image-panel CSS block exists and resolves to spine --brand-* tokens,
+    never the mockup's inline hex."""
+    css = (REPO_ROOT / "static/css/brand.css").read_text(encoding="utf-8")
+    assert "Label image panel" in css
+    for cls in (".work", ".review-col-left", ".image-panel"):
+        assert cls in css, f"brand.css missing image-panel class {cls}"
+    # the panel block resolves to the spine tokens
+    block = css.split("Label image panel", 1)[1]
+    assert "var(--brand-" in block
+
+
+# ── Story 4.7 code-review regression patches ─────────────────────────────────
+
+
+def test_image_panel_pager_keeps_working_link_when_neighbor_position_is_null() -> None:
+    """CR-H1: ``position`` is nullable/sparse in the schema; a neighbor whose ``position``
+    is NULL is still a real face. The pager must emit a WORKING link for it — the 1-based
+    ordinal fallback — never a dead ``?image=None`` and never a silently-dropped control.
+    The selection loop resolves both the position and the ordinal selector forms."""
+    from app.web.review_view import image_panel
+
+    images = [
+        LabelImage(id=10, submission_id=1, position=None, filename="a.jpg", created_at="t"),
+        LabelImage(id=11, submission_id=1, position=2, filename="b.jpg", created_at="t"),
+    ]
+    # Standing on the second image, the previous neighbor has a NULL position → it must
+    # link via its ordinal (?image=1), a working anchor, not a dropped/dead control.
+    panel = image_panel(images, submission_id=1, current_position=2)
+    pager = cast("dict[str, object]", panel["pager"])
+    assert pager is not None
+    assert pager["prev_href"] == "/review/1?image=1"
+    # ?image=1 resolves back to that first (NULL-position) face via the ordinal fallback.
+    back = image_panel(images, submission_id=1, current_position=1)
+    assert back["counter"] == "image 1 of 2"
+    # Standing on the first (NULL-position) image, the next neighbor (position 2) links.
+    panel_first = image_panel(images, submission_id=1, current_position=None)
+    pager_first = cast("dict[str, object]", panel_first["pager"])
+    assert pager_first["next_href"] == "/review/1?image=2"
+
+
+def test_enhance_caption_degrades_on_non_list_log_shape() -> None:
+    """CR-M3: a top-level JSON object/string/number (not the pipeline's array) is an
+    unexpected shape — degrade to the plain caption, never iterate keys/chars and
+    silently drop steps, never raise."""
+    from app.web.review_view import _enhance_caption
+
+    # a one-entry log mistakenly stored as an OBJECT, not a one-element array
+    assert _enhance_caption('{"step": "deskew", "applied": true}') == "preprocessed"
+    assert _enhance_caption('"deskew"') == "preprocessed"
+    assert _enhance_caption("42") == "preprocessed"
+    assert _enhance_caption("not json at all") == "preprocessed"
+    # the well-formed array still names ONLY applied corrective steps
+    good = json.dumps([{"step": "deskew", "applied": True}, {"step": "denoise", "applied": False}])
+    assert _enhance_caption(good) == "deskew"
+
+
+def test_image_route_unknown_variant_is_404(monkeypatch, tmp_path) -> None:
+    """AC2 (coverage): an unrecognized ``variant`` ⇒ calm 404 (never a 500/guess)."""
+    client = _client(monkeypatch, tmp_path)
+    with connect(_db_path(tmp_path)) as conn:
+        sid = _insert_submission(conn)
+        img = _insert_image(conn, sid)
+    resp = client.get(f"/review/{sid}/image/{img}?variant=bogus")
+    assert resp.status_code == 404
+
+
+def test_image_route_serves_binarized_variant(monkeypatch, tmp_path) -> None:
+    """AC2 (coverage): ?variant=binarized serves the binarized file resolved against
+    settings.generated_images_dir, mirroring the enhanced path."""
+    gen_dir = tmp_path / "generated"
+    gen_dir.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setenv("GENERATED_IMAGES_DIR", str(gen_dir))
+    client = _client(monkeypatch, tmp_path)
+    (gen_dir / "front_binarized.png").write_bytes(_TINY_PNG)
+    with connect(_db_path(tmp_path)) as conn:
+        sid = _insert_submission(conn)
+        img = _insert_image(conn, sid, binarized_path="front_binarized.png")
+    resp = client.get(f"/review/{sid}/image/{img}?variant=binarized")
+    assert resp.status_code == 200
+    # a PNG variant must NOT be mislabeled image/jpeg (CR-L1 mime sniff)
+    assert resp.headers["content-type"] == "image/png"
+
+
+def test_image_route_traversal_path_is_contained(monkeypatch, tmp_path) -> None:
+    """CR-M4: a stored variant path that escapes its root (``..`` traversal) ⇒ calm 404,
+    never an arbitrary-file read. The route ENFORCES the advertised no-traversal
+    guarantee rather than trusting the DB column."""
+    gen_dir = tmp_path / "generated"
+    gen_dir.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setenv("GENERATED_IMAGES_DIR", str(gen_dir))
+    # plant a real file OUTSIDE the generated-images root that a traversal would reach
+    secret = tmp_path / "secret.txt"
+    secret.write_text("top secret", encoding="utf-8")
+    client = _client(monkeypatch, tmp_path)
+    with connect(_db_path(tmp_path)) as conn:
+        sid = _insert_submission(conn)
+        img = _insert_image(conn, sid, enhanced_path="../secret.txt")
+    resp = client.get(f"/review/{sid}/image/{img}?variant=enhanced")
+    assert resp.status_code == 404

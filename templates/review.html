@@ -74,6 +74,22 @@
     </div>
   </section>
 
+  {# ── Two-column workspace (Story 4.7) ───────────────────────────────────────
+     The mockup's two-column body: a sticky LEFT column carrying the label-image panel
+     (+ Enhance toggle), and the RIGHT column carrying the existing 4.4–4.6 sections
+     unchanged in order/content (field cards → gov-warning → checklist → decide). The
+     panel section carries id/tabindex="-1" so the existing focus-jump contract still
+     resolves; the right-column group-* anchors are preserved verbatim. #}
+  <div class="work">
+
+    <div class="review-col-left">
+      <section id="group-image" class="image-panel-group" aria-label="Label image" tabindex="-1">
+        {% include "_image_panel.html" %}
+      </section>
+    </div>
+
+    <div class="review-col-right">
+
   {# ── Stacked field comparison cards (Story 4.4) ─────────────────────────────
      Each FIELD_MATCH checklist row that links a field_comparisons row becomes one
      stacked card (application value above the OCR/LLM value), grouped problems-first.
@@ -147,6 +163,9 @@
     <p class="review-placeholder__note">The disposition action bar and Notes arrive in
       Story 4.8.</p>
   </section>
+
+    </div>{# .review-col-right #}
+  </div>{# .work #}
 
 </div>
 {% endblock %}

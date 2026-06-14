@@ -191,6 +191,19 @@ def list_label_images(conn: sqlite3.Connection, submission_id: int) -> list[Labe
     return [LabelImage.model_validate(dict(row)) for row in rows]
 
 
+def get_label_image(conn: sqlite3.Connection, image_id: int) -> LabelImage | None:
+    """Read one label image by surrogate id; ``None`` if absent.
+
+    The single-row read behind the Story-4.7 image-serving route: the route resolves
+    the on-disk path entirely from this row (never a client-supplied path) and verifies
+    ``submission_id`` matches the path before streaming the file."""
+    row = conn.execute(
+        "SELECT * FROM label_images WHERE id = ?",
+        (image_id,),
+    ).fetchone()
+    return LabelImage.model_validate(dict(row)) if row is not None else None
+
+
 def list_checklist_items(conn: sqlite3.Connection, submission_id: int) -> list[ChecklistItem]:
     """List a submission's ``checklist_items`` in insertion (ruleset) order.
 
