@@ -31,24 +31,34 @@ This runs the complete stack — including the background sweep that OCRs each s
 and promotes it `RECEIVED → READY_FOR_REVIEW`, so the **queue populates and the review
 screens have data**.
 
-**Prerequisite — the image must already be built.** Building needs the internet (apt
-packages, pip, and the one-time PaddleOCR weight bake); *running* does not. You already
-have a full OCR image:
+**Prerequisite — a current image must be built.** Building needs the internet (apt
+packages, pip, and the one-time PaddleOCR weight bake); *running* does not. The image is
+a **snapshot of the code at build time — rebuild it when the app advances** (see "build a
+fresh image" below). A current image (`ttb-label-poc:5-1` / `:latest`, built from `main`)
+is on disk:
 
 ```powershell
 docker images ttb-label-poc
-# ttb-label-poc:2.4   2.82GB   ...   <-- use the most recent tag
+# ttb-label-poc:5-1     3.04GB   ...   <-- the current app
+# ttb-label-poc:latest  3.04GB   ...
 ```
 
 Run it (PowerShell), with your laptop offline:
 
 ```powershell
-docker run --rm -e LLM_ENABLED=false -p 8000:8000 ttb-label-poc:2.4
+docker run --rm -e LLM_ENABLED=false -e PIPELINE_MAX_WORKERS=1 -p 8000:8000 ttb-label-poc:latest
 ```
 
-Then open **http://localhost:8000** — the root redirects to the review **Queue**. Give
-the background sweep a few seconds on first boot to OCR the seeded submissions; the
-"N waiting" count then climbs and **Next Submission** serves a review screen.
+Then open **http://localhost:8000** — the root redirects to the review **Queue**. The
+background sweep OCRs the seeded submissions one at a time, so the "N waiting" count
+climbs over the first minute or two and **Next Submission** serves a review screen.
+
+> [!IMPORTANT]
+> **Use `-e PIPELINE_MAX_WORKERS=1`.** With the default (2), the concurrent OCR workers
+> contend on the SQLite write lock and throw `database is locked` — submissions stick in
+> `PROCESSING` and the queue stays empty. One worker serializes the writes (a little
+> slower, but the queue populates cleanly). This is a known concurrency bug to be fixed
+> properly; until then, one worker is the reliable offline setting.
 
 Notes:
 
@@ -60,14 +70,16 @@ Notes:
   persistence across runs, mount a volume:
 
   ```powershell
-  docker run --rm -e LLM_ENABLED=false -e DATABASE_PATH=/data/app.db `
-    -v ttb-data:/data -p 8000:8000 ttb-label-poc:2.4
+  docker run --rm -e LLM_ENABLED=false -e PIPELINE_MAX_WORKERS=1 -e DATABASE_PATH=/data/app.db `
+    -v ttb-data:/data -p 8000:8000 ttb-label-poc:latest
   ```
 
-- To build a **fresh** image (needs internet, ~minutes — bakes the OCR weights):
+- To build a **fresh** image after the code advances (needs internet — ~10–20 min the
+  first time as it bakes the OCR weights; later rebuilds are ~1–2 min while
+  `requirements.txt` is unchanged, since the heavy pip/weight layers stay cached):
 
   ```powershell
-  docker build -t ttb-label-poc:dev .
+  docker build -t ttb-label-poc:latest .
   ```
 
 ---
@@ -131,7 +143,7 @@ treated as missing imports. See `CLAUDE.md`.)
 To *prove* the app boots and serves with **no network capability at all**:
 
 ```powershell
-docker run --rm --network none -e LLM_ENABLED=false ttb-label-poc:2.4
+docker run --rm --network none -e LLM_ENABLED=false ttb-label-poc:latest
 ```
 
 `--network none` strips the container of every network interface, so a successful boot
@@ -157,7 +169,8 @@ as in Option A — an offline laptop is fine because the app makes no outbound c
 |---|---|
 | Port 8000 already in use | Use another port: venv `--port 8001`; Docker `-p 8001:8000`. |
 | Host-venv queue is empty | Expected — no OCR on the host. Use Option A (Docker) for the review workflow. |
-| Submissions stuck at "Processing" (host) | Same cause — the OCR sweep can't run host-side; expected. |
+| Docker queue stays "0 waiting"; logs show `database is locked` | The default 2 pipeline workers contend on the SQLite write lock. Run with `-e PIPELINE_MAX_WORKERS=1`. |
+| Submissions stuck at "Processing" (host) | Same cause as the empty host queue — the OCR sweep can't run host-side; expected. |
 | Want to reset the data | Host: delete `data/app.db` (it re-seeds on next boot). Docker: just rerun (ephemeral), or remove the `ttb-data` volume. |
 | Asked for a token unexpectedly | `ACCESS_TOKEN` is set in your environment — unset it for an open local gate. |
 | Worried about egress | Keep `LLM_ENABLED=false`; confirm with the `--network none` smoke test above. |
