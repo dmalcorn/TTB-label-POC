@@ -43,6 +43,16 @@ _model: Any | None = None
 _model_init_failed = False
 _model_lock = threading.Lock()
 
+# PaddleOCR/PaddleX is NOT thread-safe: its pipeline carries per-call batch state across
+# the shared det/rec/orientation sub-models, so two pipeline worker threads calling
+# predict() on the one singleton at once corrupt that state — surfacing as an internal
+# "N != 1 for key class_ids!" assertion (and, worse, possible silent cross-contamination
+# of results between images). Serialize ALL inference through this lock so only one
+# predict()/ocr() runs at a time. Tesseract is unaffected (it shells out to a per-call
+# subprocess, so it stays parallel), and this lock is independent of the DB write lock —
+# a thread doing inference here never blocks another thread's DB writes.
+_inference_lock = threading.Lock()
+
 
 def _resolve_version() -> str | None:
     try:
@@ -216,7 +226,12 @@ class PaddleOcrEngine:
     @staticmethod
     def _run_model(model: Any, path: str) -> Any:
         """Invoke whichever inference method this PaddleOCR build exposes. 3.x prefers
-        ``predict``; older builds use ``ocr``. Try the modern one first."""
-        if hasattr(model, "predict"):
-            return model.predict(path)
-        return model.ocr(path)
+        ``predict``; older builds use ``ocr``. Try the modern one first.
+
+        Serialized under :data:`_inference_lock`: PaddleOCR is not thread-safe, and the
+        pipeline shares one model singleton across worker threads — concurrent calls
+        otherwise race its internal batch state (see the lock's note)."""
+        with _inference_lock:
+            if hasattr(model, "predict"):
+                return model.predict(path)
+            return model.ocr(path)

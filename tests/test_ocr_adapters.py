@@ -11,6 +11,8 @@ a raise). Real-engine smoke tests are gated behind a skip so CI stays fast and
 from __future__ import annotations
 
 import importlib.util
+import threading
+import time
 
 import pytest
 
@@ -79,6 +81,45 @@ def test_paddleocr_extract_returns_error_when_engine_unavailable():
     assert isinstance(result, OcrResult)
     assert result.engine_name == "paddleocr"
     assert result.status == "ERROR"
+
+
+def test_paddleocr_inference_is_serialized():
+    """PaddleOCR/PaddleX is not thread-safe and the pipeline shares ONE model singleton
+    across worker threads, so :meth:`PaddleOcrEngine._run_model` must serialize inference.
+    Two+ threads calling it at once must never overlap inside the model's predict() —
+    a real overlap races the shared batch state (the "N != 1 for key class_ids!"
+    assertion, and possibly silent cross-image contamination).
+    """
+    active = 0
+    max_seen = 0
+    counter_lock = threading.Lock()  # guards the probe counters only, not the engine
+
+    class _ConcurrencyProbe:
+        """Stand-in model that records the peak number of overlapping predict() calls."""
+
+        def predict(self, _path):
+            nonlocal active, max_seen
+            with counter_lock:
+                active += 1
+                max_seen = max(max_seen, active)
+            time.sleep(0.02)  # widen the window so any overlap is actually observed
+            with counter_lock:
+                active -= 1
+            return []
+
+    model = _ConcurrencyProbe()
+
+    def worker():
+        for _ in range(5):
+            PaddleOcrEngine._run_model(model, "x")
+
+    threads = [threading.Thread(target=worker) for _ in range(4)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    assert max_seen == 1, f"PaddleOCR inference overlapped {max_seen} threads — not serialized"
 
 
 # ── Real-engine smoke tests (skipped unless the native engine is installed) ───
