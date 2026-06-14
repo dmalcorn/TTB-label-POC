@@ -25,6 +25,15 @@ EFFICIENCY:
   `.venv/Scripts/python.exe -c "import os; os.remove('_probe.py')"`. Do NOT use
   `PYTHONPATH=`/`export`, `/c/tmp`, `rm`/`del`/`sed`, or a multi-line `python -c`
   (all denied as "multiple operations" or outside the grant).
+- `_bmad-output/planning-artifacts/epics.md` is large (>25K tokens) — do NOT Read
+  it whole (it errors). Read TWO things instead: (1) the front-matter **Requirements
+  Inventory** near the top (~lines 35-211: the FR / NFR / AR / UX-DR definitions + the
+  binding UI-fidelity standard + Epic List — ~6K tokens, one Read) so you can resolve
+  the IDs your story references; and (2) your own story's section (Grep for its id or
+  heading — later epics sit at the END — then Read that slice with `offset`/`limit`).
+  Skip the OTHER stories' sections (that bulk is what overflows the cap). For UI
+  stories the UX-DR definitions + the fidelity standard are essential — don't skip them.
+  (Same locate-then-slice approach for any file the Read tool reports as too large.)
 
 IMMEDIATE ACTION REQUIRED — your VERY FIRST action must be to invoke the agent
 persona, NOT a task skill:
