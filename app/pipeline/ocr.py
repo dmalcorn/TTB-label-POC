@@ -174,6 +174,21 @@ def _run_and_persist(
                 engine.name,
                 image_variant,
             )
+    # Commit THIS row before the next (engine, image, variant) extraction. The loop
+    # interleaves slow engine.extract() calls with these writes; a single end-of-stage
+    # commit would hold the WAL write lock across all of them, so a concurrent worker's
+    # write waits past busy_timeout and fails with "database is locked". Committing per
+    # row keeps the lock held only for the brief insert — concurrent workers, and this
+    # submission's own next extraction, proceed unblocked.
+    try:
+        ctx.conn.commit()
+    except sqlite3.Error:
+        logger.exception(
+            "Committing the %s %s OCR row for label_image %s failed",
+            engine.name,
+            image_variant,
+            label_image_id,
+        )
 
 
 def ocr_stage(ctx: StageContext) -> None:
@@ -181,8 +196,10 @@ def ocr_stage(ctx: StageContext) -> None:
     on the original and (engine-aware) its preferred preprocessed variant.
 
     Emits ``OCR_STARTED`` / ``OCR_COMPLETED`` around the work (preserving the 2.2
-    timeline), writes one independent ``ocr_results`` row per (engine, image, variant),
-    and commits once at the end (commit-per-stage, mirroring 2.3). Per-engine and
+    timeline) and writes one independent ``ocr_results`` row per (engine, image, variant).
+    Each row is committed as it is written (see :func:`_run_and_persist`) so the WAL
+    write lock is never held across the slow per-row extraction — two pipeline workers
+    OCRing at once never block each other into "database is locked". Per-engine and
     per-image isolation means no single failure aborts the submission (AC5)."""
     sid = ctx.submission.id
     status.record_event(ctx.conn, sid, event_type="OCR_STARTED")
@@ -203,5 +220,5 @@ def ocr_stage(ctx: StageContext) -> None:
                     full_path=full_path,
                 )
 
-    ctx.conn.commit()  # durable before the timeline marker / finalize
+    ctx.conn.commit()  # no-op safety — each row was already committed in _run_and_persist
     status.record_event(ctx.conn, sid, event_type="OCR_COMPLETED")

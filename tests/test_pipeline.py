@@ -9,6 +9,8 @@ with zero native deps (the same instinct as 2.1's in-test stub adapters).
 from __future__ import annotations
 
 import sqlite3
+import threading
+import time
 from pathlib import Path
 
 import pytest
@@ -1018,3 +1020,71 @@ def test_pipeline_spirits_reaches_ready_with_checklist_and_engine_verdict(tmp_pa
     # fixed value.
     assert sub.engine_verdict == verdict.rollup([r["verdict"] for r in rows])
     assert sub.engine_verdict in {"PASS", "REVIEW", "FAIL"}
+
+
+# ── Concurrency: two workers must not deadlock the SQLite write lock ──────────
+
+
+class _SlowEngine:
+    """A fake OCR engine whose ``extract`` is slow but does no I/O — it stands in for
+    real OCR so the concurrency contention is exercised with zero native deps."""
+
+    def __init__(self, name: str) -> None:
+        self.name = name
+
+    def extract(self, _path: Path) -> OcrResult:
+        time.sleep(0.4)  # simulate slow OCR — longer than the shrunk busy_timeout below
+        return OcrResult(engine_name=self.name, status="OK", text="ok")
+
+
+def test_concurrent_workers_do_not_lock_the_db(tmp_path, monkeypatch):
+    """Regression (2-worker DB-lock bug): two workers OCRing different submissions at
+    once must not hit ``database is locked``. The OCR stage commits each row, so the
+    WAL write lock is never held across the slow per-row extraction; a single
+    end-of-stage commit held it for the whole loop and a second worker's write failed
+    past ``busy_timeout``.
+    """
+    from app.pipeline import ocr as ocr_mod
+
+    # Shrink busy_timeout so a lock held across the (simulated) slow extract fails fast
+    # and deterministically rather than after the full 5s — the held window is 0.4s.
+    monkeypatch.setattr("app.db.connection._BUSY_TIMEOUT_MS", 100)
+    # Two engines × the ORIGINAL image ⇒ two writes per submission, with a slow extract
+    # between them — exactly the interleave that used to hold the lock.
+    monkeypatch.setattr(
+        ocr_mod, "build_engines", lambda: [_SlowEngine("tesseract"), _SlowEngine("paddleocr")]
+    )
+    monkeypatch.setattr(run, "STAGES", [ocr_mod.ocr_stage])
+
+    db_path = _make_db(tmp_path)
+    with connect(db_path) as conn:
+        s1 = _insert_received(conn, ttb_id="26001000000001")
+        _insert_image(conn, s1)
+        s2 = _insert_received(conn, ttb_id="26001000000002")
+        _insert_image(conn, s2)
+
+    threads = [
+        threading.Thread(target=run.process_submission, args=(str(db_path), sid))
+        for sid in (s1, s2)
+    ]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    with connect(db_path) as conn:
+        s1_status = repo.get_status(conn, s1)
+        s2_status = repo.get_status(conn, s2)
+        locked = conn.execute(
+            "SELECT COUNT(*) FROM ocr_results WHERE error_text LIKE '%locked%'"
+        ).fetchone()[0]
+        total = conn.execute("SELECT COUNT(*) FROM ocr_results").fetchone()[0]
+        ok = conn.execute("SELECT COUNT(*) FROM ocr_results WHERE status = 'OK'").fetchone()[0]
+
+    assert s1_status == "READY_FOR_REVIEW"
+    assert s2_status == "READY_FOR_REVIEW"
+    # No write hit the lock, and every (engine × ORIGINAL × submission) row persisted —
+    # none lost to contention, none degraded to an ERROR row by "database is locked".
+    assert locked == 0, "OCR persist hit 'database is locked' under concurrency"
+    assert total == 4, f"expected 4 OCR rows (2 engines × 2 submissions), got {total}"
+    assert ok == 4

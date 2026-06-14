@@ -32,6 +32,7 @@ It returns images + a log only — there is deliberately no verdict/measure call
 from __future__ import annotations
 
 import logging
+import sqlite3
 import time
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -445,4 +446,12 @@ def preprocess_stage(ctx: StageContext) -> None:
             )
             variants[image.id] = {"original": image.filename, "enhanced": None, "binarized": None}
 
-    ctx.conn.commit()  # commit-per-stage: durable before OCR runs (mirrors status.py)
+        # Commit per image so the WAL write lock is not held across the NEXT image's
+        # slow OpenCV chain. A single end-of-stage commit would keep the lock for the
+        # whole loop, so a concurrent worker's write fails with "database is locked".
+        try:
+            ctx.conn.commit()
+        except sqlite3.Error:
+            logger.exception("Committing the preprocess row for label_image %s failed", image.id)
+
+    ctx.conn.commit()  # no-op safety — each image was already committed above
