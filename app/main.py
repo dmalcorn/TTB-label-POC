@@ -25,6 +25,7 @@ from app.db.seed import seed
 from app.pipeline.scheduler import shutdown_scheduler, start_scheduler
 from app.web.deps import gate_enabled, has_valid_access, is_exempt
 from app.web.routes_access import router as access_router
+from app.web.routes_benchmark import router as benchmark_router
 from app.web.routes_queue import router as queue_router
 from app.web.routes_review import router as review_router
 
@@ -134,6 +135,10 @@ def create_app() -> FastAPI:
     # redirects to. A pure pre-computed DB read (AR-5); no exemption, so the token
     # gate protects it too.
     app.include_router(review_router)
+    # Benchmark Report (Story 5.4) — GET /benchmark, the evaluator procurement study.
+    # A pure pre-computed DB read (AR-5) that CONSUMES the 5.2 scorer + 5.3 cost stats;
+    # carries no exemption, so the token gate protects it like every screen.
+    app.include_router(benchmark_router)
 
     @app.get("/healthz")
     def healthz() -> dict[str, str]:

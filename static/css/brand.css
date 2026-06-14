@@ -1640,3 +1640,360 @@ a {
   display: block;
   padding: 3px 0;
 }
+
+/* ============================================================================
+ * Benchmark Report (Story 5.4)
+ * The evaluator-facing procurement study. Reproduces mockups/benchmark-report.html
+ * on the shared app shell + real data; the mockup's inline hex is replaced by the
+ * brand/verdict tokens (spine wins). The verdict palette is referenced ONLY for the
+ * civic-green "best-in-group" highlight + the amber honesty note — it never marks a
+ * PASS/REVIEW/FAIL verdict on this surface (accuracy is a measurement, not a verdict).
+ * ==========================================================================*/
+
+/* Evaluator header — the standard shell header + a nav and an "Evaluator build" badge */
+.app-header--evaluator {
+  justify-content: space-between;
+}
+.app-header__brand {
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  color: var(--brand-primary-foreground);
+}
+.app-header__tag {
+  font-weight: 400;
+  color: #aebccd;
+  font-size: 15px;
+  margin-left: 10px;
+}
+.app-header__nav {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+.app-header__nav a,
+.app-header__navlink-btn {
+  color: #dbe2ea;
+  text-decoration: none;
+  font-size: 15px;
+  padding: 8px 14px;
+  border-radius: var(--brand-radius-sm);
+  background: transparent;
+  border: 0;
+  font-family: inherit;
+  cursor: pointer;
+}
+.app-header__nav a.is-active {
+  background: var(--brand-primary-dark);
+  color: var(--brand-primary-foreground);
+  font-weight: 700;
+}
+.app-header__navlink-btn:hover,
+.app-header__nav a:hover {
+  background: var(--brand-primary-dark);
+}
+.app-header__navlink-btn:focus-visible,
+.app-header__nav a:focus-visible {
+  outline: 4px solid var(--brand-primary-light);
+  outline-offset: 2px;
+}
+.app-header__evaluator-badge {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 700;
+  background: #1f4673;
+  color: #cfe0f2;
+  padding: 4px 10px;
+  border-radius: var(--brand-radius-sm);
+  margin-left: 8px;
+}
+
+.benchmark {
+  padding: 32px 40px 48px;
+  max-width: 1200px;
+}
+.benchmark__title {
+  font-size: 30px;
+  font-weight: 700;
+  color: var(--brand-ink);
+  margin: 0 0 6px;
+}
+.benchmark__subtitle {
+  font-size: 17px;
+  color: var(--brand-ink-muted);
+  margin: 0 0 4px;
+}
+.benchmark__intro {
+  font-size: 17px;
+  color: var(--brand-ink);
+  max-width: 920px;
+  line-height: 1.55;
+  margin: 14px 0 0;
+}
+
+/* Recommendations callout (civic green) */
+.benchmark__reco {
+  background: #eaf1ee;
+  border: 1px solid #cfe0d8;
+  border-left: 6px solid var(--brand-secondary);
+  padding: 20px 24px;
+  margin: 28px 0 0;
+}
+.benchmark__reco h2 {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--brand-secondary);
+  margin: 0 0 10px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.benchmark__reco-ic {
+  width: 24px;
+  height: 24px;
+  border-radius: var(--brand-radius-pill);
+  background: var(--brand-secondary);
+  color: var(--brand-secondary-foreground);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 15px;
+  font-weight: 700;
+  flex: 0 0 auto;
+}
+.benchmark__reco ul {
+  margin: 0;
+  padding-left: 22px;
+}
+.benchmark__reco li {
+  font-size: 16px;
+  color: var(--brand-ink);
+  margin: 6px 0;
+  line-height: 1.5;
+}
+.benchmark__reco li b {
+  color: var(--brand-primary);
+}
+
+/* Section heading */
+.benchmark__sec-h {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--brand-ink);
+  margin: 36px 0 6px;
+}
+.benchmark__sec-sub {
+  font-size: 15px;
+  color: var(--brand-ink-muted);
+  margin: 0 0 16px;
+}
+
+/* Comparison table */
+.benchmark__table-wrap {
+  background: var(--brand-surface);
+  border: 1px solid var(--brand-border);
+  overflow: hidden;
+}
+.benchmark__table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 16px;
+}
+.benchmark__table caption {
+  text-align: left;
+  padding: 14px 18px;
+  font-size: 14px;
+  color: var(--brand-ink-muted);
+  border-bottom: 1px solid var(--brand-border);
+}
+.benchmark__table thead th {
+  background: #f4f6f8;
+  color: var(--brand-primary);
+  text-align: left;
+  font-weight: 700;
+  font-size: 15px;
+  padding: 14px 16px;
+  border-bottom: 2px solid var(--brand-primary);
+  vertical-align: bottom;
+}
+.benchmark__table thead th.num {
+  text-align: right;
+}
+.benchmark__col-unit {
+  color: var(--brand-ink-muted);
+  font-weight: 400;
+  font-size: 12px;
+  display: block;
+  margin-top: 2px;
+}
+.benchmark__group-row td {
+  background: var(--brand-primary);
+  color: var(--brand-primary-foreground);
+  font-weight: 700;
+  font-size: 13px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 8px 16px;
+}
+.benchmark__table tbody td {
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--brand-border);
+  vertical-align: middle;
+}
+.benchmark__model {
+  font-weight: 700;
+  color: var(--brand-ink);
+  font-size: 16px;
+}
+.benchmark__model small {
+  display: block;
+  font-weight: 400;
+  color: var(--brand-ink-muted);
+  font-size: 13px;
+  margin-top: 2px;
+}
+.benchmark__table td.num {
+  text-align: right;
+  font-family: var(--brand-font-mono);
+  font-size: 16px;
+}
+/* Best-in-group highlight — the civic-green/pass tint, NOT a verdict chip */
+.benchmark__table tr.best {
+  background: var(--verdict-pass-bg);
+}
+
+/* CPU flag = icon + word + color (never color alone) */
+.benchmark__flag {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 14px;
+  font-weight: 700;
+}
+.benchmark__flag--yes {
+  color: var(--verdict-pass);
+}
+.benchmark__flag--no {
+  color: var(--verdict-review);
+}
+/* Honest "unknown" CPU mode (no ran_on_cpu captured) — muted, not an alarm color */
+.benchmark__flag--unknown {
+  color: var(--brand-ink-muted);
+}
+.benchmark__flag-ic {
+  font-size: 14px;
+}
+
+/* NFR-5 pricing-basis provenance under a priced figure (AC6) — muted, mono sub-line */
+.benchmark__cost-basis {
+  display: block;
+  font-family: var(--brand-font-sans);
+  font-weight: 400;
+  color: var(--brand-ink-muted);
+  font-size: 12px;
+  margin-top: 2px;
+}
+
+.benchmark__pill-rec {
+  display: inline-block;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: var(--brand-radius-pill);
+  margin-left: 6px;
+  vertical-align: middle;
+  background: #eaf1ee;
+  color: var(--brand-secondary);
+  border: 1px solid var(--brand-secondary);
+}
+
+/* Legend */
+.benchmark__legend {
+  display: flex;
+  gap: 24px;
+  flex-wrap: wrap;
+  margin: 14px 2px 0;
+  font-size: 14px;
+  color: var(--brand-ink-muted);
+}
+.benchmark__legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.benchmark__sw {
+  width: 14px;
+  height: 14px;
+  display: inline-block;
+  border: 1px solid var(--brand-border);
+}
+.benchmark__sw--best {
+  background: var(--verdict-pass-bg);
+}
+
+/* Empty state (honest — no zeros) */
+.benchmark__empty {
+  background: var(--brand-surface);
+  border: 1px solid var(--brand-border);
+  padding: 32px 28px;
+  text-align: center;
+}
+.benchmark__empty-h {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--brand-ink);
+  margin: 0 0 6px;
+}
+.benchmark__empty-sub {
+  font-size: 15px;
+  color: var(--brand-ink-muted);
+  margin: 0;
+  max-width: 640px;
+  margin-inline: auto;
+  line-height: 1.55;
+}
+
+/* Honesty note (amber) */
+.benchmark__honesty {
+  background: var(--verdict-review-bg);
+  border: 1px solid #e6d79a;
+  border-left: 6px solid var(--verdict-review);
+  padding: 16px 20px;
+  margin: 18px 0 0;
+  font-size: 15px;
+  color: var(--brand-ink);
+  line-height: 1.55;
+}
+.benchmark__honesty-h {
+  font-weight: 700;
+  color: #8a6608;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+  font-size: 15px;
+}
+.benchmark__honesty-ic {
+  font-size: 15px;
+}
+.benchmark__honesty ul {
+  margin: 8px 0 0;
+  padding-left: 20px;
+}
+.benchmark__honesty li {
+  margin: 4px 0;
+}
+
+.benchmark__footer-meta {
+  margin-top: 30px;
+  padding-top: 16px;
+  border-top: 1px solid var(--brand-border);
+  font-size: 14px;
+  color: var(--brand-ink-muted);
+  display: flex;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-family: var(--brand-font-mono);
+}

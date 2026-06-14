@@ -1,0 +1,152 @@
+{% extends "base.html" %}
+{# Benchmark Report (Story 5.4) — the evaluator-facing procurement study.
+
+   Rebuilt on the shared app shell + REAL data from the typed CorpusScore (5.2) and
+   CostReport (5.3); never the mockup's placeholder figures. UI-fidelity standard:
+   the mockup's layout/composition/USWDS structure/exact copy are reproduced, but
+   (1) tokens resolve to brand.css / DESIGN.md (NOT the mockup's inline hex),
+   (2) the verdict palette is kept OFF this surface (accuracy is a number, not a
+   PASS/REVIEW/FAIL verdict — no chip--* here), and (3) the mockup-only scaffolding
+   (the .device browser frame, the URL bar, and the placeholder 96.4 / "240 sample
+   labels" / "seed-2026-06-12" numbers) is excluded. Same-origin /static assets only
+   (NFR-2); CSS lives in brand.css, never an inline <style>. #}
+
+{% block title %}TTB Label Review — Benchmark Report{% endblock %}
+
+{# The mockup's evaluator header adds a nav + an "Evaluator build" badge that the
+   shared base header does not carry. Override the header block for THIS screen only
+   (other screens keep the standard shell), still including the Help panel so the
+   global help.js toggle works. #}
+{% block header %}
+<header class="app-header app-header--evaluator">
+  <span class="app-header__brand">TTB Label Review<span class="app-header__tag">Procurement Benchmark</span></span>
+  <nav class="app-header__nav" aria-label="Primary">
+    <a href="/queue">Queue</a>
+    <a href="/benchmark" class="is-active" aria-current="page">Benchmark Report</a>
+    <button type="button"
+            class="app-header__navlink-btn"
+            aria-label="Help"
+            aria-haspopup="dialog"
+            aria-controls="help-panel"
+            aria-expanded="false"
+            data-help-open>Help</button>
+    <span class="app-header__evaluator-badge">Evaluator build</span>
+  </nav>
+</header>
+{% include "_help_panel.html" %}
+{% endblock %}
+
+{% block content %}
+<div class="benchmark">
+  <h1 class="benchmark__title">OCR &amp; LLM Benchmark Report</h1>
+  <p class="benchmark__subtitle">Evaluator view · read-only</p>
+  <p class="benchmark__intro">
+    This is a procurement study, not a live control. It lays the candidate OCR engines and language
+    models side by side on the four things that decide the buy: field-level accuracy, latency, cost
+    per 1,000 verifications, and whether each can run CPU-only inside the firewall. Nothing here
+    records a decision — it's here so you can compare the options on the same footing.
+  </p>
+
+  {# Recommendations callout (civic green) — grounded guidance from the benchmarking plan. #}
+  <section class="benchmark__reco" aria-label="Recommendations">
+    <h2><span class="benchmark__reco-ic" aria-hidden="true">✓</span>Recommendations</h2>
+    <ul>
+      <li><b>OCR baseline: PaddleOCR (PP-OCRv5).</b> Highest field accuracy of the CPU-only engines and
+        fast enough for the ~5s readiness budget; Tesseract stays as a zero-dependency fallback.</li>
+      <li><b>Language model for the judgment checks: Claude.</b> Best accuracy on the soft/normalized
+        comparisons (capitalization, wording) at acceptable latency; the screen still works OCR-only if
+        the model is config-off or unreachable.</li>
+      <li><b>Keep the deterministic checks deterministic.</b> The Government Warning (27 CFR §16.21) is an
+        exact text compare — it does not depend on a model and stays out of the LLM cost line entirely.</li>
+    </ul>
+  </section>
+
+  <h2 class="benchmark__sec-h">Side-by-side comparison</h2>
+  <p class="benchmark__sec-sub">OCR engines and language models on the same four measures.</p>
+
+  {% if has_data %}
+  <div class="benchmark__table-wrap">
+    <table class="benchmark__table">
+      <caption>Field-accuracy, latency, cost, and CPU-only flag across candidate engines and models.</caption>
+      <thead>
+        <tr>
+          <th scope="col">Engine / Model</th>
+          <th scope="col" class="num">Field accuracy <span class="benchmark__col-unit">% correct</span></th>
+          <th scope="col" class="num">Latency <span class="benchmark__col-unit">ms / item</span></th>
+          <th scope="col" class="num">Cost / 1,000 <span class="benchmark__col-unit">USD</span></th>
+          <th scope="col">CPU-only</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr class="benchmark__group-row"><td colspan="5">OCR engines</td></tr>
+        {% for row in engine_rows %}
+        <tr {% if row.is_best %}class="best"{% endif %}>
+          <td class="benchmark__model">{{ row.name }}<small>{{ row.subline }}{% if row.is_best %}<span class="benchmark__pill-rec">Recommended</span>{% endif %}</small></td>
+          <td class="num">{{ row.accuracy }}</td>
+          <td class="num">{{ row.latency }}</td>
+          <td class="num">{{ row.cost }}{% if row.cost_basis %}<small class="benchmark__cost-basis">{{ row.cost_basis }}</small>{% endif %}</td>
+          {# CPU-only flag = the captured ran_on_cpu, icon+word+color (never fabricated):
+             True ⇒ ✓ Yes · False ⇒ ✗ No — GPU · None ⇒ ? Unknown. #}
+          <td>
+            {% if row.cpu_only is none %}
+            <span class="benchmark__flag benchmark__flag--unknown"><span class="benchmark__flag-ic" aria-hidden="true">?</span>Unknown</span>
+            {% elif row.cpu_only %}
+            <span class="benchmark__flag benchmark__flag--yes"><span class="benchmark__flag-ic" aria-hidden="true">✓</span>Yes</span>
+            {% else %}
+            <span class="benchmark__flag benchmark__flag--no"><span class="benchmark__flag-ic" aria-hidden="true">✗</span>No — GPU</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+
+        <tr class="benchmark__group-row"><td colspan="5">Language models (judgment checks)</td></tr>
+        {% for row in model_rows %}
+        <tr {% if row.is_best %}class="best"{% endif %}>
+          <td class="benchmark__model">{{ row.name }}<small>{{ row.subline }}{% if row.is_best %}<span class="benchmark__pill-rec">Recommended</span>{% endif %}</small></td>
+          <td class="num">{{ row.accuracy }}</td>
+          <td class="num">{{ row.latency }}</td>
+          <td class="num">{{ row.cost }}{% if row.cost_basis %}<small class="benchmark__cost-basis">{{ row.cost_basis }}</small>{% endif %}</td>
+          <td><span class="benchmark__flag benchmark__flag--no"><span class="benchmark__flag-ic" aria-hidden="true">⚠</span>No — API</span></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <div class="benchmark__legend">
+    <span><span class="benchmark__sw benchmark__sw--best"></span>Recommended in its group (best accuracy on the same measure)</span>
+    <span><span class="benchmark__flag benchmark__flag--yes"><span class="benchmark__flag-ic" aria-hidden="true">✓</span>Yes</span> = runs CPU-only inside the firewall</span>
+    <span><span class="benchmark__flag benchmark__flag--no"><span class="benchmark__flag-ic" aria-hidden="true">⚠</span>No — API</span> = needs an outbound model call</span>
+  </div>
+  {% else %}
+  {# Honest empty state (AC4 / NFR-5): before any run, no table of zeros. #}
+  <div class="benchmark__empty" role="status">
+    <p class="benchmark__empty-h">No benchmark runs yet</p>
+    <p class="benchmark__empty-sub">Figures appear after the harness runs over the seeded corpus. Until
+      then this study shows no numbers rather than a table of zeros that would read as real measurements.</p>
+  </div>
+  {% endif %}
+
+  {# Honesty note (amber) — the caveats stated plainly, not buried (NFR-5). #}
+  <div class="benchmark__honesty">
+    <div class="benchmark__honesty-h"><span class="benchmark__honesty-ic" aria-hidden="true">⚠</span>How to read these numbers</div>
+    These figures are <b>indicative, not audited.</b> Honesty is a feature here, so the caveats are stated plainly rather than buried:
+    <ul>
+      <li>Accuracy and latency come from a <b>seeded fixture set</b> of sample labels, not the full
+        production corpus — treat them as illustrative ballparks for comparison, not guarantees.</li>
+      <li>For the language models, <b>published API prices proxy internal model cost</b> — we don't host
+        these models, so the list price is the closest honest proxy we have; an unpriced model shows
+        "not priced" rather than a fabricated $0.00.</li>
+      <li>The OCR engines are self-hosted and vendored, so their per-1,000 cost is compute only and shown
+        as <b>$0.00</b> in this study (no per-call charge).</li>
+      <li>Latency is per item on CPU-only reference hardware; the ~5s readiness budget is met by
+        pre-computing in the background, so model latency does not block the specialist.</li>
+    </ul>
+  </div>
+
+  <div class="benchmark__footer-meta">
+    <span>fixture set: {{ fixture_count }} scored submission{{ '' if fixture_count == 1 else 's' }}</span>
+    <span>offline · no outbound calls</span>
+  </div>
+</div>
+{% endblock %}
