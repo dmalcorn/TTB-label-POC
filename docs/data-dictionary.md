@@ -324,8 +324,13 @@ DETERMINISTIC **format** checks (`abv_format`/`standards_of_fill`/
 **HYBRID** `class_type_designation` check is the engine's sole model-assisted row
 (deterministic conflict→`FAIL` / recognized→`PASS` first; an ambiguous designation
 escalates to an image-only VLM **capped at `REVIEW`** — its catalog + conflict groups
-live as data in `app/engine/rulesets/class_type.py`); §4 conditional/flag-only checks
-arrive with Story 3.7, and wine/malt keys with Story 3.8.
+live as data in `app/engine/rulesets/class_type.py`); the Story 3.7 **flag-only**
+(`positional`) `same_field_of_vision` check is now realized — it always returns
+`REVIEW` with a deterministic per-element presence report for the trio (brand /
+class-type / alcohol content) and defers the co-location to the specialist (its trio
+field set + §5.63 citation live as data in `app/engine/rulesets/flag_only.py`); the §4
+CONDITIONAL flag-only checks (sulfites/country-of-origin/coloring) and wine/malt keys
+arrive with Story 3.8, reusing this `positional` strategy with their own data.
 
 | `check_key` | Common Name | `check_type` | CFR Citation (ref) |
 |---|---|---|---|
