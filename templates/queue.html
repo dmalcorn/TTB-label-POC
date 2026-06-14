@@ -9,50 +9,80 @@
   static/css/brand.css :root vars, not the mockup's inline hex. Mockup-only
   scaffolding (device frame, URL bar, state-label captions, the placeholder agent
   name, fabricated demo stats) is excluded. State driven by `waiting` (the live
-  READY_FOR_REVIEW count). The single primary action — Next Submission — is a real
-  POST form so Enter fires it natively; it is auto-focused but never auto-acts.
+  READY_FOR_REVIEW count, type-scoped when a filter is set). The single primary
+  action — Next Submission — is a real POST form so Enter fires it natively; it is
+  auto-focused but never auto-acts.
 
-  Scope (Story 4.1): the beverage-type segmented filter is rendered for fidelity
-  but is an inert placeholder — the by-type serve + empty-type copy are Story 4.2.
-  The stats strip shows ONLY the honestly-computable "N waiting" — the mockup's
-  "reviewed by you today" / "avg load" are fabricated (no per-user identity;
-  processing_ms unpopulated pre-pipeline) and intentionally omitted.
+  Story 4.2 makes the beverage-type segmented filter LIVE without JavaScript: each
+  segment is a `type="submit"` button carrying `name="type"` INSIDE the `/next` POST
+  form, so clicking a type submits Next with that type. The primary Next button
+  submits with the currently-selected type (a hidden `type` field), and the
+  selection is sticky across the GET ↔ POST round-trip via `active_type`/`active_label`.
+  The UI labels map to the stored enums in the route layer (Wine→WINE,
+  Spirits→DISTILLED_SPIRITS, Beer→MALT_BEVERAGE, Any→no filter). The stats strip
+  shows ONLY the honestly-computable (type-scoped) "N waiting" — the mockup's
+  "reviewed by you today" / "avg load" are fabricated and intentionally omitted.
 #}
 <div class="queue">
   {% if waiting > 0 %}
   <p class="queue__eyebrow">Ready when you are.</p>
   <h1 class="queue__title">Pull the next label for review.</h1>
+  {% else %}
+  {# State-2 (empty). Mockup fidelity: the H1 stays the generic calm line in BOTH the
+     Any-empty and typed-empty cases — the type-specific sentence belongs ONLY to the
+     `.empty-note` below (mockups/queue.html keeps the heading generic and names the
+     type in the note). This avoids saying "The wine queue is empty." twice. #}
+  <p class="queue__eyebrow">All caught up.</p>
+  <h1 class="queue__title">No submissions waiting right now.</h1>
+  {% endif %}
 
+  {# The single Next Submission POST form. The segmented filter lives INSIDE it so
+     the primary button and the type submits share one action — JS-free. The active
+     `type` rides along on the primary submit via a hidden field so the selection is
+     preserved when Next is fired with the keyboard / Enter. #}
   <form method="post" action="/next">
+    <input type="hidden" name="type" value="{{ active_label|lower if active_type is not none else 'any' }}">
+    {% if waiting > 0 %}
     <button type="submit" class="btn-next" autofocus aria-keyshortcuts="N">
       <span class="ico" aria-hidden="true">&#9654;</span>
       Next Submission
     </button>
+    {% else %}
+    <button type="button" class="btn-next is-disabled" disabled aria-disabled="true">
+      <span class="ico" aria-hidden="true">&#9654;</span>
+      Next Submission
+    </button>
+    {% endif %}
+
+    {# Beverage-type filter (segmented control). Each segment submits `/next` with
+       its `type` (Story 4.2, JS-free). Exactly one `aria-pressed="true"` reflects
+       the active selection; Any is pressed when no filter is set. The hidden field
+       above carries the active type for the PRIMARY submit; a type button overrides
+       it with its own name/value pair when clicked. #}
+    <div class="filter" role="group" aria-label="Pick a type (optional)">
+      <span class="filter__label">Pick a type (optional):</span>
+      <div class="segmented">
+        <button type="submit" name="type" value="any" class="segmented__item"
+          aria-pressed="{{ 'true' if active_type is none else 'false' }}">Any</button>
+        <button type="submit" name="type" value="wine" class="segmented__item"
+          aria-pressed="{{ 'true' if active_label == 'Wine' else 'false' }}">Wine</button>
+        <button type="submit" name="type" value="spirits" class="segmented__item"
+          aria-pressed="{{ 'true' if active_label == 'Spirits' else 'false' }}">Spirits</button>
+        <button type="submit" name="type" value="beer" class="segmented__item"
+          aria-pressed="{{ 'true' if active_label == 'Beer' else 'false' }}">Beer</button>
+      </div>
+    </div>
   </form>
+
+  {% if waiting == 0 %}
+  {% if active_type is not none %}
+  {# Per-type empty-note: the type word lower-cased into the fixed template. #}
+  <p class="empty-note">The {{ active_label|lower }} queue is empty. Try Any, or check back later.</p>
   {% else %}
-  <p class="queue__eyebrow">All caught up.</p>
-  <h1 class="queue__title">No submissions waiting right now.</h1>
-
-  <button type="button" class="btn-next is-disabled" disabled aria-disabled="true">
-    <span class="ico" aria-hidden="true">&#9654;</span>
-    Next Submission
-  </button>
-
   <p class="helper">Nothing in the queue at the moment. New labels appear here as they
     finish processing &mdash; check back shortly.</p>
   {% endif %}
-
-  {# Optional beverage-type filter (segmented control). Inert in 4.1 — the working
-     by-type serve is Story 4.2. #}
-  <div class="filter" role="group" aria-label="Pick a type (optional)">
-    <span class="filter__label">Pick a type (optional):</span>
-    <div class="segmented">
-      <button type="button" class="segmented__item" aria-pressed="true">Any</button>
-      <button type="button" class="segmented__item" aria-pressed="false">Wine</button>
-      <button type="button" class="segmented__item" aria-pressed="false">Spirits</button>
-      <button type="button" class="segmented__item" aria-pressed="false">Beer</button>
-    </div>
-  </div>
+  {% endif %}
 
   {# Phase-2 deferred placeholder — visible deferral, clearly NOT a live control. #}
   <div class="deferred" aria-hidden="true">
@@ -61,7 +91,7 @@
       have calibration data. Reserved here; not yet active.</p>
   </div>
 
-  {# Informational stats strip (civic green, read-only). Live count only. #}
+  {# Informational stats strip (civic green, read-only). Live (type-scoped) count only. #}
   <p class="stats"><strong>{{ waiting }} waiting</strong></p>
 </div>
 {% endblock %}

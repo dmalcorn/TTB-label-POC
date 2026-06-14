@@ -350,6 +350,331 @@ def test_queue_reachable_with_valid_cookie(monkeypatch, tmp_path) -> None:
     assert client.get("/queue").status_code == 200
 
 
+# ══════════════════════════════════════════════════════════════════════════════
+# Story 4.2 — Next Submission by beverage type
+# ══════════════════════════════════════════════════════════════════════════════
+#
+# Builds on 4.1: the segmented filter (Any · Wine · Spirits · Beer) becomes live.
+# The UI labels map to the stored enums (Wine→WINE, Spirits→DISTILLED_SPIRITS,
+# Beer→MALT_BEVERAGE, Any→no filter). `GET /queue?type=` and `POST /next` (form/query
+# `type`) scope the count/serve to that type; an empty *typed* queue renders the calm
+# per-type empty-note ("The wine queue is empty. Try Any, or check back later.") at
+# 200 with the filter staying set — never a redirect, never an error.
+
+
+# ── AC3: the label↔enum resolver (pure unit) ─────────────────────────────────
+
+
+def test_resolve_beverage_type_maps_labels_any_case() -> None:
+    from app.web.routes_queue import resolve_beverage_type
+
+    assert resolve_beverage_type("wine") == "WINE"
+    assert resolve_beverage_type("Wine") == "WINE"
+    assert resolve_beverage_type("  WINE  ") == "WINE"
+    assert resolve_beverage_type("spirits") == "DISTILLED_SPIRITS"
+    assert resolve_beverage_type("Spirits") == "DISTILLED_SPIRITS"
+    assert resolve_beverage_type("beer") == "MALT_BEVERAGE"
+    assert resolve_beverage_type("Beer") == "MALT_BEVERAGE"
+
+
+def test_resolve_beverage_type_any_blank_none_garbage_is_none() -> None:
+    from app.web.routes_queue import resolve_beverage_type
+
+    assert resolve_beverage_type("any") is None
+    assert resolve_beverage_type("Any") is None
+    assert resolve_beverage_type("") is None
+    assert resolve_beverage_type("   ") is None
+    assert resolve_beverage_type(None) is None
+    # Unrecognized values degrade to Any (no filter) — never raise, never a 4xx.
+    assert resolve_beverage_type("WINE_COOLER") is None
+    assert resolve_beverage_type("'; DROP TABLE submissions;--") is None
+
+
+# ── AC1: POST /next serves the oldest READY of the selected type ──────────────
+
+
+def test_next_type_wine_serves_oldest_wine_not_older_spirits(monkeypatch, tmp_path) -> None:
+    client = _client(monkeypatch, tmp_path)
+    with connect(_db_path(tmp_path)) as conn:
+        # An OLDER spirits row must NOT be chosen when the wine filter is set.
+        _ready(
+            conn,
+            ttb="26009000000200",
+            submitted_at="2026-06-01T00:00:00Z",
+            beverage_type="DISTILLED_SPIRITS",
+        )
+        wine = _ready(
+            conn,
+            ttb="26009000000201",
+            submitted_at="2026-06-05T00:00:00Z",
+            beverage_type="WINE",
+        )
+    resp = client.post("/next?type=wine", follow_redirects=False)
+    assert resp.status_code == 303
+    assert resp.headers["location"] == f"/review/{wine}"
+
+
+def test_next_type_spirits_serves_spirits(monkeypatch, tmp_path) -> None:
+    client = _client(monkeypatch, tmp_path)
+    with connect(_db_path(tmp_path)) as conn:
+        spirits = _ready(
+            conn,
+            ttb="26009000000210",
+            submitted_at="2026-06-02T00:00:00Z",
+            beverage_type="DISTILLED_SPIRITS",
+        )
+        _ready(
+            conn, ttb="26009000000211", submitted_at="2026-06-01T00:00:00Z", beverage_type="WINE"
+        )
+    resp = client.post("/next?type=spirits", follow_redirects=False)
+    assert resp.status_code == 303
+    assert resp.headers["location"] == f"/review/{spirits}"
+
+
+def test_next_type_any_serves_global_oldest(monkeypatch, tmp_path) -> None:
+    """Any (or no type) keeps the unchanged 4.1 global oldest-first behavior."""
+    client = _client(monkeypatch, tmp_path)
+    with connect(_db_path(tmp_path)) as conn:
+        oldest = _ready(
+            conn, ttb="26009000000220", submitted_at="2026-06-01T00:00:00Z", beverage_type="WINE"
+        )
+        _ready(
+            conn,
+            ttb="26009000000221",
+            submitted_at="2026-06-02T00:00:00Z",
+            beverage_type="DISTILLED_SPIRITS",
+        )
+    resp = client.post("/next?type=any", follow_redirects=False)
+    assert resp.status_code == 303
+    assert resp.headers["location"] == f"/review/{oldest}"
+
+
+def test_next_type_via_form_field(monkeypatch, tmp_path) -> None:
+    """The segmented filter submits `type` as a FORM field (the JS-free control)."""
+    client = _client(monkeypatch, tmp_path)
+    with connect(_db_path(tmp_path)) as conn:
+        _ready(
+            conn,
+            ttb="26009000000230",
+            submitted_at="2026-06-01T00:00:00Z",
+            beverage_type="DISTILLED_SPIRITS",
+        )
+        wine = _ready(
+            conn, ttb="26009000000231", submitted_at="2026-06-05T00:00:00Z", beverage_type="WINE"
+        )
+    resp = client.post("/next", data={"type": "wine"}, follow_redirects=False)
+    assert resp.status_code == 303
+    assert resp.headers["location"] == f"/review/{wine}"
+
+
+# ── AC1/AC4: the bookkeeping write under a type filter ────────────────────────
+
+
+def test_next_type_transitions_only_the_served_row(monkeypatch, tmp_path) -> None:
+    client = _client(monkeypatch, tmp_path)
+    with connect(_db_path(tmp_path)) as conn:
+        spirits = _ready(
+            conn,
+            ttb="26009000000240",
+            submitted_at="2026-06-01T00:00:00Z",
+            beverage_type="DISTILLED_SPIRITS",
+        )
+        wine = _ready(
+            conn, ttb="26009000000241", submitted_at="2026-06-05T00:00:00Z", beverage_type="WINE"
+        )
+    client.post("/next?type=wine", follow_redirects=False)
+    with connect(_db_path(tmp_path)) as conn:
+        assert repo.get_status(conn, wine) == "IN_REVIEW"
+        # The other-type row is untouched.
+        assert repo.get_status(conn, spirits) == "READY_FOR_REVIEW"
+        row = conn.execute(
+            "SELECT to_status FROM audit_events WHERE submission_id = ? AND event_type = 'OPENED'",
+            (wine,),
+        ).fetchone()
+    assert row is not None
+    assert row["to_status"] == "IN_REVIEW"
+
+
+# ── AC2: an empty typed queue is a calm per-type State-2 (200, filter set) ─────
+
+
+def test_next_empty_type_queue_renders_per_type_note(monkeypatch, tmp_path) -> None:
+    client = _client(monkeypatch, tmp_path)
+    with connect(_db_path(tmp_path)) as conn:
+        # Ready rows of OTHER types only ⇒ the wine queue is empty.
+        _ready(
+            conn,
+            ttb="26009000000250",
+            submitted_at="2026-06-01T00:00:00Z",
+            beverage_type="DISTILLED_SPIRITS",
+        )
+    resp = client.post("/next?type=wine", follow_redirects=False)
+    assert resp.status_code == 200
+    body = resp.text
+    assert "The wine queue is empty. Try Any, or check back later." in body
+    assert 'aria-disabled="true"' in body
+    # The filter stays set on the empty render.
+    assert 'aria-pressed="true"' in body
+    assert ">Wine<" in body
+
+
+def test_next_empty_type_heading_is_generic_note_only_says_type(monkeypatch, tmp_path) -> None:
+    """CR fix: the typed-empty H1 stays the generic mockup line; the type-specific
+    sentence lives ONLY in the .empty-note (mockup fidelity, no duplicated phrase)."""
+    client = _client(monkeypatch, tmp_path)
+    with connect(_db_path(tmp_path)) as conn:
+        _ready(
+            conn,
+            ttb="26009000000255",
+            submitted_at="2026-06-01T00:00:00Z",
+            beverage_type="DISTILLED_SPIRITS",
+        )
+    body = client.post("/next?type=wine", follow_redirects=False).text
+    # The H1 is the generic calm line, NOT "The wine queue is empty." (mockup parity).
+    assert '<h1 class="queue__title">No submissions waiting right now.</h1>' in body
+    # The "The wine queue is empty." phrase appears exactly once — in the note only.
+    assert body.count("The wine queue is empty.") == 1
+
+
+def test_next_empty_any_keeps_4_1_copy_no_per_type_note(monkeypatch, tmp_path) -> None:
+    """Any-selected empty keeps the unchanged 4.1 State-2 copy and shows NO note."""
+    client = _client(monkeypatch, tmp_path)
+    # Only RECEIVED seed rows ⇒ nothing ready.
+    resp = client.post("/next", follow_redirects=False)
+    assert resp.status_code == 200
+    body = resp.text
+    assert "No submissions waiting right now." in body
+    assert "queue is empty. Try Any" not in body
+
+
+# ── AC3: sticky GET render + per-type count ───────────────────────────────────
+
+
+def test_queue_get_type_wine_count_and_pressed(monkeypatch, tmp_path) -> None:
+    client = _client(monkeypatch, tmp_path)
+    with connect(_db_path(tmp_path)) as conn:
+        _ready(
+            conn, ttb="26009000000260", submitted_at="2026-06-02T00:00:00Z", beverage_type="WINE"
+        )
+        _ready(
+            conn, ttb="26009000000261", submitted_at="2026-06-03T00:00:00Z", beverage_type="WINE"
+        )
+        _ready(
+            conn,
+            ttb="26009000000262",
+            submitted_at="2026-06-04T00:00:00Z",
+            beverage_type="DISTILLED_SPIRITS",
+        )
+    body = client.get("/queue?type=wine").text
+    assert "2 waiting" in body  # type-scoped count, not the global 3
+    # Exactly one pressed segment, and it is Wine.
+    assert body.count('aria-pressed="true"') == 1
+    assert ">Wine</button>" in body
+
+
+def test_queue_get_garbage_and_any_behave_as_any(monkeypatch, tmp_path) -> None:
+    client = _client(monkeypatch, tmp_path)
+    with connect(_db_path(tmp_path)) as conn:
+        _ready(
+            conn, ttb="26009000000270", submitted_at="2026-06-02T00:00:00Z", beverage_type="WINE"
+        )
+        _ready(
+            conn,
+            ttb="26009000000271",
+            submitted_at="2026-06-03T00:00:00Z",
+            beverage_type="DISTILLED_SPIRITS",
+        )
+    for url in ("/queue?type=garbage", "/queue?type=any", "/queue"):
+        body = client.get(url).text
+        assert "2 waiting" in body  # global count
+        assert body.count('aria-pressed="true"') == 1
+        assert ">Any</button>" in body
+
+
+# ── AC3: filter fidelity — submit buttons carrying name="type" ────────────────
+
+
+def test_queue_filter_buttons_are_typed_submits(monkeypatch, tmp_path) -> None:
+    client = _client(monkeypatch, tmp_path)
+    with connect(_db_path(tmp_path)) as conn:
+        _ready(
+            conn, ttb="26009000000280", submitted_at="2026-06-02T00:00:00Z", beverage_type="WINE"
+        )
+    body = client.get("/queue").text
+    # The segmented control submits `type` (JS-free server-rendered submits).
+    assert 'name="type"' in body
+    assert 'value="wine"' in body
+    assert 'value="spirits"' in body
+    assert 'value="beer"' in body
+    assert 'value="any"' in body
+    # Still no inline styles / CDN — tokens via the linked brand stylesheet.
+    assert "<style" not in body
+    assert "/static/css/brand.css" in body
+
+
+# ── AC4: the lost-race re-select stays within the type filter ─────────────────
+
+
+def test_next_type_lost_race_serves_next_wine_not_500(monkeypatch, tmp_path) -> None:
+    client = _client(monkeypatch, tmp_path)
+    with connect(_db_path(tmp_path)) as conn:
+        taken = _ready(
+            conn, ttb="26009000000290", submitted_at="2026-06-01T00:00:00Z", beverage_type="WINE"
+        )
+        nxt = _ready(
+            conn, ttb="26009000000291", submitted_at="2026-06-02T00:00:00Z", beverage_type="WINE"
+        )
+        # A spirits row is older still — it must NOT be served under the wine filter.
+        _ready(
+            conn,
+            ttb="26009000000292",
+            submitted_at="2026-05-01T00:00:00Z",
+            beverage_type="DISTILLED_SPIRITS",
+        )
+        status.advance(
+            conn, taken, to_status="IN_REVIEW", event_type="OPENED", actor="Label Specialist"
+        )
+    resp = client.post("/next?type=wine", follow_redirects=False)
+    assert resp.status_code == 303
+    assert resp.headers["location"] == f"/review/{nxt}"
+
+
+def test_next_type_all_wine_raced_away_renders_per_type_state2(monkeypatch, tmp_path) -> None:
+    client = _client(monkeypatch, tmp_path)
+    with connect(_db_path(tmp_path)) as conn:
+        only_wine = _ready(
+            conn, ttb="26009000000300", submitted_at="2026-06-01T00:00:00Z", beverage_type="WINE"
+        )
+        # A servable spirits row exists, but the wine filter must drain to empty.
+        _ready(
+            conn,
+            ttb="26009000000301",
+            submitted_at="2026-05-01T00:00:00Z",
+            beverage_type="DISTILLED_SPIRITS",
+        )
+        status.advance(
+            conn, only_wine, to_status="IN_REVIEW", event_type="OPENED", actor="Label Specialist"
+        )
+    resp = client.post("/next?type=wine", follow_redirects=False)
+    assert resp.status_code == 200
+    body = resp.text
+    assert "The wine queue is empty. Try Any, or check back later." in body
+    assert ">Wine<" in body
+
+
+# ── AC4: gating preserved with the type param ─────────────────────────────────
+
+
+def test_queue_and_next_with_type_still_gated(monkeypatch, tmp_path) -> None:
+    client = _client(monkeypatch, tmp_path, token="secret")  # no cookie
+    q = client.get("/queue?type=wine", follow_redirects=False)
+    assert q.status_code == 303
+    assert q.headers["location"] == "/access"
+    n = client.post("/next?type=wine", follow_redirects=False)
+    assert n.status_code == 303
+    assert n.headers["location"] == "/access"
+
+
 # ── AR-5: read-path purity (no OCR/LLM/pipeline import in the queue route) ─────
 
 

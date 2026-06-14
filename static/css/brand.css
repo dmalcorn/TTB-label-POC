@@ -411,3 +411,13 @@ a {
   font-size: 16px;
   color: var(--brand-ink-muted);
 }
+
+/* Per-type empty-note (Story 4.2): "The wine queue is empty. Try Any…" — the calm
+   italic line shown when a beverage filter is set and that type's queue is empty. */
+.empty-note {
+  margin: 14px auto 0;
+  max-width: 560px;
+  font-size: 15px;
+  color: var(--brand-ink-muted);
+  font-style: italic;
+}
