@@ -1,10 +1,15 @@
-"""Demo-operations route (Story 6.1) — ``POST /reset``.
+"""Demo-operations routes (Story 6.1 ``POST /reset``; Story 6.2 ``POST /enqueue``).
 
-The single operator endpoint that re-arms the demo: it triggers the
-:func:`app.web.ops.reset` orchestrator (transactional DB re-seed + derived-images
-purge) and redirects back to the Queue so the evaluator lands on the restored,
-calm State-1/State-2 screen — consistent with the existing POST-action redirect
-pattern (``POST /next``, the disposition POST).
+The operator endpoints that drive the demo:
+
+- ``POST /reset`` re-arms the demo: it triggers the :func:`app.web.ops.reset`
+  orchestrator (transactional DB re-seed + derived-images purge).
+- ``POST /enqueue`` inserts ONE fresh fixture as a ``RECEIVED`` row (via
+  :func:`app.db.seed.enqueue_fixture`) so the evaluator can watch the Pre-compute
+  Pipeline carry it ``RECEIVED → PROCESSING → READY_FOR_REVIEW`` end to end (FR-28).
+
+Both redirect back to the Queue so the evaluator lands on the queue — consistent
+with the existing POST-action redirect pattern (``POST /next``, the disposition POST).
 
 This is an explicit operator POST action, not a render path: the bulk DB writes
 happen via the sanctioned ``seed()`` transaction, so the 5-second read contract
@@ -25,6 +30,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Request
 from fastapi.responses import RedirectResponse
 
+from app.db.seed import enqueue_fixture
 from app.web.ops import reset
 
 router = APIRouter()
@@ -38,4 +44,20 @@ def reset_demo(request: Request) -> RedirectResponse:
     redirect (no submission / image / benchmark data — no leakage, AC-4).
     """
     reset(request.app.state.settings)
+    return RedirectResponse("/queue", status_code=303)
+
+
+@router.post("/enqueue")
+def enqueue_demo(request: Request) -> RedirectResponse:
+    """Insert ONE fresh fixture as a ``RECEIVED`` row, then redirect to the Queue.
+
+    Inserts a single new pending submission (fresh unique ``ttb_id``) via the
+    sanctioned :func:`app.db.seed.enqueue_fixture` transaction; the existing
+    background sweep (Story 2.2) carries it ``RECEIVED → PROCESSING →
+    READY_FOR_REVIEW`` — the web layer never runs the pipeline synchronously
+    (AR-5 / pipeline-is-the-only-writer). No request body or query params are
+    consumed; the response carries only the redirect (no submission / image /
+    benchmark data — no leakage, AC-4).
+    """
+    enqueue_fixture(request.app.state.settings.database_path)
     return RedirectResponse("/queue", status_code=303)
