@@ -421,3 +421,148 @@ a {
   color: var(--brand-ink-muted);
   font-style: italic;
 }
+
+/* ---------- Review Workspace SHELL (Story 4.3 — mockups/review-workspace.html) ----------
+ * The three orienting elements: beverage banner, progress chevron, suggested-verdict
+ * alert. Same-origin tokens only (no inline <style>, no CDN). Spine wins: accents
+ * resolve to the --bev-* / --verdict-* vars, not the mockup's literal hex. The field
+ * cards / image panel / disposition bar are LATER stories (inert placeholders here). */
+.review {
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+/* Beverage banner — full-width, accent fill, 28px/700 word always present. The word
+ * carries identity; the color reinforces it (never replaces — colorblind + Dave). */
+.beverage-banner {
+  display: flex;
+  align-items: baseline;
+  gap: 16px;
+  padding: 18px 24px;
+  border-radius: var(--brand-radius-md);
+  background-color: #4a4a4a; /* neutral default for an unknown beverage type */
+  color: #ffffff;
+}
+.beverage-banner__word {
+  font-size: 28px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+.beverage-banner__meta {
+  font-size: 15px;
+  opacity: 0.92;
+}
+/* Per-type accents (DESIGN.md contrast table). Spirits/wine carry white text; beer
+ * gold MUST keep dark ink — white on gold fails AA at 3.25:1. */
+.beverage-banner--spirits {
+  background-color: var(--bev-spirits);
+  color: #ffffff;
+}
+.beverage-banner--wine {
+  background-color: var(--bev-wine);
+  color: #ffffff;
+}
+.beverage-banner--beer {
+  background-color: var(--bev-beer);
+  color: var(--brand-ink);
+}
+
+/* Chevron / step indicator — a progress MAP (U4), not a wizard. The current step's
+ * marker is conveyed as TEXT ("step N of M") + a weight/border change, never by color
+ * alone. Clicking a step is a same-page anchor to its field group. */
+.chevron {
+  margin: 20px 0 0;
+}
+.chevron__list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.chevron__step {
+  background-color: #ececec;
+  border-radius: var(--brand-radius-sm);
+}
+.chevron__link {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 48px;
+  padding: 10px 18px;
+  color: var(--brand-ink);
+  text-decoration: none;
+}
+.chevron__num {
+  font-weight: 700;
+}
+.chevron__step--current {
+  background-color: var(--brand-primary);
+  border: 2px solid var(--brand-primary-dark);
+}
+.chevron__step--current .chevron__link {
+  color: #ffffff;
+}
+.chevron__current-text {
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.chevron__link:focus-visible {
+  outline: 4px solid var(--brand-primary-light);
+  outline-offset: 2px;
+}
+
+/* Suggested-verdict alert — layered on the USWDS Alert. The verdict tints/foregrounds
+ * come from the --verdict-* tokens, paired with icon + word (never tint alone, never
+ * on chrome). "Suggested:" label is the muted advisory register, not a button. */
+.suggested-alert {
+  margin: 20px 0 0;
+}
+.suggested-alert__label {
+  font-weight: 700;
+  margin-right: 4px;
+}
+.suggested-alert__verdict {
+  font-weight: 700;
+}
+.suggested-alert__icon {
+  margin-right: 4px;
+}
+.suggested-alert.usa-alert--success {
+  border-left-color: var(--verdict-pass);
+  background-color: var(--verdict-pass-bg);
+}
+.suggested-alert.usa-alert--warning {
+  border-left-color: var(--verdict-review);
+  background-color: var(--verdict-review-bg);
+}
+.suggested-alert.usa-alert--error {
+  border-left-color: var(--verdict-fail);
+  background-color: var(--verdict-fail-bg);
+}
+
+/* Inert later-story placeholder sections (chevron anchor targets). Visibly deferred —
+ * dashed + muted, like the Queue Phase-2 .deferred box — never a fake live control. */
+.review-placeholder {
+  margin: 20px 0 0;
+  border: 2px dashed #b9bdc1;
+  border-radius: var(--brand-radius-md);
+  background-color: transparent;
+  padding: 18px 20px;
+  color: var(--brand-ink-muted);
+}
+.review-placeholder__tag {
+  display: inline-block;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  margin-bottom: 6px;
+}
+.review-placeholder__note {
+  font-size: 15px;
+  margin: 0;
+}

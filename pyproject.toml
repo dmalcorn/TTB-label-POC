@@ -21,6 +21,10 @@ select = ["E", "W", "F", "I", "UP", "B"]
 # (python:3.13-slim) so host runs match. `--ignore-missing-imports` is passed by
 # the CI invocation for the native OCR/LLM deps that ship no type stubs.
 python_version = "3.13"
+# auto-run/ is the overnight orchestrator harness — walled off from story work and
+# already excluded from ruff. Exclude it from mypy too, so a harness type quirk
+# can never halt a story's CI gate (`mypy .` runs under `set -e`).
+exclude = ['^auto-run/']
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

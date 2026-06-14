@@ -26,6 +26,7 @@ from app.pipeline.scheduler import shutdown_scheduler, start_scheduler
 from app.web.deps import gate_enabled, has_valid_access, is_exempt
 from app.web.routes_access import router as access_router
 from app.web.routes_queue import router as queue_router
+from app.web.routes_review import router as review_router
 
 # Project root (parent of the `app/` package): where `static/` and `templates/`
 # live, both locally and in the Docker image (WORKDIR /app). Resolving from the
@@ -129,6 +130,10 @@ def create_app() -> FastAPI:
     # Queue screen & Next Submission (Story 4.1). Carries no exemption, so the
     # access_gate middleware above protects /queue and /next like every screen.
     app.include_router(queue_router)
+    # Review Workspace shell (Story 4.3) — GET /review/{id}, the target POST /next
+    # redirects to. A pure pre-computed DB read (AR-5); no exemption, so the token
+    # gate protects it too.
+    app.include_router(review_router)
 
     @app.get("/healthz")
     def healthz() -> dict[str, str]:

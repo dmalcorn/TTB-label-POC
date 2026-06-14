@@ -101,6 +101,27 @@ class LabelImage(BaseModel):
     created_at: str
 
 
+class ChecklistItem(BaseModel):
+    """One per-check result for a submission (``checklist_items`` row).
+
+    The read shape the Review Workspace shell (Story 4.3) renders: the per-check
+    ``verdict`` feeds the suggested-verdict roll-up via ``app/verdict.py:rollup``,
+    and ``check_key`` / ``check_type`` drive the chevron step grouping. Field names
+    mirror the columns 1:1 (snake_case); the enum-ish columns stay plain ``str``
+    (the write-time ``CHECK`` is the source of truth)."""
+
+    id: int
+    submission_id: int
+    check_key: str
+    label: str | None = None
+    cfr_citation: str | None = None
+    check_type: str | None = None
+    verdict: str | None = None
+    detail: str | None = None
+    field_comparison_id: int | None = None
+    created_at: str
+
+
 def get_submission(conn: sqlite3.Connection, submission_id: int) -> Submission | None:
     """Read one submission by surrogate id; ``None`` if absent."""
     row = conn.execute(
@@ -126,6 +147,21 @@ def list_label_images(conn: sqlite3.Connection, submission_id: int) -> list[Labe
         (submission_id,),
     ).fetchall()
     return [LabelImage.model_validate(dict(row)) for row in rows]
+
+
+def list_checklist_items(conn: sqlite3.Connection, submission_id: int) -> list[ChecklistItem]:
+    """List a submission's ``checklist_items`` in insertion (ruleset) order.
+
+    The Review Workspace shell read (Story 4.3): one row per Check, ordered by ``id``
+    so the order matches the ruleset that produced them. The shell rolls these
+    per-check ``verdict`` values up via ``app/verdict.py:rollup`` (the SAME roll-up
+    the engine used) and groups them into chevron steps. Returns ``[]`` for a
+    submission with no checklist (an empty/unmapped ruleset)."""
+    rows = conn.execute(
+        "SELECT * FROM checklist_items WHERE submission_id = ? ORDER BY id",
+        (submission_id,),
+    ).fetchall()
+    return [ChecklistItem.model_validate(dict(row)) for row in rows]
 
 
 def get_submission_ocr_text(conn: sqlite3.Connection, submission_id: int) -> str:

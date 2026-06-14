@@ -1,0 +1,113 @@
+{% extends "base.html" %}
+
+{% block title %}TTB Label Review — Review Workspace{% endblock %}
+
+{% block content %}
+{#
+  Review Workspace SHELL (Story 4.3) — reproduces the three orienting elements of
+  mockups/review-workspace.html on the shared app shell + brand layer: the beverage
+  banner, the progress chevron, and the suggested-verdict alert. Spine wins: tokens
+  resolve to static/css/brand.css vars, not the mockup's inline hex.
+
+  Scope: SHELL only. The field comparison cards (4.4), Government Warning card (4.5),
+  smart checklist (4.6), label-image panel + Enhance (4.7), and the disposition action
+  bar + Notes (4.8) are LATER stories — represented here by inert, clearly-deferred
+  placeholder sections that the chevron anchors target (so anchors resolve now and
+  later stories fill them). Mockup-only scaffolding (device frame, J. Park placeholder
+  agent name, fabricated "SUB-2026-04871"/"Ready in 4.6s" demo data) is excluded.
+
+  The suggested-verdict alert is the advisory roll-up via the centralized
+  app/verdict.py:rollup (the SAME roll-up the engine used) — engine register only
+  (PASS/REVIEW/FAIL), muted Alert, "Suggested:" label, icon + word, authority handed
+  back to the human. It NEVER pre-selects a disposition (contract #3).
+#}
+<div class="review">
+
+  {# ── Beverage-type banner ──────────────────────────────────────────────────
+     The type WORD is always rendered (colorblind + the Dave persona); the accent
+     class only reinforces it. Beer uses dark-ink text (white fails AA on gold) —
+     the contrast is in brand.css; the class is chosen by the presenter. #}
+  <div class="beverage-banner {{ banner.accent_class }}">
+    <span class="beverage-banner__word">{{ banner.word }}</span>
+    <span class="beverage-banner__meta">Submission {{ submission.ttb_id }}</span>
+  </div>
+
+  {# ── Chevron / step indicator ───────────────────────────────────────────────
+     A progress MAP, not a wizard (U4): clicking a step is a same-page anchor to that
+     field group. The Conditional step appears ONLY when the checklist contains a
+     conditional/flag-only check; absent, the steps renumber cleanly (Decide ⑤→④).
+     The current marker is conveyed as TEXT ("step N of M" + aria-current), not by
+     color alone. #}
+  <nav class="chevron" role="navigation" aria-label="Review progress">
+    <ol class="chevron__list">
+      {% for step in chevron %}
+      <li class="chevron__step{{ ' chevron__step--current' if step.is_current else '' }}"
+        {% if step.is_current %}aria-current="step"{% endif %}>
+        <a class="chevron__link" href="#{{ step.anchor }}">
+          <span class="chevron__num" aria-hidden="true">{{ step.number }}</span>
+          <span class="chevron__label">{{ step.label }}</span>
+          {% if step.is_current %}
+          <span class="chevron__current-text">step {{ step.number }} of {{ chevron|length }}</span>
+          {% endif %}
+        </a>
+      </li>
+      {% endfor %}
+    </ol>
+  </nav>
+
+  {# ── Suggested-verdict alert ────────────────────────────────────────────────
+     USWDS Alert in the matching verdict tint, labeled "Suggested:", carrying the
+     verdict ICON + WORD (never tint alone). Advisory register only — NOT a button,
+     never pre-selects a disposition. role="status" so a screen reader announces the
+     roll-up on load (EXPERIENCE.md "announce on load"). #}
+  <section class="usa-alert {{ alert.alert_class }} suggested-alert" role="status" aria-label="Suggested verdict">
+    <div class="usa-alert__body">
+      <p class="usa-alert__text">
+        <span class="suggested-alert__label">Suggested:</span>
+        <span class="suggested-alert__verdict">
+          <span class="suggested-alert__icon" aria-hidden="true">{{ alert.icon }}</span>
+          {{ alert.verdict }}
+        </span>
+        &mdash; {{ alert.summary }}
+      </p>
+    </div>
+  </section>
+
+  {# ── Field-group placeholder sections (later-story anchor targets) ───────────
+     Inert, clearly-deferred sections that the chevron anchors resolve to NOW. Stories
+     4.4–4.8 replace each with the real field cards / Gov-Warning card / checklist /
+     image panel / disposition bar. These are NOT fake live controls. #}
+  <section id="group-identity" class="review-placeholder" aria-label="Identity">
+    <span class="review-placeholder__tag">Identity</span>
+    <p class="review-placeholder__note">Brand name, class/type, name &amp; address comparison
+      cards arrive in Story 4.4.</p>
+  </section>
+
+  <section id="group-mandatory-text" class="review-placeholder" aria-label="Mandatory text">
+    <span class="review-placeholder__tag">Mandatory text</span>
+    <p class="review-placeholder__note">Alcohol content, net contents and format checks
+      arrive in Story 4.4.</p>
+  </section>
+
+  <section id="group-gov-warning" class="review-placeholder" aria-label="Government Warning">
+    <span class="review-placeholder__tag">Gov. Warning</span>
+    <p class="review-placeholder__note">The Government Warning comparison card arrives in
+      Story 4.5.</p>
+  </section>
+
+  {% for step in chevron %}{% if step.label == 'Conditional' %}
+  <section id="group-conditional" class="review-placeholder" aria-label="Conditional">
+    <span class="review-placeholder__tag">Conditional</span>
+    <p class="review-placeholder__note">Conditional / flag-only disclosures arrive in
+      Story 4.6.</p>
+  </section>
+  {% endif %}{% endfor %}
+
+  <section id="group-decide" class="review-placeholder" aria-label="Decide">
+    <span class="review-placeholder__tag">Decide</span>
+    <p class="review-placeholder__note">The disposition action bar and Notes arrive in
+      Story 4.8.</p>
+  </section>
+
+</div>
+{% endblock %}

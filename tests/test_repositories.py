@@ -317,3 +317,61 @@ def test_init_db_backfill_is_idempotent(tmp_path):
     init_db(db_path)  # second run: column already present, must be a no-op (no raise)
     with connect(db_path) as conn:
         assert "image_variant" in _columns(conn, "ocr_results")
+
+
+# ── checklist read helper (Story 4.3) ────────────────────────────────────────
+
+
+def _insert_checklist_item(conn: sqlite3.Connection, submission_id: int, **overrides) -> int:
+    cols = {
+        "submission_id": submission_id,
+        "check_key": "brand_name",
+        "label": "Brand name",
+        "cfr_citation": "27 CFR 5.64",
+        "check_type": "FIELD_MATCH",
+        "verdict": "PASS",
+        "detail": None,
+    }
+    cols.update(overrides)
+    placeholders = ", ".join("?" for _ in cols)
+    sql = f"INSERT INTO checklist_items ({', '.join(cols)}) VALUES ({placeholders})"  # noqa: S608
+    cur = conn.execute(sql, tuple(cols.values()))
+    conn.commit()
+    assert cur.lastrowid is not None
+    return cur.lastrowid
+
+
+def test_list_checklist_items_returns_in_id_order(tmp_path):
+    db_path = _make_db(tmp_path)
+    with connect(db_path) as conn:
+        sid = _insert_submission(conn)
+        first = _insert_checklist_item(conn, sid, check_key="brand_name", verdict="PASS")
+        second = _insert_checklist_item(
+            conn, sid, check_key="government_warning", check_type="DETERMINISTIC", verdict="FAIL"
+        )
+        items = repo.list_checklist_items(conn, sid)
+    assert [i.id for i in items] == [first, second]
+    assert items[0].check_key == "brand_name"
+    assert items[0].verdict == "PASS"
+    assert items[1].check_key == "government_warning"
+    assert items[1].verdict == "FAIL"
+    assert items[1].check_type == "DETERMINISTIC"
+
+
+def test_list_checklist_items_empty_when_none(tmp_path):
+    db_path = _make_db(tmp_path)
+    with connect(db_path) as conn:
+        sid = _insert_submission(conn)
+        items = repo.list_checklist_items(conn, sid)
+    assert items == []
+
+
+def test_list_checklist_items_scoped_to_submission(tmp_path):
+    db_path = _make_db(tmp_path)
+    with connect(db_path) as conn:
+        a = _insert_submission(conn, ttb_id="26001000000001")
+        b = _insert_submission(conn, ttb_id="26001000000002")
+        _insert_checklist_item(conn, a, check_key="brand_name")
+        _insert_checklist_item(conn, b, check_key="net_contents")
+        items_a = repo.list_checklist_items(conn, a)
+    assert [i.check_key for i in items_a] == ["brand_name"]

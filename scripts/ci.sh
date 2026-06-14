@@ -49,9 +49,9 @@ if container_ready; then
   USE_CONTAINER=true
   echo "Dev container '$APP_SERVICE' is up — dispatching checks into it (dep parity)."
 else
-  echo "WARNING: dev container not available — running host-side (degraded)."
-  echo "         Native OCR deps may be missing; start it with:"
-  echo "           docker compose up -d $APP_SERVICE"
+  echo "Note: dev container not running — running checks host-side (expected for"
+  echo "      pure-Python work). Real OCR/native-dep validation uses the '$APP_SERVICE'"
+  echo "      container; it is intentionally not required here. See CLAUDE.md."
 fi
 echo ""
 
