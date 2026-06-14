@@ -2,7 +2,7 @@
 
 `GET /access`  → State 1 entry form (autofocused token input).
 `POST /access` → constant-time check; on success set the access cookie and
-                 redirect to the protected landing (`GET /`, the Story 1.4 shell);
+                 redirect to the protected landing (`/queue`, the review queue);
                  on failure re-render State 2 (clean denial) with HTTP 401.
 
 No Submission/image/benchmark data is ever placed in this router's context — the
@@ -18,7 +18,7 @@ from app.web.deps import ACCESS_COOKIE, has_valid_access, token_matches
 
 router = APIRouter()
 
-LANDING_PATH = "/"
+LANDING_PATH = "/queue"
 
 
 def _render_gate(request: Request, *, denied: bool, status_code: int) -> HTMLResponse:

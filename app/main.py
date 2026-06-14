@@ -15,7 +15,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
@@ -140,15 +140,16 @@ def create_app() -> FastAPI:
         """Liveness probe. Pure in-memory response — no DB, no network."""
         return {"status": "ok"}
 
-    @app.get("/", response_class=HTMLResponse)
-    def index(request: Request) -> HTMLResponse:
-        """Render the vendored-USWDS app shell.
+    @app.get("/")
+    def index() -> RedirectResponse:
+        """Send the app root to the review Queue — the reviewer's home screen.
 
-        Minimal demonstrator for Story 1.4 — pure template render, no DB read, no
-        OCR/inference/model import, no network. Later stories (1.5 token gate, 4.x
-        queue/review) replace the content block with the real screens.
+        Story 1.4 served a static USWDS shell demonstrator here; Epic 4 shipped the
+        real screens, so the root now redirects an authenticated reviewer straight
+        to /queue. The token gate above still bounces an unauthenticated request to
+        /access first. Pure redirect — no DB read, no OCR/model, no network (AR-5).
         """
-        return templates.TemplateResponse(request, "index.html")
+        return RedirectResponse("/queue", status_code=303)
 
     return app
 

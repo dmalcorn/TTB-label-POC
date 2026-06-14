@@ -4,6 +4,10 @@ Verifies the shell renders from `templates/base.html`, every asset is same-origi
 (the firewall posture, NFR-2/AR-8 — the unit-level guardian of the `--network none`
 proof), the Treasury brand layer loads after USWDS, mockup-only placeholder data is
 excluded, and the vendored assets exist and serve.
+
+The shell is verified on the reviewer's real landing screen — the queue (`/queue`,
+Story 4.1) — since Story 4 retired the `/` placeholder demonstrator: the root now
+redirects into the queue (see `test_root_redirects_to_landing`).
 """
 
 from __future__ import annotations
@@ -12,8 +16,10 @@ import re
 from html.parser import HTMLParser
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 
+from app.db.connection import init_db
 from app.main import create_app
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -45,29 +51,50 @@ class _AssetRefCollector(HTMLParser):
                 self.refs.append(value)
 
 
-def _client() -> TestClient:
+def _client(monkeypatch: pytest.MonkeyPatch, tmp_path) -> TestClient:
+    """A fresh app over an isolated temp DB with the sweep OFF.
+
+    The shell now renders on the gated queue screen (the `/` placeholder is gone),
+    so the screen reads the DB — point ``DATABASE_PATH`` at a throwaway file and
+    create the schema up-front via :func:`init_db` (``TestClient(create_app())``
+    used without a ``with`` block does not fire the lifespan/startup ``init_db``).
+    ``ACCESS_TOKEN`` is cleared so the gate is fail-open for these shell checks.
+    """
+    db_path = tmp_path / "shell.db"
+    monkeypatch.setenv("DATABASE_PATH", str(db_path))
+    monkeypatch.setenv("SCHEDULER_ENABLED", "false")
+    monkeypatch.delenv("ACCESS_TOKEN", raising=False)
+    init_db(db_path)
     return TestClient(create_app())
 
 
-def _index_html() -> str:
-    resp = _client().get("/")
+def _shell_html(monkeypatch: pytest.MonkeyPatch, tmp_path) -> str:
+    """The rendered shell, as served on the reviewer's real landing (the queue)."""
+    resp = _client(monkeypatch, tmp_path).get("/queue")
     assert resp.status_code == 200
     assert resp.headers["content-type"].startswith("text/html")
     return resp.text
 
 
-def test_index_renders_shell_with_header() -> None:
-    """AC-3/AC-5: GET / renders the shell — header title + the [?] Help control."""
-    html = _index_html()
+def test_root_redirects_to_landing(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
+    """GET / sends the reviewer to the queue (the Story-1.4 placeholder is retired)."""
+    resp = _client(monkeypatch, tmp_path).get("/", follow_redirects=False)
+    assert resp.status_code == 303
+    assert resp.headers["location"] == "/queue"
+
+
+def test_landing_renders_shell_with_header(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
+    """AC-3/AC-5: the landing renders the shell — header title + the [?] Help control."""
+    html = _shell_html(monkeypatch, tmp_path)
     assert "TTB Label Review" in html
     assert 'class="app-header"' in html
     # The Help control is present and focusable (its panel arrives in Story 4.4).
     assert 'aria-label="Help"' in html
 
 
-def test_shell_assets_are_all_same_origin() -> None:
+def test_shell_assets_are_all_same_origin(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
     """AC-1: every href/src is same-origin under /static — no CDN, no Google Fonts."""
-    html = _index_html()
+    html = _shell_html(monkeypatch, tmp_path)
     refs = _AssetRefCollector()
     refs.feed(html)
     assert refs.refs, "expected the shell to reference vendored assets"
@@ -78,23 +105,23 @@ def test_shell_assets_are_all_same_origin() -> None:
         assert ref.startswith("/static/"), f"asset is not same-origin /static: {ref!r}"
 
 
-def test_uswds_css_loads_before_brand_css() -> None:
+def test_uswds_css_loads_before_brand_css(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
     """AC-2: brand layer must load AFTER USWDS so the Treasury delta wins."""
-    html = _index_html()
+    html = _shell_html(monkeypatch, tmp_path)
     uswds_pos = html.find("/static/uswds/css/uswds.min.css")
     brand_pos = html.find("/static/css/brand.css")
     assert uswds_pos != -1 and brand_pos != -1
     assert uswds_pos < brand_pos
 
 
-def test_shell_excludes_placeholder_agent() -> None:
+def test_shell_excludes_placeholder_agent(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
     """AC-3: mockup-only placeholder data (J. Park) is not reproduced."""
-    assert "J. Park" not in _index_html()
+    assert "J. Park" not in _shell_html(monkeypatch, tmp_path)
 
 
-def test_healthz_still_ok() -> None:
+def test_healthz_still_ok(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
     """Regression: the liveness route is untouched by the shell wiring."""
-    resp = _client().get("/healthz")
+    resp = _client(monkeypatch, tmp_path).get("/healthz")
     assert resp.status_code == 200
     assert resp.json() == {"status": "ok"}
 
@@ -118,9 +145,9 @@ def test_vendored_assets_exist_on_disk() -> None:
         assert (REPO_ROOT / rel).is_file(), f"missing vendored asset: {rel}"
 
 
-def test_vendored_assets_serve_200() -> None:
+def test_vendored_assets_serve_200(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
     """AC-1/AC-4: each vendored asset is served same-origin (200)."""
-    client = _client()
+    client = _client(monkeypatch, tmp_path)
     for rel in VENDORED_ASSETS:
         resp = client.get("/" + rel)
         assert resp.status_code == 200, f"{rel} served {resp.status_code}"

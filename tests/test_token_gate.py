@@ -42,13 +42,15 @@ def _client(monkeypatch: pytest.MonkeyPatch, token: str | None) -> TestClient:
 # --- AC-1 / AC-5: enforcement + cookie flow ---
 
 
-def test_valid_cookie_reaches_protected_shell(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_valid_cookie_passes_gate_to_landing(monkeypatch: pytest.MonkeyPatch) -> None:
     client = _client(monkeypatch, "secret")
     client.cookies.set("ttb_access", "secret")
-    resp = client.get("/")
-    assert resp.status_code == 200
-    assert "TTB Label Review" in resp.text
-    assert 'class="app-header"' in resp.text  # the post-auth shell, header present
+    # A valid cookie is NOT bounced to /access — the root passes it through to the
+    # review queue (the reviewer's landing). The shell chrome itself is covered by
+    # test_shell.py against /queue.
+    resp = client.get("/", follow_redirects=False)
+    assert resp.status_code == 303
+    assert resp.headers["location"] == "/queue"
 
 
 def test_absent_token_redirects_to_gate(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -70,7 +72,7 @@ def test_post_correct_token_sets_cookie_and_redirects(monkeypatch: pytest.Monkey
     client = _client(monkeypatch, "secret")
     resp = client.post("/access", data={"token": "secret"}, follow_redirects=False)
     assert resp.status_code == 303
-    assert resp.headers["location"] == "/"
+    assert resp.headers["location"] == "/queue"
     set_cookie = resp.headers["set-cookie"].lower()
     assert "ttb_access=secret" in set_cookie
     assert "httponly" in set_cookie
@@ -139,17 +141,25 @@ def test_access_routes_exempt(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_gate_open_when_token_absent(monkeypatch: pytest.MonkeyPatch) -> None:
     client = _client(monkeypatch, None)
-    assert client.get("/").status_code == 200  # shell reachable, gate not enforced
+    # Gate not enforced ⇒ the root is reachable and redirects to the landing,
+    # rather than being bounced to /access.
+    resp = client.get("/", follow_redirects=False)
+    assert resp.status_code == 303
+    assert resp.headers["location"] == "/queue"
 
 
 def test_gate_open_when_token_empty(monkeypatch: pytest.MonkeyPatch) -> None:
     client = _client(monkeypatch, "")
-    assert client.get("/").status_code == 200
+    resp = client.get("/", follow_redirects=False)
+    assert resp.status_code == 303
+    assert resp.headers["location"] == "/queue"
 
 
 def test_gate_enforced_when_token_set(monkeypatch: pytest.MonkeyPatch) -> None:
     client = _client(monkeypatch, "secret")
-    assert client.get("/", follow_redirects=False).status_code == 303
+    resp = client.get("/", follow_redirects=False)
+    assert resp.status_code == 303
+    assert resp.headers["location"] == "/access"  # enforced ⇒ bounced to the gate
 
 
 # --- AC-2: gate screen fidelity (entry copy, no scaffolding, no header) ---
