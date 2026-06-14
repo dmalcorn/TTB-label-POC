@@ -334,6 +334,67 @@ def list_llm_results_for_scoring(
     return [LlmScoringRow.model_validate(dict(row)) for row in rows]
 
 
+# ── benchmark cost/speed read helpers (Story 5.3) ────────────────────────────
+# SELECT-only readers that surface the per-engine/per-model RAW timing + token
+# columns the speed/cost roll-up needs (latency_ms, ran_on_cpu, prompt/completion
+# tokens). Per-engine/per-model storage is already separate (AR-4); these just
+# expose it. Read-only: no writes here. Money is NOT computed here — cost.py owns
+# the Decimal cost math; this layer only hands over the raw integer inputs.
+
+
+class OcrCostRow(BaseModel):
+    """One ``OK`` ``ocr_results`` row's speed inputs (Story 5.3).
+
+    Keyed for speed roll-up by ``(engine_name, image_variant)`` — the SAME key the
+    accuracy scorer uses (``OcrScoringRow``) — so speed and accuracy line up
+    row-for-row in the Story 5.4 report. ``ran_on_cpu`` carries the CPU-only flag
+    (govt infra has no guaranteed GPU — AC3)."""
+
+    engine_name: str
+    image_variant: str
+    latency_ms: int | None = None
+    ran_on_cpu: bool | None = None
+
+
+class LlmCostRow(BaseModel):
+    """One ``OK`` ``extract_fields`` ``llm_results`` row's speed + token inputs."""
+
+    model_id: str | None = None
+    model_name: str | None = None
+    provider: str | None = None
+    latency_ms: int | None = None
+    prompt_tokens: int | None = None
+    completion_tokens: int | None = None
+
+
+def list_ocr_latency_for_cost(conn: sqlite3.Connection) -> list[OcrCostRow]:
+    """Every ``OK`` OCR row's ``(engine, variant, latency_ms, ran_on_cpu)`` (Story 5.3).
+
+    Corpus-wide (not per-submission) since speed/cost rolls up across the whole
+    seeded corpus. Sorted by ``(engine_name, image_variant, id)`` so the roll-up
+    iterates in a stable, reproducible order (AC4). Read-only."""
+    rows = conn.execute(
+        "SELECT engine_name, image_variant, latency_ms, ran_on_cpu "
+        "FROM ocr_results WHERE status = 'OK' "
+        "ORDER BY engine_name, image_variant, id"
+    ).fetchall()
+    return [OcrCostRow.model_validate(dict(row)) for row in rows]
+
+
+def list_llm_cost_rows(conn: sqlite3.Connection) -> list[LlmCostRow]:
+    """Every ``OK`` ``extract_fields`` LLM row's speed + token inputs (Story 5.3).
+
+    Corpus-wide; only the extraction task feeds the cost figure (``classify`` and
+    other tasks are not field-extraction verifications). Sorted by
+    ``(model_id, id)`` for reproducibility (AC4). Read-only."""
+    rows = conn.execute(
+        "SELECT model_id, model_name, provider, latency_ms, prompt_tokens, "
+        "completion_tokens FROM llm_results WHERE status = 'OK' "
+        "AND task = 'extract_fields' ORDER BY model_id, id"
+    ).fetchall()
+    return [LlmCostRow.model_validate(dict(row)) for row in rows]
+
+
 # ── pipeline write helpers (Story 2.1) ───────────────────────────────────────
 # Persist the centralized adapter shapes. Each engine/model gets its OWN row
 # (per-engine/per-model storage, never merged — AR-4). The contract→column
