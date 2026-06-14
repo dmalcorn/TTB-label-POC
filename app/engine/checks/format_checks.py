@@ -342,10 +342,17 @@ def _find_abv_pct(ocr_text: str) -> Decimal | None:
     A stray promotional / nutrition ``%`` ("30% off", "100% natural", "% daily value")
     must NOT be mistaken for the ABV statement (it would wrongly read ABV as "present"
     and defeat the per-type absent-policy). So a ``%`` token counts as ABV only when an
-    alcohol cue word (alc/vol/abv/alcohol) sits near it; if no ``%`` is cued AND exactly
-    one ``%`` token exists, that lone token is taken as the ABV (a bare ``45%`` with the
-    abbreviation elsewhere is still caught by the separate abbreviation-format gate).
-    Otherwise ``None`` — ABV is treated as not present, and the absent-policy applies.
+    alcohol cue word (alc/vol/abv/alcohol) sits near it; failing a nearby cue, a lone
+    ``%`` token is taken as the ABV ONLY when an accepted ABV abbreviation word
+    (alc/vol/by volume/abv) appears SOMEWHERE on the label — i.e. a bare ``45%`` paired
+    with an ``Alc./Vol.`` on another line is still recognized, but a label whose only
+    ``%`` is uncued AND carries no abbreviation word at all (a marketing "100% Estate
+    Grown" or "30% OFF") is NOT read as ABV. Without that abbreviation guard, such a
+    stray ``%`` would read ABV as "present" and then trip the missing-abbreviation FAIL
+    gate — a false reject that defeats the per-type absent-policy (the AC2 cross-type
+    trap: a ≤14% table wine / a malt beverage that compliantly omits its ABV must never
+    FAIL on incidental marketing copy). Otherwise ``None`` — ABV is treated as not
+    present, and the per-type absent-policy applies.
     """
     pct = [t for t in _scan_unit_tokens(ocr_text, "alcohol_content") if t.unit == "%"]
     if not pct:
@@ -353,7 +360,12 @@ def _find_abv_pct(ocr_text: str) -> Decimal | None:
     cued = [t for t in pct if _has_cue_near(ocr_text, t, _ABV_CUE_WORDS)]
     if cued:
         return cued[0].value
-    if len(pct) == 1:
+    # No %-token is cued. A lone % is the ABV value ONLY if an abbreviation word exists
+    # somewhere (the bare "45%" … "Alc./Vol." case). With no abbreviation word at all the
+    # lone % is incidental marketing/nutrition copy — treat ABV as absent so the per-type
+    # policy decides (spirits⇒FAIL-on-absence, ≤14% wine⇒PASS, malt⇒REVIEW), never a
+    # false missing-abbreviation FAIL.
+    if len(pct) == 1 and _has_abv_abbreviation(ocr_text):
         return pct[0].value
     return None
 

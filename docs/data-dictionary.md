@@ -330,7 +330,12 @@ live as data in `app/engine/rulesets/class_type.py`); the Story 3.7 **flag-only*
 class-type / alcohol content) and defers the co-location to the specialist (its trio
 field set + §5.63 citation live as data in `app/engine/rulesets/flag_only.py`); the §4
 CONDITIONAL flag-only checks (sulfites/country-of-origin/coloring) and wine/malt keys
-arrive with Story 3.8, reusing this `positional` strategy with their own data.
+arrive with **Story 3.8** — now realized: the wine and malt-beverage rulesets are
+authored at depth as data in `app/engine/rulesets/wine.py` /
+`app/engine/rulesets/malt_beverage.py`, each **reusing** the 3.3–3.7 evaluators (no
+new evaluator strategy) and each conditional ingredient/coloring/origin disclosure
+reusing this `positional` flag-only strategy with its own data row + citation
+(§6.2.1.1 / §6.2.1.2 below).
 
 | `check_key` | Common Name | `check_type` | CFR Citation (ref) |
 |---|---|---|---|
@@ -344,6 +349,65 @@ arrive with Story 3.8, reusing this `positional` strategy with their own data.
 | `proof_abv_consistency` | Proof / alcohol content consistency (Story 3.5) | `DETERMINISTIC` | `27 CFR 5.65` |
 | `government_warning` | Government Warning | `DETERMINISTIC` | `27 CFR 16.21` |
 | `same_field_of_vision` | Same field of vision (brand, class/type, alcohol content) | `MANUAL` | `27 CFR 5.63` |
+
+##### 6.2.1.1 `check_key` registry — wine checklist (Story 3.8)
+
+Canonical data: `app/engine/rulesets/wine.py`. Citations are **27 CFR Part 4**
+(un-renumbered — the 2022 modernization deferred the Part 4 rewrite, so historical
+§4.xx remains current) + Part 16; country-of-origin is CBP-governed (truthful
+**19 CFR 134.11**). Two deliberate divergences from the spirits rows keep AC3's
+"reuse, don't re-code": wine class/type is a `FIELD_MATCH` (the HYBRID `class_type`
+prompt/catalog are spirits-specific), and `standards_of_fill` is a flag-only
+`MANUAL` (the spirits §5.203 table ≠ wine's §4.72 table). No `same_field_of_vision`
+(§5.63 is spirits-only) and no `proof_abv_consistency` (proof is spirits-only). The
+ABV trap (≤14% table wine needs no ABV) is the shared `abv_format`/`format_checks`
+evaluator reading `ABV_POLICY["WINE"]` — data, not per-type code.
+
+| `check_key` | Common Name | `check_type` | CFR Citation (ref) |
+|---|---|---|---|
+| `brand_name` | Brand name | `FIELD_MATCH` | `27 CFR 4.33` |
+| `class_type_designation` | Class/type designation | `FIELD_MATCH` | `27 CFR 4.21` |
+| `grape_varietal` | Grape varietal designation | `FIELD_MATCH` | `27 CFR 4.23` |
+| `alcohol_content` | Alcohol content | `FIELD_MATCH` | `27 CFR 4.36` |
+| `net_contents` | Net contents | `FIELD_MATCH` | `27 CFR 4.37` |
+| `name_address` | Name and address | `FIELD_MATCH` | `27 CFR 4.35` |
+| `abv_format` | Alcohol content statement format | `DETERMINISTIC` | `27 CFR 4.36` |
+| `standards_of_fill` | Net contents standard of fill | `MANUAL` | `27 CFR 4.72` |
+| `government_warning` | Government Warning | `DETERMINISTIC` | `27 CFR 16.21` |
+| `appellation_of_origin` | Appellation of origin | `MANUAL` | `27 CFR 4.25` |
+| `sulfite_declaration` | Sulfite declaration | `MANUAL` | `27 CFR 4.32(e)` |
+| `fdc_yellow_5` | FD&C Yellow No. 5 declaration | `MANUAL` | `27 CFR 4.32(c)` |
+| `cochineal_carmine` | Cochineal extract / carmine declaration | `MANUAL` | `27 CFR 4.32(d)` |
+| `country_of_origin` | Country of origin | `MANUAL` | `19 CFR 134.11` |
+
+##### 6.2.1.2 `check_key` registry — malt-beverage checklist (Story 3.8)
+
+Canonical data: `app/engine/rulesets/malt_beverage.py`. Citations are **27 CFR
+Part 7** (**post-2022** renumbering — mandatory-info master §7.63; brand §7.64; ABV
+§7.65; name/address §§7.66–7.68; country of origin §7.69; net contents §7.70;
+class/type Subpart I §§7.141–7.147) + Part 16. Class/type is a `FIELD_MATCH` (not
+the spirits HYBRID); a `fanciful_name` field check is malt-specific. No
+`standards_of_fill` (Part 7 has none for malt), no `proof_abv_consistency`, no
+`same_field_of_vision`. The ABV trap (optional-unless-trigger ⇒ absence is REVIEW,
+never FAIL) is the shared `abv_format`/`format_checks` evaluator reading
+`ABV_POLICY["MALT_BEVERAGE"]`. Part 7 has **no** general coloring-material
+disclosure — only the four §7.63(b) items below.
+
+| `check_key` | Common Name | `check_type` | CFR Citation (ref) |
+|---|---|---|---|
+| `brand_name` | Brand name | `FIELD_MATCH` | `27 CFR 7.64` |
+| `class_type_designation` | Class/type designation | `FIELD_MATCH` | `27 CFR 7.141` |
+| `fanciful_name` | Fanciful name | `FIELD_MATCH` | `27 CFR 7.63` |
+| `alcohol_content` | Alcohol content | `FIELD_MATCH` | `27 CFR 7.65` |
+| `net_contents` | Net contents | `FIELD_MATCH` | `27 CFR 7.70` |
+| `name_address` | Name and address | `FIELD_MATCH` | `27 CFR 7.66` |
+| `abv_format` | Alcohol content statement format | `DETERMINISTIC` | `27 CFR 7.65` |
+| `government_warning` | Government Warning | `DETERMINISTIC` | `27 CFR 16.21` |
+| `fdc_yellow_5` | FD&C Yellow No. 5 declaration | `MANUAL` | `27 CFR 7.63(b)(1)` |
+| `cochineal_carmine` | Cochineal extract / carmine declaration | `MANUAL` | `27 CFR 7.63(b)(2)` |
+| `sulfite_declaration` | Sulfite declaration | `MANUAL` | `27 CFR 7.63(b)(3)` |
+| `aspartame_disclosure` | Aspartame disclosure | `MANUAL` | `27 CFR 7.63(b)(4)` |
+| `country_of_origin` | Country of origin | `MANUAL` | `27 CFR 7.69` |
 
 ### 6.3 `audit_events` — append-only lifecycle/processing timeline
 

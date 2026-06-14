@@ -174,11 +174,13 @@ def test_process_submission_finalizes_with_ordered_timeline(tmp_path):
     assert sub is not None
     assert sub.status == "READY_FOR_REVIEW"
     assert sub.processing_ms is not None and sub.processing_ms >= 0
-    # Story 3.2 wires engine_stage in LAST: a WINE submission has an EMPTY ruleset
-    # (authored in Story 3.8), so the advisory roll-up is REVIEW (rollup's empty
-    # policy — a submission with nothing verified defers to the human, never a
-    # silent auto-PASS), no longer the 2.2 interim NULL.
-    assert sub.engine_verdict == "REVIEW"
+    # Story 3.2 wires engine_stage in LAST, so a finalized submission carries a
+    # non-NULL advisory roll-up. The WINE ruleset is now AUTHORED (Story 3.8), so
+    # real checks run and the concrete verdict depends on what OCR recovers (here,
+    # with no native OCR deps, the engine still finalizes honestly) — this test's
+    # subject is the lifecycle timeline + status, so assert the verdict is a legal
+    # rolled-up value, not a brittle literal.
+    assert sub.engine_verdict in {"PASS", "REVIEW", "FAIL"}
     assert [e["event_type"] for e in events] == [
         "OCR_STARTED",
         "OCR_COMPLETED",

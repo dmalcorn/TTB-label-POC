@@ -104,11 +104,13 @@ def test_government_warning_is_deterministic_and_sfov_is_manual():
     assert by_key["government_warning"].cfr_citation == "27 CFR 16.21"
 
 
-def test_wine_and_malt_rulesets_are_empty_until_story_3_8():
-    """AC1 / Task 1: spirits is authored at depth now; wine/malt are the Story 3.8
-    sentinel — an empty ruleset (a submission with no checks rolls up to REVIEW)."""
-    assert get_ruleset("WINE") == ()
-    assert get_ruleset("MALT_BEVERAGE") == ()
+def test_wine_and_malt_rulesets_are_authored_after_story_3_8():
+    """Story 3.8: wine and malt-beverage rulesets are now authored at depth (the
+    pre-3.8 empty sentinel is gone) — every mapped beverage type carries real
+    Checks. The empty-ruleset rollup policy is still covered via an UNMAPPED type
+    (see ``test_get_ruleset_unknown_type_is_empty_not_an_error`` below)."""
+    assert len(get_ruleset("WINE")) > 0
+    assert len(get_ruleset("MALT_BEVERAGE")) > 0
 
 
 def test_get_ruleset_unknown_type_is_empty_not_an_error():
@@ -188,12 +190,20 @@ def test_run_checks_sets_engine_verdict_equal_to_rollup(tmp_path):
 
 
 def test_run_checks_empty_ruleset_rolls_up_to_review(tmp_path):
-    """AC2 / Task 2: an empty ruleset (WINE/MALT until Story 3.8) writes no rows and
-    rolls up to REVIEW (rollup's empty policy — never a silent auto-PASS)."""
+    """AC2 / Task 2: an empty ruleset (an UNMAPPED beverage type — wine/malt are now
+    authored, Story 3.8) writes no rows and rolls up to REVIEW (rollup's empty
+    policy — never a silent auto-PASS).
+
+    The DB CHECK constraint only admits the three real beverage types, so we insert
+    a valid WINE row, then override ``beverage_type`` to an unmapped value on the
+    fetched (frozen) Submission to drive ``get_ruleset`` down its empty fallback.
+    """
     db_path = _make_db(tmp_path)
     with connect(db_path) as conn:
         sid = _insert_submission(conn, beverage_type="WINE", ttb_id="26001000000099")
-        submission = _get_submission(conn, sid)
+        submission = _get_submission(conn, sid).model_copy(
+            update={"beverage_type": "MEAD_OR_OTHER"}
+        )
         result = rc.run_checks(conn, submission)
         conn.commit()
         rows = _checklist_rows(conn, sid)
