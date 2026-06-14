@@ -15,15 +15,25 @@
 <body>
   {# Utility header — inherited by every screen. Composition from mockups/queue.html;
      the J. Park placeholder agent name is excluded (UI fidelity standard). The [?] Help
-     control is present and focusable; its slide-over panel is wired in Story 4.4.
-     Wrapped in a block so the pre-auth token gate (Story 1.5) can suppress it. #}
+     control opens the searchable slide-over panel (Story 4.9, below). Wrapped in a
+     block so the pre-auth token gate (Story 1.5) can suppress the whole header — which
+     also keeps the Help panel gated. #}
   {% block header %}
   <header class="app-header">
     <span class="app-header__seal" aria-hidden="true">U.S.<br>TREAS</span>
     <span class="app-header__title">TTB Label Review</span>
     <span class="app-header__spacer"></span>
-    <button type="button" class="app-header__help" aria-label="Help">?</button>
+    <button type="button"
+            class="app-header__help"
+            aria-label="Help"
+            aria-haspopup="dialog"
+            aria-controls="help-panel"
+            aria-expanded="false"
+            data-help-open>?</button>
   </header>
+  {# Right-anchored searchable Help slide-over — global post-auth chrome (Story 4.9).
+     Lives inside the header block so it is suppressed pre-auth alongside the [?]. #}
+  {% include "_help_panel.html" %}
   {% endblock %}
 
   <main class="app-main" id="main-content">
@@ -31,6 +41,10 @@
   </main>
 
   <script src="/static/uswds/js/uswds.min.js"></script>
+  {# Global Help slide-over enhancement (Story 4.9) — present on every post-auth
+     screen, so it lives OUTSIDE the per-page scripts block. Same-origin, no CDN;
+     search is a local DOM filter with no network call (NFR-2). #}
+  <script src="/static/js/help.js"></script>
   {# Per-screen progressive-enhancement scripts (same-origin, no CDN/build —
      NFR-2/UX-DR-6). The render is correct without these; they only add polish. #}
   {% block scripts %}{% endblock %}

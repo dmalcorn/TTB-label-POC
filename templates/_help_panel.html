@@ -1,0 +1,132 @@
+{# Help slide-over (Story 4.9) — static post-auth chrome, included once in base.html
+   inside the {% block header %} so the token gate suppresses it pre-auth.
+
+   Composition from mockups/help-panel.html. Spine wins over the mockup's inline hex
+   (DESIGN.md tokens via brand.css). Mockup-only scaffolding — the browser device
+   frame, the dimmed-Review backdrop artwork, the "No-results state" frame-label
+   caption — is intentionally NOT reproduced (UI fidelity standard): the running
+   Review screen IS the backdrop; .help-scrim is a functional dim layer only.
+
+   The KB + verdict explainer + shortcuts render fully WITHOUT JavaScript
+   (progressive enhancement); static/js/help.js only ADDS the open/close/focus-trap
+   and a client-side DOM filter — no network call (NFR-2 "everything on this server"). #}
+<div class="help-scrim" data-help-scrim hidden></div>
+<aside id="help-panel"
+       class="help-panel"
+       role="dialog"
+       aria-modal="true"
+       aria-labelledby="help-panel-title"
+       hidden>
+  <div class="help-panel__head">
+    <div>
+      <h2 id="help-panel-title" class="help-panel__title">Help</h2>
+      <p class="help-panel__sub">Search the local knowledge base, or browse below.</p>
+    </div>
+    <button type="button"
+            class="help-panel__close"
+            data-help-close
+            title="Close (Esc)"
+            aria-label="Close help">&times;</button>
+  </div>
+
+  <div class="help-panel__body">
+    {# 1 · Search + on-server note. The Search button is decorative (filtering is live
+       on input); search is a local DOM filter — there is no server endpoint. #}
+    <label class="help-search__label" for="help-search">Ask a question</label>
+    <div class="help-search__wrap">
+      <input id="help-search"
+             class="help-search__input"
+             type="search"
+             placeholder="Ask a question…"
+             aria-label="Ask a question"
+             autocomplete="off"
+             data-help-search>
+      <button type="button" class="help-search__go" tabindex="-1" aria-hidden="true">Search</button>
+    </div>
+    <p class="help-search__hint">Everything here is on this server — no internet, nothing leaves the workstation.</p>
+
+    {# 2 · Browsable KB (scan, don't only type). #}
+    <section class="help-section">
+      <h3 class="help-section__title">Common questions</h3>
+      <ul class="help-kb" data-help-kb>
+        <li class="help-kb__item" data-help-kbitem>
+          <div>
+            <p class="help-kb__q">What exactly must the Government Warning say?</p>
+            <p class="help-kb__a">The full text is fixed by 27 CFR §16.21. We compare the label, word for word, to that regulation — not to anything the maker typed. The character diff shows exactly where the wording differs.</p>
+          </div>
+          <span class="help-kb__chev" aria-hidden="true">&rsaquo;</span>
+        </li>
+        <li class="help-kb__item" data-help-kbitem>
+          <div>
+            <p class="help-kb__q">Why didn't the tool check the font size?</p>
+            <p class="help-kb__a">Font size is measured on the physical label, not the photo — there's no scale in an image. So we say so plainly and leave it for your eyes, rather than guessing a pass or fail.</p>
+          </div>
+          <span class="help-kb__chev" aria-hidden="true">&rsaquo;</span>
+        </li>
+        <li class="help-kb__item" data-help-kbitem>
+          <div>
+            <p class="help-kb__q">The names differ only in capitalization — is that a real mismatch?</p>
+            <p class="help-kb__a">Usually not. Capitalization differs; the text otherwise matches. We mark that as an amber "check," not a red mismatch, and leave the call to you.</p>
+          </div>
+          <span class="help-kb__chev" aria-hidden="true">&rsaquo;</span>
+        </li>
+        <li class="help-kb__item" data-help-kbitem>
+          <div>
+            <p class="help-kb__q">What's the difference between Needs Correction and Rejected?</p>
+            <p class="help-kb__a">Needs Correction sends the application back to the maker to fix and resubmit. Rejected closes it out. Both need a note so the maker knows the reason — you decide which fits.</p>
+          </div>
+          <span class="help-kb__chev" aria-hidden="true">&rsaquo;</span>
+        </li>
+      </ul>
+    </section>
+
+    {# 3 · Verdict vocabulary explainer — icon + word + colour (UX-DR-7), preceded by
+       the verdict-vs-disposition reminder (contract #4 register, copy only). #}
+    <section class="help-section">
+      <h3 class="help-section__title">What PASS, REVIEW and FAIL mean</h3>
+      <p class="help-verdicts__reminder">These are the engine's <b>suggestions</b>. The disposition — Approve, Needs Correction, Reject — is always your decision.</p>
+      <div class="help-verdicts">
+        <div class="help-vrow">
+          <span class="help-vtag help-vtag--pass"><span class="ic" aria-hidden="true">✓</span>PASS</span>
+          <span class="help-vdesc">Checked automatically and matched. Nothing for you to chase — confirm if you like.</span>
+        </div>
+        <div class="help-vrow">
+          <span class="help-vtag help-vtag--review"><span class="ic" aria-hidden="true">⚠</span>REVIEW</span>
+          <span class="help-vdesc">Needs your eyes. Either a soft difference (like capitalization) or something a photo can't confirm. Your call.</span>
+        </div>
+        <div class="help-vrow">
+          <span class="help-vtag help-vtag--fail"><span class="ic" aria-hidden="true">✕</span>FAIL</span>
+          <span class="help-vdesc">A clear mismatch against the rule or the regulation. The differing text is highlighted so you can see what's wrong.</span>
+        </div>
+      </div>
+      <p class="help-note">Color is never the whole story — every status carries an icon and a word as well as a color.</p>
+    </section>
+
+    {# 4 · Keyboard power path. The single-letter global shortcuts are Story 4.10's
+       concern; this panel only documents them and owns its own scoped Esc. #}
+    <section class="help-section">
+      <h3 class="help-section__title">Keyboard shortcuts (optional)</h3>
+      <ul class="help-kbd">
+        <li><kbd>N</kbd> Next Submission</li>
+        <li><kbd>A</kbd> <kbd>C</kbd> <kbd>R</kbd> Approve · Needs Correction · Reject</li>
+        <li><kbd>&larr;</kbd> <kbd>&rarr;</kbd> Move between label image faces</li>
+        <li><kbd>?</kbd> Open Help &nbsp;·&nbsp; <kbd>Esc</kbd> Close this panel</li>
+      </ul>
+      <p class="help-search__hint">The mouse path does everything on its own — shortcuts are extra, never required.</p>
+    </section>
+
+    {# 5 · Calm no-results state — revealed by help.js only when a search yields zero
+       matches (never an error). Hidden in the static render. #}
+    <div class="help-empty" data-help-empty hidden>
+      <div class="help-empty__ico" aria-hidden="true">?</div>
+      <h3 class="help-empty__title">No matches yet for that.</h3>
+      <p class="help-empty__body">Try fewer words, or browse the common questions above. If it's about a specific check, open its "Why?" note on the Review screen.</p>
+      <div class="help-empty__examples">
+        <b>You could try</b>
+        <span>· Government Warning wording</span>
+        <span>· capitalization difference</span>
+        <span>· why a check says "couldn't verify"</span>
+      </div>
+    </div>
+  </div>
+</aside>

@@ -1299,3 +1299,327 @@ a {
   outline: 3px solid var(--brand-primary-light);
   outline-offset: 2px;
 }
+
+/* ---------- Help panel (Story 4.9) — mockups/help-panel.html ----------
+ * Right-anchored searchable slide-over, global post-auth chrome (base.html).
+ * Spine wins over the mockup's inline hex: PASS/REVIEW chips use the brand
+ * verdict tokens, NOT the mockup's softer green/amber literals. Every colour
+ * resolves to a --brand-*/--verdict-* token; all assets stay same-origin under
+ * /static (NFR-2). The chips are the ONE allowed pill use. */
+.help-scrim {
+  position: fixed;
+  inset: 0;
+  background-color: rgba(11, 29, 53, 0.42); /* --brand-primary-dark at 42% dim */
+  z-index: 900;
+}
+.help-panel {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 520px;
+  max-width: 100%;
+  background-color: var(--brand-surface);
+  border-left: 4px solid var(--brand-primary);
+  box-shadow: -12px 0 32px rgba(0, 0, 0, 0.3);
+  display: flex;
+  flex-direction: column;
+  z-index: 901;
+}
+.help-panel[hidden],
+.help-scrim[hidden] {
+  display: none;
+}
+.help-panel__head {
+  background-color: var(--brand-primary);
+  color: var(--brand-primary-foreground);
+  padding: 18px 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.help-panel__title {
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  margin: 0;
+}
+.help-panel__sub {
+  font-size: 14px;
+  color: #cdd6e0;
+  margin: 2px 0 0;
+}
+.help-panel__close {
+  flex: 0 0 auto;
+  min-width: 48px;
+  min-height: 48px;
+  background-color: transparent;
+  color: var(--brand-primary-foreground);
+  border: 1px solid var(--brand-primary-light);
+  border-radius: var(--brand-radius-sm);
+  font-size: 22px;
+  line-height: 1;
+  cursor: pointer;
+}
+.help-panel__close:hover {
+  background-color: var(--brand-primary-dark);
+}
+.help-panel__close:focus-visible {
+  outline: 4px solid var(--brand-primary-light);
+  outline-offset: 3px;
+}
+.help-panel__body {
+  padding: 24px;
+  overflow: auto;
+}
+
+/* search */
+.help-search__label {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--brand-ink);
+  margin: 0 0 8px;
+}
+.help-search__wrap {
+  display: flex;
+  border: 1px solid var(--brand-border);
+  border-radius: var(--brand-radius-sm);
+  overflow: hidden;
+}
+.help-search__input {
+  flex: 1;
+  border: 0;
+  padding: 14px 16px;
+  font-size: 18px;
+  min-height: 48px;
+  color: var(--brand-ink);
+  background-color: var(--brand-surface);
+}
+.help-search__input:focus-visible {
+  outline: 3px solid var(--brand-primary-light);
+  outline-offset: -3px;
+}
+.help-search__go {
+  background-color: var(--brand-primary);
+  color: var(--brand-primary-foreground);
+  border: 0;
+  padding: 0 22px;
+  font-size: 16px;
+  font-weight: 700;
+  min-height: 48px;
+}
+.help-search__hint {
+  font-size: 14px;
+  color: var(--brand-ink-muted);
+  margin: 8px 2px 0;
+  line-height: 1.5;
+}
+
+/* sections */
+.help-section {
+  margin-top: 28px;
+}
+.help-section__title {
+  font-size: 14px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--brand-ink-muted);
+  margin: 0 0 12px;
+  border-bottom: 1px solid var(--brand-border);
+  padding-bottom: 6px;
+}
+
+/* browsable KB */
+.help-kb {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.help-kb__item {
+  border: 1px solid var(--brand-border);
+  border-left: 4px solid var(--brand-primary-light);
+  background-color: var(--brand-surface);
+  padding: 14px 16px;
+  margin-bottom: 10px;
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+}
+.help-kb__item[hidden] {
+  display: none;
+}
+.help-kb[hidden] {
+  display: none;
+}
+.help-kb__q {
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--brand-primary);
+  margin: 0;
+}
+.help-kb__a {
+  font-size: 16px;
+  color: var(--brand-ink);
+  margin: 6px 0 0;
+  line-height: 1.5;
+}
+.help-kb__chev {
+  color: var(--brand-primary-light);
+  font-size: 20px;
+  font-weight: 700;
+  line-height: 1.2;
+  flex: 0 0 auto;
+}
+
+/* verdict explainer — icon + word + colour (the one allowed pill use) */
+.help-verdicts__reminder {
+  font-size: 15px;
+  color: var(--brand-ink);
+  margin: 0 0 12px;
+  line-height: 1.5;
+}
+.help-verdicts {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.help-vrow {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  border: 1px solid var(--brand-border);
+  padding: 12px 14px;
+  background-color: var(--brand-surface);
+}
+.help-vtag {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border-radius: var(--brand-radius-pill);
+  padding: 6px 16px;
+  font-size: 16px;
+  font-weight: 700;
+  flex: 0 0 auto;
+  min-width: 128px;
+}
+.help-vtag .ic {
+  font-size: 16px;
+}
+.help-vtag--pass {
+  background-color: var(--verdict-pass-bg);
+  color: var(--verdict-pass);
+  border: 1px solid var(--verdict-pass);
+}
+.help-vtag--review {
+  background-color: var(--verdict-review-bg);
+  color: var(--verdict-review);
+  border: 1px solid var(--verdict-review);
+}
+.help-vtag--fail {
+  background-color: var(--verdict-fail-bg);
+  color: var(--verdict-fail);
+  border: 1px solid var(--verdict-fail);
+}
+.help-vdesc {
+  font-size: 16px;
+  color: var(--brand-ink);
+  line-height: 1.45;
+}
+.help-note {
+  background-color: var(--verdict-review-bg);
+  border-left: 4px solid var(--verdict-review);
+  padding: 12px 14px;
+  font-size: 16px;
+  color: var(--brand-ink);
+  margin-top: 14px;
+  line-height: 1.5;
+}
+
+/* keyboard shortcuts */
+.help-kbd {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.help-kbd li {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 16px;
+}
+.help-kbd kbd {
+  font-family: var(--brand-font-mono);
+  font-size: 14px;
+  background-color: var(--brand-base);
+  border: 1px solid #adadad;
+  border-bottom-width: 2px;
+  padding: 3px 9px;
+  border-radius: var(--brand-radius-sm);
+  min-width: 30px;
+  text-align: center;
+  color: var(--brand-ink);
+}
+
+/* calm no-results state */
+.help-empty {
+  margin-top: 28px;
+  border: 1px dashed var(--brand-border);
+  background-color: var(--brand-base);
+  padding: 28px 22px;
+  text-align: center;
+}
+.help-empty[hidden] {
+  display: none;
+}
+.help-empty__ico {
+  width: 48px;
+  height: 48px;
+  border-radius: var(--brand-radius-pill);
+  background-color: var(--brand-primary);
+  color: var(--brand-primary-foreground);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 24px;
+  font-weight: 700;
+  margin-bottom: 12px;
+}
+.help-empty__title {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--brand-ink);
+  margin: 0 0 6px;
+}
+.help-empty__body {
+  font-size: 16px;
+  color: var(--brand-ink-muted);
+  margin: 4px auto 0;
+  max-width: 360px;
+  line-height: 1.5;
+}
+.help-empty__examples {
+  margin-top: 16px;
+  font-size: 14px;
+  color: var(--brand-primary-light);
+  text-align: left;
+  display: inline-block;
+}
+.help-empty__examples b {
+  display: block;
+  color: var(--brand-ink-muted);
+  font-weight: 700;
+  margin-bottom: 6px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-size: 12px;
+}
+.help-empty__examples span {
+  display: block;
+  padding: 3px 0;
+}
