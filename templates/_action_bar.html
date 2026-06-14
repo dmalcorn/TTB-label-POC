@@ -51,6 +51,7 @@
               class="dispo__btn {{ control.css_class }}"
               name="disposition"
               value="{{ control.key }}"
+              aria-keyshortcuts="{{ {'APPROVED': 'A', 'NEEDS_CORRECTION': 'C', 'REJECTED': 'R'}[control.key] }}"
               {% if control.key in action_bar.requires_notes_for %}data-requires-notes="true"{% endif %}>
         <span class="dispo__icon" aria-hidden="true">{{ _dispo_icon[control.key]|safe }}</span>
         {{ control.label }}

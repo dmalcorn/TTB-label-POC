@@ -23,10 +23,10 @@
   {% if image_panel.pager %}
   <nav class="image-panel__pager" aria-label="Label image paging">
     {% if image_panel.pager.prev_href %}
-    <a class="image-panel__pager-link" href="{{ image_panel.pager.prev_href }}" rel="prev">&larr; Previous</a>
+    <a class="image-panel__pager-link" href="{{ image_panel.pager.prev_href }}" rel="prev" aria-keyshortcuts="ArrowLeft">&larr; Previous</a>
     {% endif %}
     {% if image_panel.pager.next_href %}
-    <a class="image-panel__pager-link" href="{{ image_panel.pager.next_href }}" rel="next">Next &rarr;</a>
+    <a class="image-panel__pager-link" href="{{ image_panel.pager.next_href }}" rel="next" aria-keyshortcuts="ArrowRight">Next &rarr;</a>
     {% endif %}
   </nav>
   {% endif %}

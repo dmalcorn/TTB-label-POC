@@ -41,10 +41,15 @@
   </main>
 
   <script src="/static/uswds/js/uswds.min.js"></script>
-  {# Global Help slide-over enhancement (Story 4.9) — present on every post-auth
-     screen, so it lives OUTSIDE the per-page scripts block. Same-origin, no CDN;
-     search is a local DOM filter with no network call (NFR-2). #}
+  {# Global enhancements present on every post-auth screen, so they live OUTSIDE the
+     per-page scripts block. Same-origin, no CDN (NFR-2):
+       • Story 4.9 Help slide-over — search is a local DOM filter, no network call.
+       • Story 4.10 keyboard power path — a global keydown handler that DISPATCHES to the
+         existing controls (N / A,C,R / ←,→ / ? / Esc); single-letter shortcuts are inert
+         in text entry and while a modal owns focus (UX-DR-16). Loaded after help.js so the
+         [?] trigger is already wired when a ? press dispatches to it. #}
   <script src="/static/js/help.js"></script>
+  <script src="/static/js/shortcuts.js"></script>
   {# Per-screen progressive-enhancement scripts (same-origin, no CDN/build —
      NFR-2/UX-DR-6). The render is correct without these; they only add polish. #}
   {% block scripts %}{% endblock %}
