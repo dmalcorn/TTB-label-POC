@@ -74,36 +74,58 @@ def _render_queue(
     *,
     waiting: int,
     active_type: str | None = None,
+    recorded: int | None = None,
     status_code: int = 200,
 ) -> HTMLResponse:
     """Render ``queue.html`` with the (type-scoped) waiting count + the active filter.
 
     ``active_type`` is the resolved ``beverage_type`` enum (or ``None`` for Any); we
     also pass the display label so the template can mark exactly one segment pressed
-    and name the type in the per-type empty-note.
+    and name the type in the per-type empty-note. ``recorded`` is the just-decided
+    submission id (Story 4.8) — when set, the template renders the brief
+    "Recorded — Undo" banner whose Undo posts to ``/review/{recorded}/undo``.
     """
     templates = request.app.state.templates
     active_label = TYPE_TO_FILTER_LABEL.get(active_type) if active_type is not None else None
     return templates.TemplateResponse(
         request,
         "queue.html",
-        {"waiting": waiting, "active_type": active_type, "active_label": active_label},
+        {
+            "waiting": waiting,
+            "active_type": active_type,
+            "active_label": active_label,
+            "recorded": recorded,
+        },
         status_code=status_code,
     )
 
 
 @router.get("/queue", response_class=HTMLResponse)
-def queue(request: Request, type: str | None = Query(default=None)) -> Response:
+def queue(
+    request: Request,
+    type: str | None = Query(default=None),
+    recorded: int | None = Query(default=None),
+) -> Response:
     """Render the queue screen with the live "N waiting" count (read-only).
 
     With ``?type=`` set the count is scoped to that beverage type and the matching
-    segment renders pressed (sticky). Pure DB read — AR-5.
+    segment renders pressed (sticky). ``?recorded={id}`` (set by the disposition
+    redirect, Story 4.8) renders the brief "Recorded — Undo" banner for that id —
+    a non-persistent affordance that clears on the next navigation/refresh. Pure DB
+    read — AR-5.
     """
     settings = request.app.state.settings
     resolved = resolve_beverage_type(type)
     with connect(settings.database_path) as conn:
         waiting = repo.count_ready_for_review(conn, beverage_type=resolved)
-    return _render_queue(request, waiting=waiting, active_type=resolved)
+        # Gate the "Recorded — Undo" banner on a real, still-DECIDED row. `?recorded=`
+        # is an unauthenticated client-supplied id; without this check any value would
+        # render a false Undo affordance whose POST then 409s. Show it ONLY when the id
+        # names a submission that is actually DECIDED right now (so a stale `recorded`
+        # left over after an Undo, or a bogus id, silently drops the banner).
+        if recorded is not None and repo.get_status(conn, recorded) != "DECIDED":
+            recorded = None
+    return _render_queue(request, waiting=waiting, active_type=resolved, recorded=recorded)
 
 
 @router.post("/next")

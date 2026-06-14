@@ -158,11 +158,11 @@
   <span id="group-conditional" class="review-anchor" aria-hidden="true"></span>
   {% endif %}{% endfor %}
 
-  <section id="group-decide" class="review-placeholder" aria-label="Decide" tabindex="-1">
-    <span class="review-placeholder__tag">Decide</span>
-    <p class="review-placeholder__note">The disposition action bar and Notes arrive in
-      Story 4.8.</p>
-  </section>
+  {# The commit zone (Story 4.8): the Notes textarea + the three disposition controls.
+     None pre-selected — the specialist records the decision, the engine never makes it
+     (contract #4). Works without JS (a real POST form); disposition.js layers autosave
+     + soft-gate + confirm modal. #}
+  {% include "_action_bar.html" %}
 
     </div>{# .review-col-right #}
   </div>{# .work #}
@@ -176,4 +176,9 @@
    "N of M done" counter. The render is correct without it (rows are real anchors;
    the tick is a power feature). #}
 <script src="/static/js/review.js" defer></script>
+{# Disposition commit-zone enhancement (Story 4.8) — same-origin, no build. Layers the
+   Notes autosave beacon, the client soft-gate (a blank reason on Needs Correction /
+   Reject focuses the textarea instead of round-tripping), and the confirm modal on
+   top of the plain POST form. The commit works fully without it. #}
+<script src="/static/js/disposition.js" defer></script>
 {% endblock %}

@@ -120,6 +120,97 @@ def advance(
     conn.commit()
 
 
+def record_decision(
+    conn: sqlite3.Connection,
+    submission_id: int,
+    *,
+    disposition: str,
+    decided_at: str,
+    actor: str,
+    note: str | None = None,
+) -> None:
+    """Commit the human decision: flip ``IN_REVIEW → DECIDED`` AND write the decision
+    columns AND the ``DECIDED`` audit row, in one committed transaction (Story 4.8).
+
+    The forward step ``advance`` cannot own this: the schema cross-column CHECK is
+    symmetric + per-statement (``status='DECIDED'`` ⇔ ``disposition IS NOT NULL``), so
+    ``status`` and ``disposition`` MUST flip in the SAME ``UPDATE`` —
+    :func:`app.db.repositories.record_disposition` does exactly that. The claim itself
+    is the guard: that combined ``UPDATE`` is a **compare-and-swap** gated
+    ``WHERE status='IN_REVIEW'``, so the open state IS the lock — no separate
+    read-then-check (which two concurrent POSTs could both pass before either wrote,
+    letting the loser overwrite the winner). When the CAS matches zero rows the row is
+    missing, not open, or already decided ⇒ ``ValueError`` ⇒ a calm 409 from the route,
+    the first decision standing. Only on a successful claim do we write the ``DECIDED``
+    audit row and commit. ``decided_at`` is an ISO-8601 string."""
+    claimed = repo.record_disposition(
+        conn,
+        submission_id,
+        disposition=disposition,
+        decision_notes=note,
+        decided_at=decided_at,
+    )
+    if not claimed:
+        # CAS matched no row: missing, not IN_REVIEW, or already DECIDED. The connection
+        # made no change — surface ValueError so the route returns a calm 409.
+        raise ValueError(
+            f"cannot decide submission {submission_id}; not open for review "
+            "(missing, never opened, or already decided) — a disposition is recorded once"
+        )
+    repo.insert_audit_event(
+        conn,
+        submission_id=submission_id,
+        event_type="DECIDED",
+        actor=actor,
+        from_status="IN_REVIEW",
+        to_status="DECIDED",
+        note=note,
+    )
+    conn.commit()
+
+
+def reopen(
+    conn: sqlite3.Connection,
+    submission_id: int,
+    *,
+    actor: str,
+    note: str | None = None,
+) -> None:
+    """Apply the lone bounded BACKWARD transition ``DECIDED → READY_FOR_REVIEW`` (Story 4.8).
+
+    The web layer's undo (``POST /review/{id}/undo``): the ONLY backward step in the
+    whole lifecycle (Addendum A). It is intentionally NOT part of :func:`advance`
+    (forward-only, pipeline-shaped) — a sibling with its own guard. The claim itself is
+    the guard: :func:`app.db.repositories.clear_disposition` NULLs the decision columns
+    AND flips status back to ``READY_FOR_REVIEW`` in one **compare-and-swap** gated
+    ``WHERE status='DECIDED'`` (the cross-column CHECK is symmetric + per-statement, so
+    they cannot move independently). When that CAS matches zero rows the submission is
+    missing or not (or no longer) ``DECIDED`` ⇒ ``ValueError`` — undo on a non-decided
+    row is rejected, surfaced as a calm 409 by the route, never a 500, and two
+    concurrent undos cannot both win. Only on a successful claim do we record the
+    ``UNDONE`` audit row and commit. The ``review_progress`` row (ticks + draft notes)
+    is left intact so the specialist resumes where they were."""
+    claimed = repo.clear_disposition(conn, submission_id)
+    if not claimed:
+        # CAS matched no row: missing or not DECIDED. No change made — surface
+        # ValueError so the route returns a calm 409 ("nothing to undo").
+        raise ValueError(
+            f"cannot reopen submission {submission_id}; only a DECIDED submission can be "
+            "undone (DECIDED → READY_FOR_REVIEW is the single bounded backward transition)"
+        )
+
+    repo.insert_audit_event(
+        conn,
+        submission_id=submission_id,
+        event_type="UNDONE",
+        actor=actor,
+        from_status="DECIDED",
+        to_status="READY_FOR_REVIEW",
+        note=note,
+    )
+    conn.commit()
+
+
 def record_event(
     conn: sqlite3.Connection,
     submission_id: int,

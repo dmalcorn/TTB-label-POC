@@ -1116,3 +1116,186 @@ a {
   border: 1px dashed var(--brand-border);
   border-radius: var(--brand-radius-lg);
 }
+
+/* ---------- Commit zone: Notes + disposition action bar (Story 4.8) ----------
+ * Reproduces mockups/review-workspace.html lines 296–320, remapped onto the
+ * --brand-* / --verdict-* tokens. The three controls use the dispo--* accent
+ * classes (NEVER the verdict chip--* classes, AR-3 #4): the engine recommends,
+ * the specialist records. None is pre-selected (contract #4). */
+.commit {
+  margin-top: 22px;
+  background-color: var(--brand-surface);
+  border-top: 1px solid var(--brand-border);
+  box-shadow: 0 -8px 18px rgba(17, 46, 81, 0.1); /* persistent commit-zone elevation */
+  padding: 20px 24px 24px;
+}
+.commit__notes-label {
+  display: block;
+  font-weight: 700;
+  font-size: 0.9375rem;
+  margin-bottom: 6px;
+}
+.commit__reqd {
+  color: var(--verdict-fail);
+  font-weight: 700;
+  margin-left: 6px;
+  font-size: 0.8125rem;
+}
+.commit__notes-hint {
+  font-size: 0.8125rem;
+  color: var(--brand-ink-muted);
+  margin: 0 0 8px;
+}
+.commit__notes {
+  width: 100%;
+  min-height: 74px;
+  resize: vertical;
+  font-family: inherit;
+  font-size: 1rem;
+  border: 1px solid #8b8d8f;
+  border-radius: var(--brand-radius-sm);
+  padding: 10px 12px;
+  color: var(--brand-ink);
+}
+.commit__notes:focus {
+  outline: 3px solid #2491ff;
+  border-color: var(--brand-primary);
+}
+.dispo {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  margin-top: 16px;
+  align-items: center;
+}
+.dispo__btn {
+  min-height: 48px;
+  border-radius: var(--brand-radius-md);
+  font-size: 1rem;
+  font-weight: 700;
+  padding: 0 26px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background-color: var(--brand-surface);
+}
+.dispo__btn:focus-visible {
+  outline: 4px solid var(--brand-primary-light);
+  outline-offset: 2px;
+}
+/* dispo--* : disposition accents — deliberately NOT the verdict chip--* palette. */
+.dispo--approve {
+  background-color: var(--brand-primary);
+  color: var(--brand-primary-foreground);
+  border: 2px solid var(--brand-primary);
+}
+.dispo--correct {
+  background-color: var(--brand-surface);
+  color: var(--brand-primary);
+  border: 2px solid var(--brand-primary);
+}
+.dispo--reject {
+  background-color: var(--brand-surface);
+  color: var(--verdict-fail);
+  border: 2px solid var(--verdict-fail);
+}
+.dispo__hint {
+  margin-left: auto;
+  font-size: 0.8125rem;
+  color: var(--brand-ink-muted);
+  max-width: 300px;
+  text-align: right;
+}
+
+/* Confirm modal (progressive enhancement; hidden until disposition.js shows it). */
+.commit__modal {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: rgba(17, 27, 53, 0.55);
+  z-index: 100;
+  padding: 24px;
+}
+.commit__modal[hidden] {
+  display: none;
+}
+.commit__modal-card {
+  background-color: var(--brand-surface);
+  border-radius: var(--brand-radius-lg);
+  max-width: 30rem;
+  width: 100%;
+  padding: 24px;
+  box-shadow: 0 12px 40px rgba(17, 27, 53, 0.3);
+}
+.commit__modal-title {
+  margin: 0 0 12px;
+  font-size: 1.25rem;
+}
+.commit__modal-body {
+  margin: 0 0 20px;
+  color: var(--brand-ink);
+}
+.commit__modal-actions {
+  display: flex;
+  gap: 12px;
+  justify-content: flex-end;
+}
+.commit__modal-cancel,
+.commit__modal-confirm {
+  min-height: 44px;
+  border-radius: var(--brand-radius-md);
+  font-size: 1rem;
+  font-weight: 700;
+  padding: 0 20px;
+  cursor: pointer;
+}
+.commit__modal-cancel {
+  background-color: var(--brand-surface);
+  color: var(--brand-primary);
+  border: 2px solid var(--brand-primary);
+}
+.commit__modal-confirm {
+  background-color: var(--brand-primary);
+  color: var(--brand-primary-foreground);
+  border: 2px solid var(--brand-primary);
+}
+
+/* Queue "Recorded — Undo" banner (Story 4.8). A brief, calm acknowledgement shown
+   after a disposition redirect lands on /queue?recorded={id}; the Undo is a real POST
+   form so it works without JS. Civic-green surface to read as informational, not alarm. */
+.recorded {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin: 0 auto 20px;
+  max-width: 28rem;
+  padding: 12px 18px;
+  border: 1px solid var(--brand-border);
+  border-radius: var(--brand-radius-md);
+  background-color: var(--verdict-pass-bg);
+}
+.recorded__text {
+  font-weight: 600;
+  color: var(--brand-ink);
+}
+.recorded__undo {
+  margin-left: auto;
+}
+.recorded__btn {
+  min-height: 40px;
+  padding: 0 18px;
+  border: 2px solid var(--brand-primary);
+  border-radius: var(--brand-radius-md);
+  background-color: var(--brand-surface);
+  color: var(--brand-primary);
+  font-size: 0.95rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+.recorded__btn:focus-visible {
+  outline: 3px solid var(--brand-primary-light);
+  outline-offset: 2px;
+}

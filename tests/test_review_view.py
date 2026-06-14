@@ -1126,3 +1126,68 @@ def test_smart_checklist_reuses_chip_class_and_icon():
     assert by_key["net_contents"]["chip_class"] == "chip--fail"
     assert by_key["brand_name"]["icon"] == "\u2713"
     assert by_key["net_contents"]["icon"] == "\u2717"
+
+
+# ── Disposition action bar (Story 4.8) ───────────────────────────────────────
+
+
+def test_action_bar_three_controls_none_selected():
+    vm = review_view.action_bar(draft_notes=None, has_open_review=False)
+    keys = [c["key"] for c in vm["controls"]]
+    assert keys == ["APPROVED", "NEEDS_CORRECTION", "REJECTED"]
+    # None of the three controls is pre-selected / defaulted (AC1 / contract #4).
+    assert all(not c.get("selected", False) for c in vm["controls"])
+
+
+def test_action_bar_uses_dispo_classes_never_verdict_classes():
+    vm = review_view.action_bar(draft_notes=None, has_open_review=False)
+    classes = {c["key"]: c["css_class"] for c in vm["controls"]}
+    assert classes["APPROVED"] == "dispo--approve"
+    assert classes["NEEDS_CORRECTION"] == "dispo--correct"
+    assert classes["REJECTED"] == "dispo--reject"
+    # No verdict (chip--/usa-alert--) class ever leaks onto a disposition control.
+    for c in vm["controls"]:
+        blob = " ".join(str(v) for v in c.values())
+        assert "chip--" not in blob
+        assert "usa-alert--" not in blob
+
+
+def test_action_bar_emits_no_verdict_to_disposition_mapping():
+    # The view-model takes NO verdict/engine_verdict argument — there is no place to
+    # map a verdict onto a disposition. Whatever the engine verdict, the controls are
+    # identical + none-selected.
+    a = review_view.action_bar(draft_notes=None, has_open_review=False)
+    b = review_view.action_bar(draft_notes=None, has_open_review=True)
+    assert [c["key"] for c in a["controls"]] == [c["key"] for c in b["controls"]]
+    assert all(not c.get("selected", False) for c in a["controls"])
+    assert all(not c.get("selected", False) for c in b["controls"])
+
+
+def test_action_bar_requires_notes_for_correct_and_reject_only():
+    vm = review_view.action_bar(draft_notes=None, has_open_review=False)
+    assert "NEEDS_CORRECTION" in vm["requires_notes_for"]
+    assert "REJECTED" in vm["requires_notes_for"]
+    assert "APPROVED" not in vm["requires_notes_for"]
+
+
+def test_action_bar_rehydrates_draft_notes():
+    vm = review_view.action_bar(draft_notes="reset the heading to all caps", has_open_review=False)
+    assert vm["notes_value"] == "reset the heading to all caps"
+    # No draft ⇒ empty string (a textarea pre-fill, never the literal "None").
+    blank = review_view.action_bar(draft_notes=None, has_open_review=False)
+    assert blank["notes_value"] == ""
+
+
+def test_action_bar_has_open_review_passthrough():
+    assert review_view.action_bar(draft_notes=None, has_open_review=True)["has_open_review"] is True
+    assert (
+        review_view.action_bar(draft_notes=None, has_open_review=False)["has_open_review"] is False
+    )
+
+
+def test_action_bar_emits_no_disposition_is_not_a_verdict_word():
+    # The controls carry the human disposition WORDS — but never an engine verdict
+    # word (PASS/REVIEW/FAIL) as a control label (those belong to the chips).
+    vm = review_view.action_bar(draft_notes=None, has_open_review=False)
+    labels = {c["label"] for c in vm["controls"]}
+    assert labels == {"Approve", "Needs Correction", "Reject"}

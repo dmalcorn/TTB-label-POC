@@ -31,7 +31,7 @@ from collections.abc import Iterable
 from difflib import SequenceMatcher
 from typing import cast
 
-from app import verdict
+from app import disposition, verdict
 from app.db.repositories import ChecklistItem, FieldComparison, LabelImage
 
 # ── Beverage-type banner (DESIGN.md beverage accents) ────────────────────────
@@ -906,3 +906,63 @@ def image_panel(
         "enhanced": enhanced,
         "pager": pager,
     }
+
+
+# ── Disposition action bar (Story 4.8) ───────────────────────────────────────
+# The human-decision register lives in ``app.disposition`` (contract #4) — the ONE
+# home for the three values. This presenter renders their controls; it takes NO
+# verdict / engine_verdict argument, so there is structurally NO place to map an
+# engine verdict onto a disposition or to pre-select a control. The engine
+# recommends (the Suggested alert / chips); the specialist records (these buttons).
+DISPOSITION_LABEL: dict[str, str] = {
+    disposition.APPROVED: "Approve",
+    disposition.NEEDS_CORRECTION: "Needs Correction",
+    disposition.REJECTED: "Reject",
+}
+# Disposition controls use ``dispo--*`` classes — NEVER the verdict ``chip--*``
+# classes (AR-3 #4). A verdict→disposition class reuse here is a review finding.
+DISPOSITION_CSS_CLASS: dict[str, str] = {
+    disposition.APPROVED: "dispo--approve",
+    disposition.NEEDS_CORRECTION: "dispo--correct",
+    disposition.REJECTED: "dispo--reject",
+}
+
+
+def action_bar(*, draft_notes: str | None, has_open_review: bool) -> dict[str, object]:
+    """The commit action-bar view-model (Story 4.8 AC1/AC2).
+
+    Returns the three disposition controls in their fixed order
+    (``APPROVED`` → ``NEEDS_CORRECTION`` → ``REJECTED``), with NONE pre-selected —
+    the engine never makes the call (contract #4 / AR-3 #4). Each control carries its
+    human WORD label and its ``dispo--*`` accent class (never a verdict ``chip--*``
+    class). ``requires_notes_for`` names the two dispositions whose Notes are
+    mandatory (the soft-gate is enforced server-side in the route; this just labels
+    the field). ``notes_value`` rehydrates the autosaved draft (never the literal
+    "None"). ``has_open_review`` is passed through for the confirm-modal copy."""
+    controls = [
+        {
+            "key": value,
+            "label": DISPOSITION_LABEL[value],
+            "css_class": DISPOSITION_CSS_CLASS[value],
+        }
+        for value in disposition.DISPOSITIONS
+    ]
+    return {
+        "controls": controls,
+        "requires_notes_for": disposition.NEEDS_NOTES,
+        "notes_value": draft_notes or "",
+        "has_open_review": has_open_review,
+    }
+
+
+def checklist_has_open(checklist: dict[str, object]) -> bool:
+    """Whether the smart-checklist (Story 4.6) still has an un-done row.
+
+    Reuses the already-built :func:`smart_checklist` roll-up (``done_count`` < ``total``)
+    so the confirm-modal copy can never disagree with the checklist counter — and we
+    never re-walk the rows or re-query. Owns the ``object``→``int`` narrowing at this
+    boundary so the route stays type-clean. An empty checklist (``total == 0``) reads as
+    no open review. This is advisory copy only — it NEVER blocks the commit (AC2)."""
+    done = cast(int, checklist["done_count"])
+    total = cast(int, checklist["total"])
+    return done < total

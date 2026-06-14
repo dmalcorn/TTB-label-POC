@@ -801,3 +801,107 @@ def set_check_tick(
         "ticked_check_keys = excluded.ticked_check_keys, updated_at = CURRENT_TIMESTAMP",
         (submission_id, encoded),
     )
+
+
+def get_draft_notes(conn: sqlite3.Connection, submission_id: int) -> str | None:
+    """Read a submission's in-progress draft Notes (``review_progress.draft_notes``).
+
+    The Story-4.8 Notes autosave layer, rehydrated by the AR-5-pure
+    ``GET /review/{id}`` into the textarea so a mid-review reload keeps the typed
+    reason. ``None`` when no ``review_progress`` row exists yet."""
+    progress = get_review_progress(conn, submission_id)
+    return progress.draft_notes if progress is not None else None
+
+
+def set_draft_notes(
+    conn: sqlite3.Connection,
+    submission_id: int,
+    *,
+    draft_notes: str | None,
+) -> None:
+    """Upsert a submission's in-progress draft Notes (Story 4.8, AR-14).
+
+    Mirrors :func:`set_check_tick`'s ``ON CONFLICT(submission_id)`` upsert but
+    writes only ``draft_notes`` — PRESERVING any existing ``ticked_check_keys`` (the
+    new row defaults the array to ``'[]'`` only when it did not exist). Bumps
+    ``updated_at``. A manual draft is an in-progress reason — NEVER a disposition
+    (contract #4). The caller commits (``connect()`` commits on clean exit)."""
+    conn.execute(
+        "INSERT INTO review_progress (submission_id, draft_notes, updated_at) "
+        "VALUES (?, ?, CURRENT_TIMESTAMP) "
+        "ON CONFLICT(submission_id) DO UPDATE SET "
+        "draft_notes = excluded.draft_notes, updated_at = CURRENT_TIMESTAMP",
+        (submission_id, draft_notes),
+    )
+
+
+# ── disposition write helpers (Story 4.8) ────────────────────────────────────
+# The web layer's ONLY writes to the human-decision columns: `disposition`,
+# `decided_at`, `decision_notes`, `correction_due_at`. These NEVER touch the
+# pipeline-owned engine columns (`engine_verdict` / `checklist_items` / comparisons)
+# — contract #4 / pipeline-is-only-writer. Each flips `status` and the decision
+# columns TOGETHER in one statement (the cross-column CHECK is symmetric +
+# per-statement, so they cannot be set independently); the matching audit row + the
+# commit are owned by `app/pipeline/status.py` (`record_decision` on DECIDED,
+# `reopen` on UNDONE). These helpers DO NOT commit.
+
+
+def record_disposition(
+    conn: sqlite3.Connection,
+    submission_id: int,
+    *,
+    disposition: str,
+    decision_notes: str | None,
+    decided_at: str,
+) -> bool:
+    """Atomically commit the human decision: set ``status='DECIDED'`` AND the three
+    decision columns in ONE ``UPDATE`` (Story 4.8, AC3).
+
+    The schema cross-column CHECK is symmetric and evaluated **per-statement** in
+    SQLite — ``(status='DECIDED' ⇒ disposition NOT NULL)`` AND ``(status<>'DECIDED' ⇒
+    disposition NULL)``. So neither ``status`` nor ``disposition`` can be set on its
+    own without tripping the other branch; they MUST flip together in a single
+    statement. The status lifecycle move is therefore co-located here, with the audit
+    row written by ``status.record_decision`` on the same connection. ``decided_at`` is
+    an ISO-8601 string (the as-filed storage convention). Does NOT commit.
+
+    The UPDATE is a **compare-and-swap**: it fires only ``WHERE status='IN_REVIEW'`` so
+    the row's open state IS the claim — collapsing the caller's check-then-act into one
+    atomic statement. Two concurrent dispositions on the same row can no longer both
+    win: the loser's UPDATE matches zero rows (the winner already flipped it off
+    ``IN_REVIEW``). Returns ``True`` iff exactly the open row was claimed; ``False``
+    means it was missing or no longer ``IN_REVIEW`` (already decided / never opened) —
+    the caller turns that into a calm 409, the first decision standing."""
+    cur = conn.execute(
+        "UPDATE submissions SET status = 'DECIDED', disposition = ?, "
+        "decision_notes = ?, decided_at = ? WHERE id = ? AND status = 'IN_REVIEW'",
+        (disposition, decision_notes, decided_at, submission_id),
+    )
+    return cur.rowcount == 1
+
+
+def clear_disposition(conn: sqlite3.Connection, submission_id: int) -> bool:
+    """Atomically undo the decision: NULL the human decision columns AND flip
+    ``status`` back to ``READY_FOR_REVIEW`` in ONE ``UPDATE`` (Story 4.8 undo, AC4).
+
+    Clears ``disposition`` / ``decided_at`` / ``decision_notes`` AND
+    ``correction_due_at`` (the deadline is only valid for ``NEEDS_CORRECTION`` per the
+    schema CHECK, so it must clear with the disposition). Because the cross-column
+    CHECK is symmetric + per-statement, the ``status`` move back to ``READY_FOR_REVIEW``
+    is co-located in this single statement (the audit ``UNDONE`` row is written by
+    ``status.reopen`` on the same connection). The ``review_progress`` row (ticks +
+    draft notes) is deliberately UNTOUCHED — the undo reopens with the prior progress
+    restored. Does NOT commit.
+
+    The UPDATE is a **compare-and-swap** gated ``WHERE status='DECIDED'`` so the undo
+    claims the decided row atomically — two concurrent undos cannot both succeed, and
+    an undo of a row that is not (or no longer) ``DECIDED`` matches zero rows. Returns
+    ``True`` iff the decided row was claimed; ``False`` means missing or not
+    ``DECIDED`` — the caller surfaces a calm 409."""
+    cur = conn.execute(
+        "UPDATE submissions SET status = 'READY_FOR_REVIEW', disposition = NULL, "
+        "decided_at = NULL, decision_notes = NULL, correction_due_at = NULL "
+        "WHERE id = ? AND status = 'DECIDED'",
+        (submission_id,),
+    )
+    return cur.rowcount == 1

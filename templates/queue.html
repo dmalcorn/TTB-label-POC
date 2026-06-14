@@ -36,6 +36,19 @@
   <h1 class="queue__title">No submissions waiting right now.</h1>
   {% endif %}
 
+  {# "Recorded — Undo" banner (Story 4.8). Rendered ONLY when the disposition redirect
+     lands here with `?recorded={id}` — a brief, non-persistent affordance that clears on
+     the next navigation/refresh (it is never stored). Undo is a real POST form to
+     `/review/{id}/undo`, so the single bounded backward transition works WITHOUT JS. #}
+  {% if recorded is not none %}
+  <div class="recorded" role="status">
+    <span class="recorded__text">Decision recorded.</span>
+    <form method="post" action="/review/{{ recorded }}/undo" class="recorded__undo">
+      <button type="submit" class="recorded__btn">Undo</button>
+    </form>
+  </div>
+  {% endif %}
+
   {# The single Next Submission POST form. The segmented filter lives INSIDE it so
      the primary button and the type submits share one action — JS-free. The active
      `type` rides along on the primary submit via a hidden field so the selection is

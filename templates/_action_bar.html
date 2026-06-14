@@ -1,0 +1,77 @@
+{#
+  Disposition action bar + Notes (Story 4.8) — the commit zone.
+
+  Rendered from the ``action_bar`` view-model (app/web/review_view.py:action_bar).
+  Reproduces mockups/review-workspace.html lines 556–568 with brand-prefixed BEM
+  classes (``commit``/``commit__*``/``dispo``/``dispo--*``), NOT the mockup's bare
+  ``commit``/``btn approve``. The three controls carry the human disposition WORDS
+  and the ``dispo--*`` accent classes — NEVER the engine verdict ``chip--*`` classes
+  (AR-3 #4): the engine recommends (the Suggested alert / chips), the specialist
+  records (these buttons). NONE is pre-selected (contract #4).
+
+  One real ``<form method="post">`` posts to ``/review/{id}/disposition``: the shared
+  ``notes`` textarea + three ``<button name="disposition" value="…">`` submits, so the
+  whole zone works WITHOUT JS (a button click submits the form, the server enforces
+  the Needs-Correction/Reject soft-gate and redirects to the queue). ``disposition.js``
+  layers on the autosave beacon, the client soft-gate, and the confirm modal.
+
+  The required-notes glyph maps by disposition KEY here (the view-model carries the
+  WORD + class; the icon is pure presentation, mockup-verbatim).
+#}
+{% set _dispo_icon = {
+  "APPROVED": "&#10003;",
+  "NEEDS_CORRECTION": "&#8617;",
+  "REJECTED": "&#10007;"
+} %}
+<section id="group-decide" class="commit" aria-label="Decide" tabindex="-1">
+  <form class="commit__form"
+        method="post"
+        action="/review/{{ submission.id }}/disposition"
+        data-disposition-form
+        data-progress-url="/review/{{ submission.id }}/progress"
+        data-has-open-review="{{ 'true' if action_bar.has_open_review else 'false' }}">
+
+    <label class="commit__notes-label" for="decision-notes">
+      Notes to the maker
+      <span class="commit__reqd">required for Needs Correction / Reject</span>
+    </label>
+    <p class="commit__notes-hint" id="decision-notes-hint">
+      A correction or rejection needs a plain-language reason the maker can act on.
+    </p>
+    <textarea id="decision-notes"
+              class="commit__notes"
+              name="notes"
+              aria-describedby="decision-notes-hint"
+              placeholder="e.g. The mandatory GOVERNMENT WARNING lead-in must appear in capital letters exactly as written in 27 CFR &sect;16.21. Please reset the heading to all caps and resubmit."
+    >{{ action_bar.notes_value }}</textarea>
+
+    <div class="dispo">
+      {% for control in action_bar.controls %}
+      <button type="submit"
+              class="dispo__btn {{ control.css_class }}"
+              name="disposition"
+              value="{{ control.key }}"
+              {% if control.key in action_bar.requires_notes_for %}data-requires-notes="true"{% endif %}>
+        <span class="dispo__icon" aria-hidden="true">{{ _dispo_icon[control.key]|safe }}</span>
+        {{ control.label }}
+      </button>
+      {% endfor %}
+      <span class="dispo__hint">None pre-selected &mdash; the engine recommends, you record the decision.</span>
+    </div>
+  </form>
+
+  {# Confirm modal scaffold (progressive enhancement). Hidden by default; the same
+     three submits work without it. disposition.js shows it before a commit with an
+     open review or a destructive disposition, then re-submits the captured choice. #}
+  <div class="commit__modal" data-disposition-modal hidden>
+    <div class="commit__modal-card" role="dialog" aria-modal="true"
+         aria-labelledby="commit-modal-title">
+      <h2 class="commit__modal-title" id="commit-modal-title" data-modal-title>Record this decision?</h2>
+      <p class="commit__modal-body" data-modal-body></p>
+      <div class="commit__modal-actions">
+        <button type="button" class="commit__modal-cancel" data-modal-cancel>Keep reviewing</button>
+        <button type="button" class="commit__modal-confirm" data-modal-confirm>Record decision</button>
+      </div>
+    </div>
+  </div>
+</section>
