@@ -742,3 +742,121 @@ a {
   font-weight: 700;
   color: var(--brand-ink);
 }
+
+/* ── Government Warning comparison card (Story 4.5) ───────────────────────────
+ * The required §16.21 statute stacked ABOVE the on-label OCR text (vertical, never
+ * side-by-side), with a character diff when reworded. The left accent + chip tint
+ * resolve to the shared --verdict-* tokens so the card can never disagree with the
+ * engine register. Reuses the .chip / .diff-* / .mono rules above (NOT duplicated).
+ * Spine wins over the mockup's inline hex; the mono text is ≥16px (older-eyes floor —
+ * the mockup's 14px .gwtext is below the spine floor). */
+.gov-warning-group {
+  margin: 20px 0 0;
+}
+.gov-warning-group__empty {
+  color: var(--brand-ink-muted);
+  font-size: 15px;
+  margin: 0;
+}
+
+.gov-warning {
+  border: 1px solid var(--brand-border);
+  border-left: 4px solid var(--brand-border);
+  border-radius: var(--brand-radius-md);
+  background-color: var(--brand-surface);
+  padding: 14px 16px;
+  margin: 0;
+}
+/* the left accent encodes the outcome; the chip + word still carry the meaning. */
+.gov-warning--reworded,
+.gov-warning--absent {
+  border-left-color: var(--verdict-fail);
+  background-color: var(--verdict-fail-bg);
+}
+.gov-warning--couldnt_verify {
+  border-left-color: var(--verdict-review);
+  background-color: var(--verdict-review-bg);
+}
+.gov-warning--pass {
+  border-left-color: var(--verdict-pass);
+}
+
+.gov-warning__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+.gov-warning__label {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--brand-ink);
+  margin: 0;
+}
+.gov-warning__cfr {
+  display: block;
+  font-size: 13px;
+  color: var(--brand-ink-muted);
+  margin-top: 2px;
+}
+
+/* the vertical required-over-onlabel stack. */
+.gov-warning__block {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 8px 0 0;
+}
+.gov-warning__lab {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--brand-ink-muted);
+  margin-bottom: 4px;
+}
+.gov-warning__lab--req {
+  color: var(--verdict-review);
+}
+/* the mono boxed warning text — ≥16px so the warning is readable (older-eyes floor). */
+.gov-warning__text {
+  font-size: 16px;
+  line-height: 1.5;
+  color: var(--brand-ink);
+  background-color: #fff;
+  border: 1px solid var(--brand-border);
+  border-radius: var(--brand-radius-sm);
+  padding: 10px 12px;
+  word-break: break-word;
+}
+
+.gov-warning__note {
+  font-size: 14px;
+  color: var(--brand-ink-muted);
+  margin: 8px 0 0;
+}
+
+/* "Why?" disclosure: collapsed by default, carries the CFR citation (data), the
+ * engine deviation rationale, and that it is a deterministic check (no LLM). */
+.gov-warning__why {
+  margin-top: 10px;
+}
+.gov-warning__why-summary {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--brand-ink-muted);
+  cursor: pointer;
+}
+.gov-warning__why-body {
+  margin-top: 6px;
+  font-size: 14px;
+  color: var(--brand-ink-muted);
+}
+.gov-warning__why-body p {
+  margin: 2px 0;
+}
+.gov-warning__why-cite {
+  font-weight: 700;
+  color: var(--brand-ink);
+}

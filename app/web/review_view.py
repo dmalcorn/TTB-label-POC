@@ -26,6 +26,7 @@ carried as DATA (``CHECK_KEY_STEP``) so a ruleset change is a data edit, not log
 
 from __future__ import annotations
 
+import json
 from collections.abc import Iterable
 from difflib import SequenceMatcher
 from typing import cast
@@ -412,3 +413,222 @@ def field_cards(
 
     cards.sort(key=lambda c: cast(int, c["sort_rank"]))  # stable: ties keep id (ruleset) order
     return cards
+
+
+# ── Government Warning comparison card (Story 4.5) ───────────────────────────
+# The Government Warning is NOT a field comparison — it has no field_comparisons
+# row (the "required" side is the §16.21 statute, not an application field). The
+# Story-3.4 deterministic evaluator already discriminated the three outcomes and
+# wrote them into the single ``government_warning`` checklist_items row as a JSON
+# ``detail`` payload with an ``outcome`` discriminator. This presenter PARSES that
+# payload and dispatches on the outcome — it NEVER re-runs the §16.21 comparison,
+# never re-types the warning text, never imports the check module (AR-5). The
+# char-diff renders the engine's already-stored opcodes (pure presentation).
+
+# The strategy/key the Story-3.4 evaluator writes its row under.
+_GOV_WARNING_KEY = "government_warning"
+
+# Engine outcome discriminators (mirror app/engine/checks/government_warning.py).
+_GW_OUTCOME_PASS = "pass"
+_GW_OUTCOME_REWORDED = "reworded"
+_GW_OUTCOME_ABSENT = "absent"
+_GW_OUTCOME_COULDNT_VERIFY = "couldnt_verify"
+
+# verdict → Government-Warning chip word. The field-card map says "match" for PASS;
+# the gov-warning card is not a field-match, so it uses the verdict word itself.
+_GW_CHIP_WORD: dict[str, str] = {
+    verdict.PASS: "PASS",
+    verdict.REVIEW: "REVIEW",
+    verdict.FAIL: "FAIL",
+}
+
+# State-pattern copy (verbatim — EXPERIENCE.md / AC2). Carried as data so a wording
+# change is a single-line edit, never scattered template logic.
+_GW_ABSENT_NOTE = "Required Government Warning not found on the submitted images"
+_GW_COULDNT_VERIFY_NOTE = (
+    "Couldn't confirm the bold/visual styling from a photo — please verify by eye."
+)
+
+
+def _gw_diff_text_equivalent(expected: str, found: str) -> str:
+    """Screen-reader text equivalent for the gov-warning char-diff (A11Y).
+
+    Mirrors :func:`_diff_text_equivalent` but prefixes ``Required:`` (the §16.21
+    statute side) instead of ``Application:`` — the diff is never conveyed by a
+    colored span alone, and this survives forced-colors mode."""
+    return f"Required: {expected!r} — on label: {found!r}"
+
+
+def _gw_diff_spans(
+    diff_opcodes: object,
+) -> tuple[list[dict[str, str]], list[dict[str, str]]]:
+    """Render the engine's stored char-diff opcodes into required/on-label spans.
+
+    The engine's ``_char_diff`` emitted ``[(op, segment), …]`` (JSON round-trips
+    each tuple as a 2-element list) where ``op ∈ {equal, delete, insert, replace}``.
+    Builds two span sequences (``[{"text","kind"}]``, ``kind ∈ {equal, del, ins}``):
+    ``delete`` → a ``del`` on the required side; ``insert`` → an ``ins`` on the
+    on-label side; ``equal`` → both; ``replace`` (``"<exp>\u2192<found>"``) → a
+    ``del`` on required + an ``ins`` on on-label (split on the U+2192 arrow the
+    engine embedded). Pure render of pre-computed data — no diff re-run."""
+    required: list[dict[str, str]] = []
+    onlabel: list[dict[str, str]] = []
+    if not isinstance(diff_opcodes, list):
+        return required, onlabel
+    for pair in diff_opcodes:
+        # Each opcode is a 2-element [op, segment]; ignore anything malformed.
+        if not isinstance(pair, (list, tuple)) or len(pair) != 2:
+            continue
+        op, segment = pair[0], pair[1]
+        if not isinstance(op, str) or not isinstance(segment, str):
+            continue
+        if op == "equal":
+            required.append({"text": segment, "kind": "equal"})
+            onlabel.append({"text": segment, "kind": "equal"})
+        elif op == "delete":
+            required.append({"text": segment, "kind": "del"})
+        elif op == "insert":
+            onlabel.append({"text": segment, "kind": "ins"})
+        elif op == "replace":
+            expected_part, _, found_part = segment.partition("\u2192")
+            if expected_part:
+                required.append({"text": expected_part, "kind": "del"})
+            if found_part:
+                onlabel.append({"text": found_part, "kind": "ins"})
+    return required, onlabel
+
+
+def _gw_card(
+    item: ChecklistItem,
+    *,
+    outcome: str,
+    vdt: str,
+    cfr_citation: str | None,
+    required_text: str | None = None,
+    onlabel_text: str | None = None,
+    diff_required: list[dict[str, str]] | None = None,
+    diff_onlabel: list[dict[str, str]] | None = None,
+    diff_text_equivalent: str | None = None,
+    note: str | None = None,
+    deviation: str | None = None,
+) -> dict[str, object]:
+    """Assemble the gov-warning card view-model with the chip pinned to the verdict.
+
+    Verdict is the engine's stored value — never recomputed (contract #3); the
+    outcome only selects the visual STATE. The chip word/icon/class come from the
+    data maps so icon + word are ALWAYS present (A11Y: never tint alone)."""
+    return {
+        "verdict": vdt,
+        "chip_class": _CHIP_CLASS.get(vdt, "chip--review"),
+        "icon": _ALERT_ICON.get(vdt, "!"),
+        "chip_word": _GW_CHIP_WORD.get(vdt, "REVIEW"),
+        "outcome": outcome,
+        "cfr_citation": cfr_citation,
+        "required_text": required_text,
+        "onlabel_text": onlabel_text,
+        "diff_required": diff_required,
+        "diff_onlabel": diff_onlabel,
+        "diff_text_equivalent": diff_text_equivalent,
+        "note": note,
+        "deviation": deviation,
+        "detail": item.detail,
+    }
+
+
+def government_warning_card(items: Iterable[ChecklistItem]) -> dict[str, object] | None:
+    """Build the Government Warning comparison card from the engine's stored row.
+
+    Locates the single ``government_warning`` ``checklist_items`` row and parses its
+    JSON ``detail`` payload (the Story-3.4 evaluator wrote it). Dispatches on the
+    ``outcome`` discriminator — never re-running the §16.21 comparison (AR-5). Returns
+    ``None`` when no such row exists (the template renders the honest empty state — do
+    NOT fabricate a card). A missing / garbled ``detail`` degrades to a calm REVIEW
+    card (honest, never a crash, never a silent PASS).
+
+    The per-card verdict is the engine's already-stored ``checklist_items.verdict`` —
+    never recomputed (contract #3); the citation comes from the row (CFR-as-data),
+    falling back to the payload when the row column is null. The required §16.21 text
+    comes ONLY from the parsed payload — never re-typed here."""
+    row: ChecklistItem | None = next((i for i in items if i.check_key == _GOV_WARNING_KEY), None)
+    if row is None:
+        return None
+
+    vdt = row.verdict or verdict.REVIEW
+
+    # Parse the engine payload defensively — a missing/garbled detail degrades to a
+    # couldn't-verify-style REVIEW (honest; never crash, never a silent PASS).
+    try:
+        payload = json.loads(row.detail) if row.detail else None
+    except (json.JSONDecodeError, TypeError):
+        payload = None
+    if not isinstance(payload, dict):
+        return _gw_card(
+            row,
+            outcome=_GW_OUTCOME_COULDNT_VERIFY,
+            vdt=verdict.REVIEW,
+            cfr_citation=row.cfr_citation,
+            note=_GW_COULDNT_VERIFY_NOTE,
+        )
+
+    # CFR citation from the row (ruleset data), payload as fallback — never a literal.
+    cfr_citation = row.cfr_citation or payload.get("cfr_citation")
+    outcome = payload.get("outcome")
+
+    if outcome == _GW_OUTCOME_REWORDED:
+        required_text = payload.get("expected")
+        onlabel_text = payload.get("found")
+        diff_required, diff_onlabel = _gw_diff_spans(payload.get("diff"))
+        diff_text_equivalent = _gw_diff_text_equivalent(required_text or "", onlabel_text or "")
+        return _gw_card(
+            row,
+            outcome=_GW_OUTCOME_REWORDED,
+            vdt=vdt,
+            cfr_citation=cfr_citation,
+            required_text=required_text,
+            onlabel_text=onlabel_text,
+            diff_required=diff_required or None,
+            diff_onlabel=diff_onlabel or None,
+            diff_text_equivalent=diff_text_equivalent,
+            deviation=payload.get("deviation"),
+        )
+
+    if outcome == _GW_OUTCOME_ABSENT:
+        return _gw_card(
+            row,
+            outcome=_GW_OUTCOME_ABSENT,
+            vdt=vdt,
+            cfr_citation=cfr_citation,
+            note=_GW_ABSENT_NOTE,
+        )
+
+    if outcome == _GW_OUTCOME_COULDNT_VERIFY:
+        return _gw_card(
+            row,
+            outcome=_GW_OUTCOME_COULDNT_VERIFY,
+            vdt=vdt,
+            cfr_citation=cfr_citation,
+            note=_GW_COULDNT_VERIFY_NOTE,
+        )
+
+    if outcome == _GW_OUTCOME_PASS:
+        # The quiet compliant state. The engine's ``pass`` payload carries NO on-label
+        # text (only the outcome + citation) and AR-5 forbids re-reading OCR here, so
+        # the card shows the chip + "Why?" with no required/on-label stack.
+        return _gw_card(
+            row,
+            outcome=_GW_OUTCOME_PASS,
+            vdt=vdt,
+            cfr_citation=cfr_citation,
+        )
+
+    # A missing or UNKNOWN ``outcome`` on an otherwise-valid dict is ambiguous — fold it
+    # to the honest couldn't-verify REVIEW (never silent-PASS a check we can't classify),
+    # matching the codebase's ambiguity⇒REVIEW fail-safe (``verdict.rollup`` and the
+    # malformed-payload path above both degrade to REVIEW, never the most-reassuring state).
+    return _gw_card(
+        row,
+        outcome=_GW_OUTCOME_COULDNT_VERIFY,
+        vdt=verdict.REVIEW,
+        cfr_citation=cfr_citation,
+        note=_GW_COULDNT_VERIFY_NOTE,
+    )

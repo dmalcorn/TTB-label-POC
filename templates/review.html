@@ -107,10 +107,21 @@
     {% endif %}
   </section>
 
-  <section id="group-gov-warning" class="review-placeholder" aria-label="Government Warning">
-    <span class="review-placeholder__tag">Gov. Warning</span>
-    <p class="review-placeholder__note">The Government Warning comparison card arrives in
-      Story 4.5.</p>
+  {# ── Government Warning comparison card (Story 4.5) ─────────────────────────
+     The required §16.21 statute vs the on-label OCR text, with a character diff
+     when reworded. Three never-conflated outcomes (the engine discriminated them):
+     reworded ⇒ FAIL + char-diff; absent ⇒ FAIL + plain copy (NO diff against
+     empty); couldn't-verify ⇒ REVIEW (never a silent PASS, never red); a compliant
+     warning ⇒ the quiet PASS. The card is the engine register only (chip + diff +
+     note), never a disposition. When the submission has no government_warning row
+     the block renders a calm honest empty state. The chevron ③ anchor resolves to
+     this section. #}
+  <section id="group-gov-warning" class="gov-warning-group" aria-label="Government Warning">
+    {% if gov_warning %}
+    {% include "_gov_warning_card.html" %}
+    {% else %}
+    <p class="gov-warning-group__empty">The Government Warning check has not run for this submission.</p>
+    {% endif %}
   </section>
 
   {% for step in chevron %}{% if step.label == 'Conditional' %}

@@ -700,3 +700,219 @@ def test_field_cards_emit_no_disposition_word():
     blob = " ".join(str(v) for v in card.values()).lower()
     for disposition in ("approved", "needs_correction", "rejected", "needs correction"):
         assert disposition not in blob
+
+
+# ── Government Warning comparison card (Story 4.5) ────────────────────────────
+# The card reads the single ``government_warning`` checklist row and parses its
+# engine-written JSON ``detail`` payload (outcome discriminator). It is NOT a
+# field_comparisons card. The presenter dispatches on the stored outcome and
+# renders the engine's already-computed char-diff opcodes (pure render, AR-5).
+
+import json  # noqa: E402  (kept local to the gov-warning block for readability)
+
+_GW_CITATION = "27 CFR 16.21"
+
+
+def _gw_item(detail: str | None, vdt: str, *, cfr_citation: str | None = _GW_CITATION):
+    """A ``government_warning`` checklist row (no field_comparison_id — it is not a
+    field card; the 'required' side is the §16.21 statute in the engine payload)."""
+    return _item(
+        "government_warning",
+        vdt,
+        check_type="MANUAL",
+        item_id=99,
+        field_comparison_id=None,
+        label="Government Warning",
+        cfr_citation=cfr_citation,
+        detail=detail,
+    )
+
+
+def _pass_detail() -> str:
+    return json.dumps({"outcome": "pass", "cfr_citation": _GW_CITATION})
+
+
+def _reworded_detail() -> str:
+    # The engine's _char_diff emits (op, segment); JSON round-trips tuples as
+    # 2-element lists. A ``replace`` segment is "<expected>\u2192<found>".
+    return json.dumps(
+        {
+            "outcome": "reworded",
+            "deviation": "header casing: expected 'GOVERNMENT WARNING:'",
+            "expected": "GOVERNMENT WARNING: text",
+            "found": "Government Warning: text",
+            "diff": [
+                ["replace", "GOVERNMENT WARNING\u2192Government Warning"],
+                ["equal", ": text"],
+            ],
+            "cfr_citation": _GW_CITATION,
+        }
+    )
+
+
+def _absent_detail() -> str:
+    return json.dumps(
+        {
+            "outcome": "absent",
+            "message": "Government Warning not found on any label",
+            "cfr_citation": _GW_CITATION,
+        }
+    )
+
+
+def _couldnt_verify_detail() -> str:
+    return json.dumps(
+        {
+            "outcome": "couldnt_verify",
+            "message": "couldn't verify bold/visual styling from a photo",
+            "cfr_citation": _GW_CITATION,
+        }
+    )
+
+
+def test_gov_warning_card_none_when_no_row():
+    """No government_warning checklist row ⇒ None (template renders honest empty)."""
+    items = [_item("brand_name", "PASS", field_comparison_id=10)]
+    assert review_view.government_warning_card(items) is None
+
+
+def test_gov_warning_card_pass_quiet_no_diff():
+    card = review_view.government_warning_card([_gw_item(_pass_detail(), "PASS")])
+    assert card is not None
+    assert card["verdict"] == verdict.PASS
+    assert card["chip_class"] == "chip--pass"
+    assert card["chip_word"] == "PASS"
+    assert card["outcome"] == "pass"
+    assert card["diff_required"] is None
+    assert card["diff_onlabel"] is None
+    assert card["note"] is None
+
+
+def test_gov_warning_card_reworded_fail_carries_char_diff():
+    card = review_view.government_warning_card([_gw_item(_reworded_detail(), "FAIL")])
+    assert card is not None
+    assert card["verdict"] == verdict.FAIL
+    assert card["chip_class"] == "chip--fail"
+    assert card["chip_word"] == "FAIL"
+    assert card["outcome"] == "reworded"
+    assert card["required_text"] == "GOVERNMENT WARNING: text"
+    assert card["onlabel_text"] == "Government Warning: text"
+
+    # A ``replace`` opcode → a del on the required side + an ins on the on-label side.
+    req_kinds = [seg["kind"] for seg in card["diff_required"]]
+    onlabel_kinds = [seg["kind"] for seg in card["diff_onlabel"]]
+    assert "del" in req_kinds
+    assert "ins" in onlabel_kinds
+    assert "equal" in req_kinds and "equal" in onlabel_kinds
+    # required side carries the expected ("GOVERNMENT WARNING") fragment, on-label the found.
+    req_text = "".join(seg["text"] for seg in card["diff_required"])
+    onlabel_text = "".join(seg["text"] for seg in card["diff_onlabel"])
+    assert req_text == "GOVERNMENT WARNING: text"
+    assert onlabel_text == "Government Warning: text"
+    # A11Y text equivalent names both sides.
+    assert card["diff_text_equivalent"]
+    assert "GOVERNMENT WARNING: text" in card["diff_text_equivalent"]
+    assert "Government Warning: text" in card["diff_text_equivalent"]
+
+
+def test_gov_warning_card_absent_fail_plain_no_diff():
+    card = review_view.government_warning_card([_gw_item(_absent_detail(), "FAIL")])
+    assert card is not None
+    assert card["verdict"] == verdict.FAIL
+    assert card["chip_word"] == "FAIL"
+    assert card["outcome"] == "absent"
+    assert card["diff_required"] is None
+    assert card["diff_onlabel"] is None
+    assert card["required_text"] is None
+    assert card["onlabel_text"] is None
+    assert card["note"] == "Required Government Warning not found on the submitted images"
+
+
+def test_gov_warning_card_couldnt_verify_review_no_diff():
+    card = review_view.government_warning_card([_gw_item(_couldnt_verify_detail(), "REVIEW")])
+    assert card is not None
+    assert card["verdict"] == verdict.REVIEW
+    assert card["chip_class"] == "chip--review"
+    assert card["chip_word"] == "REVIEW"
+    assert card["outcome"] == "couldnt_verify"
+    assert card["diff_required"] is None
+    assert card["diff_onlabel"] is None
+    assert card["note"]
+    assert "verify" in card["note"].lower()
+
+
+def test_gov_warning_card_malformed_detail_degrades_to_review():
+    """A non-JSON / garbled detail degrades to a REVIEW card — no crash, no silent PASS."""
+    card = review_view.government_warning_card([_gw_item("not-json{", "FAIL")])
+    assert card is not None
+    # Honest degrade: never a silent PASS; renders the couldn't-verify-style REVIEW.
+    assert card["verdict"] == verdict.REVIEW
+    assert card["outcome"] == "couldnt_verify"
+    assert card["diff_required"] is None
+
+
+def test_gov_warning_card_none_detail_degrades_to_review():
+    card = review_view.government_warning_card([_gw_item(None, "FAIL")])
+    assert card is not None
+    assert card["verdict"] == verdict.REVIEW
+    assert card["outcome"] == "couldnt_verify"
+
+
+def test_gov_warning_card_cfr_from_row_then_payload_fallback():
+    # Row carries the citation (ruleset data) ⇒ used directly.
+    card = review_view.government_warning_card([_gw_item(_pass_detail(), "PASS")])
+    assert card["cfr_citation"] == _GW_CITATION
+    # Row citation null ⇒ fall back to the payload's cfr_citation.
+    card2 = review_view.government_warning_card(
+        [_gw_item(_pass_detail(), "PASS", cfr_citation=None)]
+    )
+    assert card2["cfr_citation"] == _GW_CITATION
+
+
+def test_gov_warning_card_emit_no_disposition_word():
+    card = review_view.government_warning_card([_gw_item(_reworded_detail(), "FAIL")])
+    blob = " ".join(str(v) for v in card.values()).lower()
+    for disposition in ("approved", "needs_correction", "rejected", "needs correction"):
+        assert disposition not in blob
+
+
+def test_gov_warning_card_unknown_outcome_degrades_to_review():
+    """An UNKNOWN outcome on a valid dict is ambiguous ⇒ fail-safe REVIEW, never a
+    silent PASS (matches the codebase's ambiguity⇒REVIEW rule)."""
+    detail = json.dumps({"outcome": "some_future_outcome", "cfr_citation": _GW_CITATION})
+    card = review_view.government_warning_card([_gw_item(detail, "FAIL")])
+    assert card is not None
+    assert card["verdict"] == verdict.REVIEW
+    assert card["outcome"] == "couldnt_verify"
+    assert card["diff_required"] is None
+    assert card["note"]
+
+
+def test_gov_warning_card_missing_outcome_key_degrades_to_review():
+    """A valid dict with NO ``outcome`` key degrades to REVIEW — never the quiet PASS."""
+    detail = json.dumps({"cfr_citation": _GW_CITATION})
+    card = review_view.government_warning_card([_gw_item(detail, "FAIL")])
+    assert card is not None
+    assert card["verdict"] == verdict.REVIEW
+    assert card["outcome"] == "couldnt_verify"
+
+
+def test_gov_warning_card_pass_carries_no_stack_text():
+    """The quiet pass card carries NO required/on-label text — the engine persists none
+    for a pass, so the template draws no empty mono stack (AR-5: no OCR re-read)."""
+    card = review_view.government_warning_card([_gw_item(_pass_detail(), "PASS")])
+    assert card is not None
+    assert card["outcome"] == "pass"
+    assert card["required_text"] is None
+    assert card["onlabel_text"] is None
+    assert card["diff_required"] is None
+    assert card["diff_onlabel"] is None
+
+
+def test_gov_warning_template_has_no_cfr_literal():
+    """CFR citations come from data — no ``27 CFR`` literal in the gov-warning markup
+    (AC4: the grep guard covers the templates, not only the presenter). Jinja comments
+    are stripped at render, so the production markup must carry no literal at all."""
+    for tpl in ("templates/_gov_warning_card.html", "templates/review.html"):
+        src = (REPO_ROOT / tpl).read_text(encoding="utf-8")
+        assert "27 CFR" not in src, f"{tpl} must not hard-code a CFR citation (CFR-as-data)"

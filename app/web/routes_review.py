@@ -61,5 +61,9 @@ def review(request: Request, submission_id: int) -> HTMLResponse:
             "alert": review_view.suggested_verdict(items),
             "field_cards_problems": [c for c in cards if c["is_problem"]],
             "field_cards_clean": [c for c in cards if not c["is_problem"]],
+            # The Government Warning card (Story 4.5) — built from the SAME ``items``
+            # already read (no new query); ``None`` when the submission has no
+            # government_warning row (the template renders the honest empty state).
+            "gov_warning": review_view.government_warning_card(items),
         },
     )

@@ -13,6 +13,7 @@ Covers the shell ACs:
 
 from __future__ import annotations
 
+import json
 import sqlite3
 from pathlib import Path
 
@@ -557,6 +558,122 @@ def test_review_excludes_gov_warning_from_field_cards(monkeypatch, tmp_path) -> 
     body = client.get(f"/review/{sid}").text
     # the gov-warning row exists but produces no field-card div
     assert "field-card--" not in body
+
+
+# ── Government Warning comparison card (Story 4.5) ───────────────────────────
+
+
+def _gov_warning_check(conn: sqlite3.Connection, submission_id: int, *, verdict_: str, detail: str):
+    """Seed the single ``government_warning`` checklist row (no field_comparison_id)."""
+    return _insert_check(
+        conn,
+        submission_id,
+        check_key="government_warning",
+        label="Government Warning",
+        cfr_citation="27 CFR 16.21",
+        check_type="MANUAL",
+        verdict=verdict_,
+        detail=detail,
+    )
+
+
+def test_review_gov_warning_reworded_renders_mono_stack_and_diff(monkeypatch, tmp_path) -> None:
+    client = _client(monkeypatch, tmp_path)
+    detail = json.dumps(
+        {
+            "outcome": "reworded",
+            "deviation": "header casing",
+            "expected": "GOVERNMENT WARNING: text",
+            "found": "Government Warning: text",
+            "diff": [
+                ["replace", "GOVERNMENT WARNING\u2192Government Warning"],
+                ["equal", ": text"],
+            ],
+            "cfr_citation": "27 CFR 16.21",
+        }
+    )
+    with connect(_db_path(tmp_path)) as conn:
+        sid = _insert_submission(conn)
+        _gov_warning_check(conn, sid, verdict_="FAIL", detail=detail)
+    body = client.get(f"/review/{sid}").text
+    # the two-row mono stack labels
+    assert "On label (OCR)" in body
+    assert "Required (27 CFR" in body
+    # the FAIL chip word + the red diff spans
+    assert "FAIL" in body
+    assert "diff-del" in body
+    assert "diff-ins" in body
+
+
+def test_review_gov_warning_absent_plain_no_diff(monkeypatch, tmp_path) -> None:
+    client = _client(monkeypatch, tmp_path)
+    detail = json.dumps(
+        {
+            "outcome": "absent",
+            "message": "Government Warning not found on any label",
+            "cfr_citation": "27 CFR 16.21",
+        }
+    )
+    with connect(_db_path(tmp_path)) as conn:
+        sid = _insert_submission(conn)
+        _gov_warning_check(conn, sid, verdict_="FAIL", detail=detail)
+    body = client.get(f"/review/{sid}").text
+    assert "Required Government Warning not found on the submitted images" in body
+    # absent ⇒ NO char-diff (diffing against empty would be noise)
+    assert "diff-del" not in body
+    assert "diff-ins" not in body
+
+
+def test_review_gov_warning_couldnt_verify_review_no_red(monkeypatch, tmp_path) -> None:
+    client = _client(monkeypatch, tmp_path)
+    detail = json.dumps(
+        {
+            "outcome": "couldnt_verify",
+            "message": "couldn't verify bold/visual styling from a photo",
+            "cfr_citation": "27 CFR 16.21",
+        }
+    )
+    with connect(_db_path(tmp_path)) as conn:
+        sid = _insert_submission(conn)
+        _gov_warning_check(conn, sid, verdict_="REVIEW", detail=detail)
+    body = client.get(f"/review/{sid}").text
+    assert "REVIEW" in body
+    assert "verify by eye" in body.lower()
+    assert "diff-del" not in body
+
+
+def test_review_gov_warning_empty_state_when_no_row(monkeypatch, tmp_path) -> None:
+    """A submission with NO government_warning row renders the calm honest empty state."""
+    client = _client(monkeypatch, tmp_path)
+    with connect(_db_path(tmp_path)) as conn:
+        sid = _insert_submission(conn)
+        _insert_check(conn, sid, check_key="brand_name", verdict="PASS")
+    resp = client.get(f"/review/{sid}")
+    assert resp.status_code == 200  # never a 500
+    assert "has not run for this submission" in resp.text
+
+
+def test_review_gov_warning_why_carries_cfr_citation(monkeypatch, tmp_path) -> None:
+    client = _client(monkeypatch, tmp_path)
+    detail = json.dumps({"outcome": "pass", "cfr_citation": "27 CFR 16.21"})
+    with connect(_db_path(tmp_path)) as conn:
+        sid = _insert_submission(conn)
+        _gov_warning_check(conn, sid, verdict_="PASS", detail=detail)
+    body = client.get(f"/review/{sid}").text
+    assert "Why?" in body
+    assert "27 CFR 16.21" in body
+
+
+def test_review_gov_warning_token_gated(monkeypatch, tmp_path) -> None:
+    """The route stays token-gated — a no-cookie request redirects to /access."""
+    client = _client(monkeypatch, tmp_path, token="s3cret")
+    detail = json.dumps({"outcome": "pass", "cfr_citation": "27 CFR 16.21"})
+    with connect(_db_path(tmp_path)) as conn:
+        sid = _insert_submission(conn)
+        _gov_warning_check(conn, sid, verdict_="PASS", detail=detail)
+    resp = client.get(f"/review/{sid}", follow_redirects=False)
+    assert resp.status_code in (302, 303)
+    assert "/access" in resp.headers["location"]
 
 
 # ── AR-5: read-path purity ───────────────────────────────────────────────────

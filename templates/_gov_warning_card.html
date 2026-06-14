@@ -1,0 +1,79 @@
+{#
+  The Government Warning comparison card (Story 4.5). Rendered once from the
+  ``gov_warning`` dict produced by ``app/web/review_view.py:government_warning_card``
+  — the view-model is fully pre-shaped (the engine already discriminated the three
+  outcomes; this template only renders). It is NOT a field comparison card: the
+  "required" side is the §16.21 statute carried in the engine's stored payload, not
+  an application field. The verdict chip carries ICON + WORD alongside its color
+  (A11Y: never tint alone). The char-diff (reworded outcome only) renders the
+  engine's already-stored opcodes as ``diff-del`` / ``diff-ins`` / ``diff-equal``
+  spans, ALWAYS paired with a visually-hidden text equivalent (USWDS usa-sr-only)
+  so the diff survives forced-colors mode and screen readers. The CFR citation is
+  DATA (from the row / payload) — no CFR citation literal is hard-coded here.
+#}
+<article class="gov-warning gov-warning--{{ gov_warning.outcome }}" aria-label="Government Warning">
+  <header class="gov-warning__head">
+    <div class="gov-warning__title">
+      <h3 class="gov-warning__label">Government Warning</h3>
+      {% if gov_warning.cfr_citation %}
+      <span class="gov-warning__cfr">Required ({{ gov_warning.cfr_citation }})</span>
+      {% endif %}
+    </div>
+    <span class="chip {{ gov_warning.chip_class }}">
+      <span class="chip__icon" aria-hidden="true">{{ gov_warning.icon }}</span>
+      <span class="chip__word">{{ gov_warning.chip_word }}</span>
+    </span>
+  </header>
+
+  {# A11Y hard requirement: when a char-diff is drawn, name the difference in plain
+     text (visually-hidden) so it is never conveyed by colored spans alone. #}
+  {% if gov_warning.diff_text_equivalent %}
+  <p class="usa-sr-only">{{ gov_warning.diff_text_equivalent }}</p>
+  {% endif %}
+
+  {# Reworded outcome: the two-row mono stack — required ABOVE on-label (vertical,
+     never side-by-side) with the char-diff. The quiet pass / absent / couldn't-verify
+     outcomes draw no stack (the engine persists on-label text only for reworded; AR-5
+     forbids re-reading OCR here, so a compliant pass has nothing to stack). #}
+  {% if gov_warning.outcome == 'reworded' %}
+  <div class="gov-warning__block">
+    <div class="gov-warning__row">
+      <div class="gov-warning__lab gov-warning__lab--req">Required{% if gov_warning.cfr_citation %} ({{ gov_warning.cfr_citation }}){% endif %}</div>
+      <div class="gov-warning__text mono">
+        {%- if gov_warning.diff_required -%}
+          {%- for seg in gov_warning.diff_required -%}<span class="diff-{{ seg.kind }}">{{ seg.text }}</span>{%- endfor -%}
+        {%- elif gov_warning.required_text -%}
+          {{ gov_warning.required_text }}
+        {%- endif -%}
+      </div>
+    </div>
+    <div class="gov-warning__row">
+      <div class="gov-warning__lab">On label (OCR)</div>
+      <div class="gov-warning__text mono">
+        {%- if gov_warning.diff_onlabel -%}
+          {%- for seg in gov_warning.diff_onlabel -%}<span class="diff-{{ seg.kind }}">{{ seg.text }}</span>{%- endfor -%}
+        {%- elif gov_warning.onlabel_text -%}
+          {{ gov_warning.onlabel_text }}
+        {%- endif -%}
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
+  {% if gov_warning.note %}
+  <p class="gov-warning__note">{{ gov_warning.note }}</p>
+  {% endif %}
+
+  <details class="gov-warning__why">
+    <summary class="gov-warning__why-summary">Why?</summary>
+    <div class="gov-warning__why-body">
+      {% if gov_warning.cfr_citation %}
+      <p class="gov-warning__why-cite">{{ gov_warning.cfr_citation }}</p>
+      {% endif %}
+      {% if gov_warning.deviation %}
+      <p class="gov-warning__why-detail">{{ gov_warning.deviation }}</p>
+      {% endif %}
+      <p class="gov-warning__why-determinism">Deterministic check (no LLM).</p>
+    </div>
+  </details>
+</article>
