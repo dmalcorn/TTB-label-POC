@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+
+{% block title %}TTB Label Review — Queue{% endblock %}
+
+{% block content %}
+{#
+  Queue / "Get Next" — reproduces mockups/queue.html (State 1 waiting + State 2
+  empty) on the shared app shell + brand layer. Spine wins: tokens resolve to
+  static/css/brand.css :root vars, not the mockup's inline hex. Mockup-only
+  scaffolding (device frame, URL bar, state-label captions, the placeholder agent
+  name, fabricated demo stats) is excluded. State driven by `waiting` (the live
+  READY_FOR_REVIEW count). The single primary action — Next Submission — is a real
+  POST form so Enter fires it natively; it is auto-focused but never auto-acts.
+
+  Scope (Story 4.1): the beverage-type segmented filter is rendered for fidelity
+  but is an inert placeholder — the by-type serve + empty-type copy are Story 4.2.
+  The stats strip shows ONLY the honestly-computable "N waiting" — the mockup's
+  "reviewed by you today" / "avg load" are fabricated (no per-user identity;
+  processing_ms unpopulated pre-pipeline) and intentionally omitted.
+#}
+<div class="queue">
+  {% if waiting > 0 %}
+  <p class="queue__eyebrow">Ready when you are.</p>
+  <h1 class="queue__title">Pull the next label for review.</h1>
+
+  <form method="post" action="/next">
+    <button type="submit" class="btn-next" autofocus aria-keyshortcuts="N">
+      <span class="ico" aria-hidden="true">&#9654;</span>
+      Next Submission
+    </button>
+  </form>
+  {% else %}
+  <p class="queue__eyebrow">All caught up.</p>
+  <h1 class="queue__title">No submissions waiting right now.</h1>
+
+  <button type="button" class="btn-next is-disabled" disabled aria-disabled="true">
+    <span class="ico" aria-hidden="true">&#9654;</span>
+    Next Submission
+  </button>
+
+  <p class="helper">Nothing in the queue at the moment. New labels appear here as they
+    finish processing &mdash; check back shortly.</p>
+  {% endif %}
+
+  {# Optional beverage-type filter (segmented control). Inert in 4.1 — the working
+     by-type serve is Story 4.2. #}
+  <div class="filter" role="group" aria-label="Pick a type (optional)">
+    <span class="filter__label">Pick a type (optional):</span>
+    <div class="segmented">
+      <button type="button" class="segmented__item" aria-pressed="true">Any</button>
+      <button type="button" class="segmented__item" aria-pressed="false">Wine</button>
+      <button type="button" class="segmented__item" aria-pressed="false">Spirits</button>
+      <button type="button" class="segmented__item" aria-pressed="false">Beer</button>
+    </div>
+  </div>
+
+  {# Phase-2 deferred placeholder — visible deferral, clearly NOT a live control. #}
+  <div class="deferred" aria-hidden="true">
+    <span class="deferred__tag">Two-bucket triage — Phase 2</span>
+    <p class="deferred__note">"Likely compliant" / "Needs a closer look" arrives once we
+      have calibration data. Reserved here; not yet active.</p>
+  </div>
+
+  {# Informational stats strip (civic green, read-only). Live count only. #}
+  <p class="stats"><strong>{{ waiting }} waiting</strong></p>
+</div>
+{% endblock %}

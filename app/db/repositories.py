@@ -343,6 +343,58 @@ def list_received_ids(conn: sqlite3.Connection, limit: int) -> list[int]:
     return [int(r["id"]) for r in rows]
 
 
+# ── queue read helpers (Story 4.1) ───────────────────────────────────────────
+# The web layer's "Next Submission" serve + the queue stats strip read here. Both
+# are pure DB reads (the 5s read contract, AR-5) ordered oldest-first by
+# `submitted_at` then `id` for a stable, fair selection — mirroring
+# `list_received_ids` and backed by `idx_submissions_queue (status, beverage_type,
+# submitted_at)`. The optional `beverage_type` is parameterized (never string-
+# interpolated); Story 4.1 calls with the default `None`, Story 4.2 exposes it
+# through the route.
+
+
+def get_oldest_ready_submission_id(
+    conn: sqlite3.Connection, *, beverage_type: str | None = None
+) -> int | None:
+    """The oldest ``READY_FOR_REVIEW`` submission id (oldest-first), or ``None``.
+
+    Skips every unready status (``RECEIVED``/``PROCESSING``/``IN_REVIEW``/
+    ``DECIDED``) — the queue never serves a partially-processed submission. With
+    ``beverage_type`` set, restricts to that type (Story 4.2's by-type serve).
+    """
+    if beverage_type is None:
+        row = conn.execute(
+            "SELECT id FROM submissions WHERE status = 'READY_FOR_REVIEW' "
+            "ORDER BY submitted_at, id LIMIT 1"
+        ).fetchone()
+    else:
+        row = conn.execute(
+            "SELECT id FROM submissions WHERE status = 'READY_FOR_REVIEW' "
+            "AND beverage_type = ? ORDER BY submitted_at, id LIMIT 1",
+            (beverage_type,),
+        ).fetchone()
+    return int(row["id"]) if row is not None else None
+
+
+def count_ready_for_review(conn: sqlite3.Connection, *, beverage_type: str | None = None) -> int:
+    """Count submissions waiting in the queue (``READY_FOR_REVIEW``).
+
+    The live "N waiting" figure for the queue stats strip — the only honestly-
+    computable queue stat in the POC. With ``beverage_type`` set, counts that type.
+    """
+    if beverage_type is None:
+        row = conn.execute(
+            "SELECT COUNT(*) AS n FROM submissions WHERE status = 'READY_FOR_REVIEW'"
+        ).fetchone()
+    else:
+        row = conn.execute(
+            "SELECT COUNT(*) AS n FROM submissions WHERE status = 'READY_FOR_REVIEW' "
+            "AND beverage_type = ?",
+            (beverage_type,),
+        ).fetchone()
+    return int(row["n"])
+
+
 # ── preprocessing write helper (Story 2.3) ───────────────────────────────────
 # Persists the local-OpenCV preprocess stage's outputs onto the existing
 # `label_images` row (architecture D7 — referenced "by path in label_images").

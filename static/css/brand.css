@@ -265,3 +265,149 @@ a {
   margin: 20px 0 0;
   line-height: 1.45;
 }
+
+/* ---------- Queue / "Get Next" screen (Story 4.1 — mockups/queue.html) ----------
+ * One large auto-focused Next Submission button on a generously whitespaced,
+ * centered canvas (DESIGN.md: Queue = one obvious action). The mockup carried
+ * these as inline <style>; they live here so the page stays same-origin/no-CDN.
+ * Spine wins: tokens resolve to the --brand-* vars, not the mockup's literal hex.
+ * Mockup-only scaffolding (.device frame, .state-label) is intentionally absent. */
+.queue {
+  padding: 56px 48px 64px;
+  max-width: 840px;
+  margin: 0 auto;
+  text-align: center;
+}
+.queue__eyebrow {
+  font-size: 16px;
+  color: var(--brand-ink-muted);
+  margin: 0 0 8px;
+}
+.queue__title {
+  font-size: 22px;
+  font-weight: 700;
+  margin: 0 0 40px;
+}
+
+/* The single primary action — navy fill, big target (≥48px; 72px per mockup). */
+.btn-next {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  min-height: 72px;
+  padding: 18px 56px;
+  font-family: inherit;
+  font-size: 24px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  color: #ffffff;
+  background-color: var(--brand-primary);
+  border: none;
+  border-radius: var(--brand-radius-md);
+  cursor: pointer;
+}
+.btn-next:hover {
+  background-color: var(--brand-primary-dark);
+}
+/* Visible focus ring — Next Submission is auto-focused on Queue load. */
+.btn-next:focus-visible {
+  outline: 4px solid var(--brand-primary-light);
+  outline-offset: 4px;
+}
+.btn-next:disabled,
+.btn-next.is-disabled {
+  background-color: #a9aeb1;
+  color: #f0f0f0;
+  cursor: not-allowed;
+}
+.btn-next .ico {
+  font-size: 22px;
+  line-height: 1;
+}
+
+/* Optional beverage-type filter (segmented control). */
+.filter {
+  margin: 40px auto 0;
+  max-width: 560px;
+}
+.filter__label {
+  display: block;
+  font-size: 16px;
+  color: var(--brand-ink-muted);
+  margin-bottom: 10px;
+}
+.segmented {
+  display: inline-flex;
+  border: 1px solid var(--brand-border);
+  border-radius: var(--brand-radius-md);
+  overflow: hidden;
+  background-color: var(--brand-surface);
+}
+.segmented__item {
+  font-family: inherit;
+  font-size: 16px;
+  padding: 12px 22px;
+  min-height: 48px;
+  border: none;
+  border-right: 1px solid var(--brand-border);
+  background-color: var(--brand-surface);
+  color: var(--brand-ink);
+  cursor: pointer;
+}
+.segmented__item:last-child {
+  border-right: none;
+}
+.segmented__item[aria-pressed="true"] {
+  background-color: var(--brand-primary);
+  color: #ffffff;
+}
+
+/* Phase-2 deferred placeholder — visibly NOT a live control. */
+.deferred {
+  margin: 44px auto 0;
+  max-width: 640px;
+  border: 2px dashed #b9bdc1;
+  border-radius: var(--brand-radius-md);
+  background-color: transparent;
+  padding: 22px 24px;
+  color: var(--brand-ink-muted);
+  text-align: center;
+}
+.deferred__tag {
+  display: inline-block;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--brand-ink-muted);
+  margin-bottom: 6px;
+}
+.deferred__note {
+  font-size: 15px;
+  margin: 0;
+}
+
+/* Stats strip — civic green left rule, read-only informational (live count only). */
+.stats {
+  margin: 48px auto 0;
+  max-width: 680px;
+  border-left: 4px solid var(--brand-secondary);
+  background-color: #eef3f0;
+  color: var(--brand-ink);
+  border-radius: var(--brand-radius-sm);
+  padding: 14px 20px;
+  font-size: 16px;
+  text-align: left;
+}
+.stats strong {
+  color: var(--brand-secondary);
+}
+
+/* Empty-state helper text. */
+.helper {
+  margin: 18px auto 0;
+  max-width: 560px;
+  font-size: 16px;
+  color: var(--brand-ink-muted);
+}

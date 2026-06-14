@@ -1,5 +1,5 @@
 # generated: 2026-06-12
-# last_updated: 2026-06-14 (story 3.8 → done via code-review)
+# last_updated: 2026-06-14 (story 4.1 → done via code-review)
 # project: TTB-label-POC
 # project_key: NOKEY
 # tracking_system: file-system
@@ -113,8 +113,11 @@ development_status:
   epic-3-retrospective: optional
 
   # Epic 4: Review Workspace
-  epic-4: backlog
-  4-1-queue-screen-and-next-submission: backlog
+  # epic-4 backlog -> in-progress; story 4.1 backlog -> review on 2026-06-14 (create-story + dev-story in one session)
+  epic-4: in-progress
+  # story 4.1 backlog -> review on 2026-06-14 (create-story + dev-story in one session: first Epic-4 UI story — GET /queue + POST /next as pre-computed DB reads honoring the 5s read contract [AR-5]; new repo helpers count_ready_for_review + get_oldest_ready_submission_id [deterministic oldest-first by submitted_at then id, unready statuses skipped silently, beverage_type arg wired-but-unexposed for 4.2]; POST /next serves the oldest READY_FOR_REVIEW via the ONE permitted cheap bookkeeping write — READY_FOR_REVIEW->IN_REVIEW + OPENED audit row through pipeline.status.advance [never re-implemented] — then 303-redirects to /review/{id} [built by 4.3, asserted via Location header not a 200 at target], or re-renders the calm State-2 empty screen [200, never an error]; routes carry no exemption so the Story-1.5 token gate protects them; queue.html extends base.html reproducing mockups/queue.html in both states [auto-focused submitting Next Submission form / disabled empty-state button + calm copy, inert segmented type filter w/ Any preselected for 4.2, aria-hidden Phase-2 deferred placeholder]; honest-stats discipline — only the live "N waiting" count is rendered, the mockup's fabricated "12 reviewed by you today"/"avg 4.6s"/"38 waiting" demo numbers + device__chrome/state-label scaffolding excluded; tokens via the linked self-hosted brand.css [no inline <style>]; AR-5 read-path purity asserted by source guard [no run_checks/adapters.ocr/adapters.llm/pipeline.run/pytesseract import]; 16 new tests, 430 suite green / 1 skip; ruff + story-scope mypy clean [pre-existing auto-run/orchestrate.py mypy error out of story scope, walled off per CLAUDE.md])
+  # story 4.1 moved review -> done on 2026-06-14 (code review: 2 patches applied + 2 regression tests, 0 deferred, 5 dismissed; CR-HIGH [Blind+Edge converged] POST /next select-then-advance TOCTOU — two specialists clicking Next at the same instant both read the same oldest READY_FOR_REVIEW id; the loser's status.advance rejected the now non-forward IN_REVIEW->IN_REVIEW with an UNCAUGHT ValueError -> HTTP 500, breaking the calm contract [confirmed via probe]; FIX wraps advance [which IS the claim] in a bounded re-select loop that catches the lost-race ValueError and serves the NEXT oldest ready row, draining to the calm State-2 empty render if all rows raced away — never a 500; CR-LOW the mockup's static is-focused scaffolding class was carried onto the live Next Submission button [painted the focus ring unconditionally] — dropped it + the orphaned .btn-next.is-focused selector, genuine autofocus + :focus-visible already meet the visible-focus floor; 5 dismissed by-design/false-positive [/review 404 + IN_REVIEW non-re-serve are Dev-Notes scope cut #2 for 4.3; empty-POST 200-inline + hardcoded waiting=0 are Task-2 spec-mandated; row["id"] sqlite3.Row + advance double-commit are non-issues]; all 4 ACs satisfied, AR-5 read-path purity + the one-permitted-write invariant preserved; 432 suite green / 1 skip; ruff + story-scope mypy clean [pre-existing auto-run/orchestrate.py mypy error out of story scope, walled off per CLAUDE.md])
+  4-1-queue-screen-and-next-submission: done
   4-2-next-submission-by-beverage-type: backlog
   4-3-review-screen-shell-banner-chevron-suggested-verdict-alert: backlog
   4-4-stacked-field-comparison-cards: backlog
