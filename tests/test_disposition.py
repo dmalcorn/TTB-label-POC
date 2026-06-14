@@ -28,6 +28,7 @@ from app.db.connection import connect, init_db
 from app.main import create_app
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
+DISPOSITION_JS = REPO_ROOT / "static" / "js" / "disposition.js"
 
 
 def _client(monkeypatch: pytest.MonkeyPatch, tmp_path, *, token: str | None = None) -> TestClient:
@@ -169,14 +170,19 @@ def test_disposition_unknown_value_is_400(monkeypatch, tmp_path) -> None:
     assert _row(tmp_path, sid)["status"] == "IN_REVIEW"
 
 
-def test_disposition_missing_submission_is_404(monkeypatch, tmp_path) -> None:
+def test_disposition_missing_submission_routes_to_queue_gracefully(monkeypatch, tmp_path) -> None:
+    # Story 4.11 AC4 (demo-reset-while-open): a demo reset can drop the submission while
+    # a specialist still has the review screen open. Committing then must NOT crash with
+    # a raw 404 — it routes calmly back to the Queue (303 → /queue?gone=1), no orphaned
+    # write. (Previously a raw HTTPException(404).)
     client = _client(monkeypatch, tmp_path)
     resp = client.post(
         "/review/9999/disposition",
         data={"disposition": "APPROVED", "notes": ""},
         follow_redirects=False,
     )
-    assert resp.status_code == 404
+    assert resp.status_code == 303
+    assert resp.headers["location"] == "/queue?gone=1"
 
 
 # ── AC5: double-disposition is a calm 409, not a 500 ─────────────────────────
@@ -424,3 +430,39 @@ def test_review_action_bar_no_verdict_class_on_button(monkeypatch, tmp_path) -> 
     assert "dispo--approve" in body
     assert "dispo--correct" in body
     assert "dispo--reject" in body
+
+
+# ── Story 4.11 Task 3: the soft-gate marks the Notes field aria-invalid + uses the ─
+# EXPERIENCE.md maker-facing copy ─────────────────────────────────────────────────
+# The client soft-gate (Needs Correction / Reject with a blank reason) is a JS-only
+# affordance pytest cannot execute, so these are file-content guards over the script.
+# The accessibility floor (UX-DR-17) requires the blocked textarea carry aria-invalid
+# so a screen reader announces the field state — not just a transient live message —
+# and the announced copy must be the maker-facing EXPERIENCE.md wording, not jargon.
+
+_SOFT_GATE_COPY = "Add a short reason for the maker before sending this back."
+
+
+def test_disposition_js_soft_gate_sets_aria_invalid_on_block() -> None:
+    src = DISPOSITION_JS.read_text(encoding="utf-8")
+    assert 'setAttribute("aria-invalid", "true")' in src, (
+        "the soft-gate must mark the blocked Notes textarea aria-invalid (UX-DR-17), "
+        "not rely on a transient live announcement alone"
+    )
+
+
+def test_disposition_js_clears_aria_invalid_on_input() -> None:
+    src = DISPOSITION_JS.read_text(encoding="utf-8")
+    # Once the specialist starts typing a reason, the invalid state is lifted.
+    assert 'removeAttribute("aria-invalid")' in src, (
+        "typing into the Notes field must clear the aria-invalid flag"
+    )
+
+
+def test_disposition_js_soft_gate_uses_experience_copy() -> None:
+    src = DISPOSITION_JS.read_text(encoding="utf-8")
+    assert _SOFT_GATE_COPY in src, (
+        "the soft-gate must announce the maker-facing EXPERIENCE.md copy, not internal jargon"
+    )
+    # And the old jargon-y string is gone (not merely shadowed).
+    assert "A reason is required for Needs Correction or Reject." not in src

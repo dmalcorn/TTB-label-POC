@@ -684,3 +684,25 @@ def test_queue_route_imports_no_heavy_work() -> None:
     src = (REPO_ROOT / "app/web/routes_queue.py").read_text(encoding="utf-8")
     for forbidden in ("run_checks", "adapters.ocr", "adapters.llm", "pipeline.run", "pytesseract"):
         assert forbidden not in src, f"queue route must not import {forbidden!r} (AR-5)"
+
+
+# ── Story 4.11 AC4: the demo-reset-while-open landing notice ─────────────────────
+# When a disposition is committed for a submission that no longer exists (a demo reset
+# cleared it mid-review), the disposition route lands the specialist on the Queue with
+# `?gone=1`. The queue renders a calm `role="status"` notice — no crash, no jargon.
+
+_GONE_NOTICE = "That submission is no longer available"
+
+
+def test_queue_gone_param_renders_calm_notice(monkeypatch, tmp_path) -> None:
+    client = _client(monkeypatch, tmp_path)
+    body = client.get("/queue?gone=1").text
+    assert _GONE_NOTICE in body
+    # The notice is an assertive-free polite status region (announced, not alarming).
+    assert 'role="status"' in body
+
+
+def test_queue_without_gone_param_has_no_notice(monkeypatch, tmp_path) -> None:
+    client = _client(monkeypatch, tmp_path)
+    body = client.get("/queue").text
+    assert _GONE_NOTICE not in body

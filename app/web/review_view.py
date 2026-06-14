@@ -234,6 +234,17 @@ _NEAR_MISS_NOTE = "The values are close but not identical — please verify by e
 _NOT_FOUND_NOTE = "Not found on label"
 _UNREADABLE_NOTE = "Couldn't read this field reliably from the photo — please verify by eye."
 _BLANK_APPLICATION_NOTE = "No value submitted in the application for this field."
+# A check the engine could not complete (its comparison row never materialized): a
+# visible honest error rather than a silent drop (Story 4.11 AC2). It stays in the
+# advisory REVIEW register — never a guessed PASS/FAIL — and draws no fabricated diff.
+_CHECK_ERROR_NOTE = "This check couldn't be completed — please verify by eye."
+
+# The visible degrade notice when the submission's displayed VLM extraction errored
+# (an ``llm_results`` row with ``status='ERROR'``) — the model was enabled and tried
+# but was unreachable, so the comparison fell back to OCR (FR-12). Verbatim from
+# EXPERIENCE.md (State Patterns / Accessibility Floor). Carried as data, not a
+# template literal, so a wording change is one edit.
+_LLM_UNAVAILABLE_NOTE = "LLM check unavailable — showing OCR result"
 
 # severity rank for the problems-first sort (lower floats to the top). FAIL above
 # REVIEW above PASS; the list is already in id (ruleset) order so a STABLE sort
@@ -332,6 +343,51 @@ def _derive_state(item: ChecklistItem, comparison: FieldComparison) -> str:
     return "match"
 
 
+def llm_notice(degraded: bool) -> dict[str, str] | None:
+    """The workspace-level LLM-unavailable notice view-model (Story 4.11 AC3).
+
+    ``degraded`` is the submission's already-stored signal that its displayed VLM
+    extraction errored (an ``llm_results`` row with ``status='ERROR'`` — the model
+    was enabled and attempted but unreachable, so the comparison fell back to OCR,
+    FR-12). Returns ``{"text": …}`` carrying the verbatim EXPERIENCE.md copy when
+    degraded, else ``None`` (no notice — including the config-off OCR-only path,
+    which writes no ``llm_results`` row at all). The route reads the bool from the DB
+    on the AR-5-pure read path and passes it in; this presenter touches no model."""
+    if not degraded:
+        return None
+    return {"text": _LLM_UNAVAILABLE_NOTE}
+
+
+def _error_card(item: ChecklistItem) -> dict[str, object]:
+    """A visible honest error card for a check the engine could not complete (AC2).
+
+    Built when a FIELD_MATCH ``checklist_items`` row references a comparison that
+    never materialized. Stays in the advisory REVIEW register (never a guessed
+    PASS/FAIL, contract #4), is flagged a problem so it floats up, carries the plain
+    "couldn't be completed" note, and draws NO char-diff (there is nothing to diff)."""
+    vdt = verdict.REVIEW
+    return {
+        "field_key": item.check_key,
+        "field_label": item.label or item.check_key.replace("_", " ").title(),
+        "cfr_citation": item.cfr_citation,
+        "verdict": vdt,
+        "chip_class": _CHIP_CLASS[vdt],
+        "icon": _ALERT_ICON[vdt],
+        "chip_word": _CHIP_WORD[vdt],
+        "state": "error",
+        "application_value": None,
+        "extracted_value": None,
+        "extracted_source": None,
+        "detail": item.detail,
+        "diff_application": None,
+        "diff_extracted": None,
+        "diff_text_equivalent": None,
+        "note": _CHECK_ERROR_NOTE,
+        "is_problem": True,
+        "sort_rank": _SORT_RANK[vdt],
+    }
+
+
 def field_cards(
     items: Iterable[ChecklistItem], comparisons: Iterable[FieldComparison]
 ) -> list[dict[str, object]]:
@@ -357,6 +413,11 @@ def field_cards(
             continue
         comparison = by_id.get(item.field_comparison_id)
         if comparison is None:
+            # A check that expected a comparison row but has none — the engine could
+            # not complete it. Surface a visible honest error card (Story 4.11 AC2)
+            # in the advisory REVIEW register rather than silently dropping it; the
+            # other checks still render.
+            cards.append(_error_card(item))
             continue
 
         vdt = item.verdict or verdict.REVIEW

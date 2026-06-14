@@ -1261,3 +1261,185 @@ def test_image_route_traversal_path_is_contained(monkeypatch, tmp_path) -> None:
         img = _insert_image(conn, sid, enhanced_path="../secret.txt")
     resp = client.get(f"/review/{sid}/image/{img}?variant=enhanced")
     assert resp.status_code == 404
+
+
+# ── Story 4.11 AC3: LLM-unavailable degrade notice ───────────────────────────
+
+
+def _insert_llm_result(conn: sqlite3.Connection, submission_id: int, **overrides) -> int:
+    cols = {
+        "submission_id": submission_id,
+        "task": "extract_fields",
+        "model_id": "test-model",
+        "provider": "local",
+        "is_benchmark_only": 0,
+        "result_text": "ConnectError: unreachable",
+        "status": "ERROR",
+    }
+    cols.update(overrides)
+    placeholders = ", ".join("?" for _ in cols)
+    sql = f"INSERT INTO llm_results ({', '.join(cols)}) VALUES ({placeholders})"  # noqa: S608
+    cur = conn.execute(sql, tuple(cols.values()))
+    conn.commit()
+    assert cur.lastrowid is not None
+    return cur.lastrowid
+
+
+_LLM_NOTICE_COPY = "LLM check unavailable — showing OCR result"
+
+
+def test_review_shows_llm_unavailable_notice_in_aria_live_region(monkeypatch, tmp_path) -> None:
+    """An ERROR displayed-extraction llm_results row ⇒ the visible degrade notice in
+    an aria-live region (Story 4.11 AC3). The field cards still render (OCR fallback)."""
+    client = _client(monkeypatch, tmp_path)
+    with connect(_db_path(tmp_path)) as conn:
+        sid = _insert_submission(conn)
+        _field(conn, sid, cmp_overrides={"extracted_value": "Stone's Throw"})
+        _insert_llm_result(conn, sid, status="ERROR")
+    resp = client.get(f"/review/{sid}")
+    assert resp.status_code == 200
+    body = resp.text
+    assert _LLM_NOTICE_COPY in body
+    # the notice lives in an aria-live region so a screen reader announces it
+    assert 'aria-live="polite"' in body
+    assert "llm-notice" in body
+
+
+def test_review_no_notice_when_extraction_ok(monkeypatch, tmp_path) -> None:
+    """An OK extraction ⇒ NO degrade notice (the model worked)."""
+    client = _client(monkeypatch, tmp_path)
+    with connect(_db_path(tmp_path)) as conn:
+        sid = _insert_submission(conn)
+        _field(conn, sid)
+        _insert_llm_result(conn, sid, status="OK", result_text='{"brand_name": "Stone\'s Throw"}')
+    resp = client.get(f"/review/{sid}")
+    assert resp.status_code == 200
+    assert _LLM_NOTICE_COPY not in resp.text
+
+
+def test_review_no_notice_when_llm_config_off(monkeypatch, tmp_path) -> None:
+    """Config-off (no llm_results row at all) ⇒ NO notice — clean OCR-only operation
+    is not a degrade and must not read as a warning."""
+    client = _client(monkeypatch, tmp_path)
+    with connect(_db_path(tmp_path)) as conn:
+        sid = _insert_submission(conn)
+        _field(conn, sid)
+    resp = client.get(f"/review/{sid}")
+    assert resp.status_code == 200
+    assert _LLM_NOTICE_COPY not in resp.text
+
+
+def test_review_no_notice_for_benchmark_only_error(monkeypatch, tmp_path) -> None:
+    """An ERROR row that is benchmark-only (is_benchmark_only=1) is NOT the displayed
+    extraction — it must not trigger the user-facing degrade notice."""
+    client = _client(monkeypatch, tmp_path)
+    with connect(_db_path(tmp_path)) as conn:
+        sid = _insert_submission(conn)
+        _field(conn, sid)
+        _insert_llm_result(conn, sid, status="ERROR", is_benchmark_only=1)
+    resp = client.get(f"/review/{sid}")
+    assert resp.status_code == 200
+    assert _LLM_NOTICE_COPY not in resp.text
+
+
+# ── Story 4.11 Task 5: verification tests pinning already-built behaviors ────────
+# These do not change behavior — they pin the load-bearing AC1/AC5/AC6 invariants so a
+# future change cannot silently regress the cold-load first paint, the mid-review
+# refresh resume, the color-never-alone floor, the aria-live regions, or the type-size
+# floor. (Read-purity, the sr-only diff equivalent, and the progress rehydrate already
+# have dedicated tests above — these fill the remaining gaps.)
+
+
+def test_review_first_paint_carries_verdict_word_without_js(monkeypatch, tmp_path) -> None:
+    """AC1 (cold load): the suggested verdict WORD is present in the INITIAL server HTML
+    — the specialist sees the roll-up on first paint, no JS required. The only scripts
+    are deferred (end-of-body, `defer`), so nothing blocks the first render."""
+    client = _client(monkeypatch, tmp_path)
+    with connect(_db_path(tmp_path)) as conn:
+        sid = _insert_submission(conn)
+        _insert_check(conn, sid, check_key="brand_name", verdict="FAIL")
+    body = client.get(f"/review/{sid}").text
+    # The roll-up word is in the document the server returned (not injected by JS).
+    assert "Suggested:" in body
+    assert "FAIL" in body
+    # The per-page enhancement scripts (review.js / disposition.js) are deferred — they
+    # layer polish on top, never gate the first paint. (The vendored USWDS init shim is
+    # framework-owned and intentionally not deferred; it is not an app render dependency.)
+    for src in ("/static/js/review.js", "/static/js/disposition.js"):
+        idx = body.find(src)
+        assert idx != -1, f"expected {src} to be referenced"
+        tag_open = body.rfind("<script", 0, idx)
+        head = body[tag_open : body.index(">", idx)]
+        assert "defer" in head, f"{src} must be deferred (got: {head!r})"
+
+
+def test_review_color_never_alone_verdict_words_present(monkeypatch, tmp_path) -> None:
+    """AC6 (color never alone): each verdict chip carries a WORD next to its icon — the
+    state is never conveyed by tint alone. A page mixing PASS/REVIEW/FAIL shows all three
+    words in the rendered HTML (the chip__word spans), not just chip color classes."""
+    client = _client(monkeypatch, tmp_path)
+    with connect(_db_path(tmp_path)) as conn:
+        sid = _insert_submission(conn)
+        # One of each engine register across the field cards + checklist.
+        _field(conn, sid, check_overrides={"verdict": "PASS"})
+        _field(
+            conn,
+            sid,
+            check_overrides={
+                "check_key": "net_contents",
+                "label": "Net contents",
+                "verdict": "REVIEW",
+            },
+            cmp_overrides={
+                "field_key": "net_contents",
+                "application_value": "750 mL",
+                "extracted_value": "75O mL",
+                "match_status": "MISMATCH",
+                "similarity": 0.6,
+            },
+        )
+        _field(
+            conn,
+            sid,
+            check_overrides={"check_key": "abv", "label": "Alcohol content", "verdict": "FAIL"},
+            cmp_overrides={
+                "field_key": "abv",
+                "application_value": "40% ABV",
+                "extracted_value": None,
+                "match_status": "MISSING",
+                "similarity": None,
+            },
+        )
+    body = client.get(f"/review/{sid}").text
+    # The verdict WORDS appear as text (chip__word), never tint alone.
+    assert "chip__word" in body
+    for word in ("PASS", "REVIEW", "FAIL"):
+        assert word in body, f"verdict word {word!r} must be rendered (color never alone, AC6)"
+
+
+def test_review_aria_live_regions_present(monkeypatch, tmp_path) -> None:
+    """AC6 (announced state): the suggested-verdict alert is a `role="status"` region
+    (announced on load) and the checklist "N of M done" counter is `aria-live="polite"`
+    (announces a manual tick). Pin both — they are the screen's announce surfaces."""
+    client = _client(monkeypatch, tmp_path)
+    with connect(_db_path(tmp_path)) as conn:
+        sid = _insert_submission(conn)
+        _insert_check(conn, sid, check_key="brand_name", verdict="REVIEW")
+    body = client.get(f"/review/{sid}").text
+    assert 'role="status"' in body  # suggested-verdict alert
+    assert 'aria-live="polite"' in body  # checklist count (and the llm-notice when present)
+
+
+def test_brand_css_meets_type_and_target_size_floor() -> None:
+    """AC6 (sizing floor): brand.css declares the body at the 16px floor, the comparison
+    values larger (19px) for older eyes, and the primary touch targets at the ≥48px
+    floor. A CSS-content guard so a future edit can't drop below the accessibility floor."""
+    css = (REPO_ROOT / "static/css/brand.css").read_text(encoding="utf-8")
+    # Body floor: html/body declares 16px.
+    assert "font-size: 16px;" in css, "body must hold the 16px type floor"
+    # Comparison values are bumped above the body floor.
+    assert ".field-card__kv-val {" in css and "font-size: 19px;" in css, (
+        "the comparison values must be sized up (19px) above the 16px body floor"
+    )
+    # Touch targets meet the ≥48px floor (used on the primary action / segments / [?]).
+    assert "min-height: 48px;" in css, "interactive targets must meet the ≥48px floor"

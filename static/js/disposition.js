@@ -63,7 +63,13 @@
     });
   }
   if (textarea) {
-    textarea.addEventListener("input", scheduleSave);
+    textarea.addEventListener("input", function () {
+      // Typing a reason lifts the soft-gate's invalid state (set below when a blank
+      // Needs Correction / Reject was blocked) so the field no longer reads invalid
+      // to a screen reader, then the autosave beacon still fires.
+      textarea.removeAttribute("aria-invalid");
+      scheduleSave();
+    });
   }
 
   // ── aria-live announcer for the soft-gate (created lazily, same origin) ──────
@@ -201,12 +207,15 @@
       var requiresNotes = btn.getAttribute("data-requires-notes") === "true";
 
       // (b) Soft-gate: a Needs Correction / Reject with a blank reason never submits.
+      // Mark the Notes field aria-invalid (a persistent state a screen reader reports,
+      // not just the transient live announcement) and focus it, in the maker's voice.
       if (requiresNotes && notesAreBlank()) {
         event.preventDefault();
-        announce("A reason is required for Needs Correction or Reject.");
         if (textarea) {
+          textarea.setAttribute("aria-invalid", "true");
           textarea.focus();
         }
+        announce("Add a short reason for the maker before sending this back.");
         return;
       }
 

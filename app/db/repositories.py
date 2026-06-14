@@ -742,6 +742,25 @@ def get_latest_llm_extraction(
     return (int(row["id"]), row["result_text"])
 
 
+def llm_extraction_unavailable(conn: sqlite3.Connection, submission_id: int) -> bool:
+    """Whether the submission's DISPLAYED VLM extraction degraded (Story 4.11 AC3).
+
+    ``True`` iff a displayed (``is_benchmark_only = 0``) ``extract_fields``
+    ``llm_results`` row exists with ``status = 'ERROR'`` — the model layer was enabled
+    and attempted the read but was unreachable, so the comparison fell back to OCR
+    (FR-12; see ``app/pipeline/llm.py``). ``False`` when the extraction succeeded OR
+    when the model layer was config-off (no ``llm_results`` row at all — the clean
+    OCR-only path, which is NOT a degrade and shows no notice). Pure read; no commit.
+    """
+    row = conn.execute(
+        "SELECT 1 FROM llm_results "
+        "WHERE submission_id = ? AND task = 'extract_fields' AND status = 'ERROR' "
+        "AND is_benchmark_only = 0 LIMIT 1",
+        (submission_id,),
+    ).fetchone()
+    return row is not None
+
+
 # ── review-progress read + upsert helpers (Story 4.6, AR-14) ─────────────────
 # The smart checklist's IN-PROGRESS tick-state — the ONE web-layer write the
 # Review Workspace makes (via POST /review/{id}/progress). Read back by the

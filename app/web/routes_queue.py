@@ -75,6 +75,7 @@ def _render_queue(
     waiting: int,
     active_type: str | None = None,
     recorded: int | None = None,
+    gone: bool = False,
     status_code: int = 200,
 ) -> HTMLResponse:
     """Render ``queue.html`` with the (type-scoped) waiting count + the active filter.
@@ -84,6 +85,9 @@ def _render_queue(
     and name the type in the per-type empty-note. ``recorded`` is the just-decided
     submission id (Story 4.8) — when set, the template renders the brief
     "Recorded — Undo" banner whose Undo posts to ``/review/{recorded}/undo``.
+    ``gone`` is set by the disposition redirect when its submission no longer exists
+    (a demo reset cleared it mid-review, Story 4.11 AC4) — the template then renders a
+    calm "no longer available" status notice.
     """
     templates = request.app.state.templates
     active_label = TYPE_TO_FILTER_LABEL.get(active_type) if active_type is not None else None
@@ -95,6 +99,7 @@ def _render_queue(
             "active_type": active_type,
             "active_label": active_label,
             "recorded": recorded,
+            "gone": gone,
         },
         status_code=status_code,
     )
@@ -105,14 +110,17 @@ def queue(
     request: Request,
     type: str | None = Query(default=None),
     recorded: int | None = Query(default=None),
+    gone: int | None = Query(default=None),
 ) -> Response:
     """Render the queue screen with the live "N waiting" count (read-only).
 
     With ``?type=`` set the count is scoped to that beverage type and the matching
     segment renders pressed (sticky). ``?recorded={id}`` (set by the disposition
     redirect, Story 4.8) renders the brief "Recorded — Undo" banner for that id —
-    a non-persistent affordance that clears on the next navigation/refresh. Pure DB
-    read — AR-5.
+    a non-persistent affordance that clears on the next navigation/refresh.
+    ``?gone=1`` (set by the disposition redirect when its submission no longer exists,
+    Story 4.11 AC4) renders a calm "no longer available" status notice. Pure DB read —
+    AR-5.
     """
     settings = request.app.state.settings
     resolved = resolve_beverage_type(type)
@@ -125,7 +133,13 @@ def queue(
         # left over after an Undo, or a bogus id, silently drops the banner).
         if recorded is not None and repo.get_status(conn, recorded) != "DECIDED":
             recorded = None
-    return _render_queue(request, waiting=waiting, active_type=resolved, recorded=recorded)
+    return _render_queue(
+        request,
+        waiting=waiting,
+        active_type=resolved,
+        recorded=recorded,
+        gone=bool(gone),
+    )
 
 
 @router.post("/next")

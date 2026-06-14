@@ -108,6 +108,10 @@ def review(request: Request, submission_id: int, image: int | None = None) -> HT
         # The autosaved draft Notes (Story 4.8), rehydrated into the textarea so a
         # mid-review reload keeps the typed reason. ``None`` ⇒ empty textarea.
         draft_notes = repo.get_draft_notes(conn, submission_id)
+        # Whether the displayed VLM extraction degraded (Story 4.11 AC3) — an already
+        # stored signal (an ERROR llm_results row), read here on the pure read path
+        # (AR-5: no model call). Drives the visible "LLM check unavailable" notice.
+        llm_degraded = repo.llm_extraction_unavailable(conn, submission_id)
 
     cards = review_view.field_cards(items, comparisons)
     # The smart checklist drives the confirm-modal copy: a still-open REVIEW/FAIL row
@@ -146,6 +150,10 @@ def review(request: Request, submission_id: int, image: int | None = None) -> HT
                 draft_notes=draft_notes,
                 has_open_review=review_view.checklist_has_open(checklist),
             ),
+            # The LLM-unavailable degrade notice (Story 4.11 AC3) — ``None`` (omitted)
+            # unless the displayed VLM extraction errored. Pure presentation over the
+            # already-read flag; the model layer is never touched on this path.
+            "llm_notice": review_view.llm_notice(llm_degraded),
         },
     )
 
@@ -222,7 +230,11 @@ def record_disposition(
     with connect(settings.database_path) as conn:
         submission = repo.get_submission(conn, submission_id)
         if submission is None:
-            raise HTTPException(status_code=404, detail="Submission not found")
+            # Demo-reset-while-open (Story 4.11 AC4): a reset can clear the submission
+            # while the specialist still has the review screen open. Rather than a raw
+            # 404, route calmly back to the Queue with a plain notice (?gone=1) — no
+            # crash, no orphaned write (this connection wrote nothing).
+            return RedirectResponse("/queue?gone=1", status_code=303)
         # The decision columns + the DECIDED status flip happen in ONE statement
         # (the cross-column CHECK is symmetric + per-statement) — owned by
         # status.record_decision, which guards the transition + writes the audit row.

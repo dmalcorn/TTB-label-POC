@@ -24,6 +24,17 @@
   "reviewed by you today" / "avg load" are fabricated and intentionally omitted.
 #}
 <div class="queue">
+  {# Demo-reset-while-open notice (Story 4.11 AC4). Rendered ONLY when the disposition
+     redirect lands here with `?gone=1` — the submission the specialist was reviewing
+     no longer exists (a demo reset cleared it mid-review). A calm `role="status"`
+     notice in the empty-queue voice; no crash, no blame. Clears on the next nav. #}
+  {% if gone %}
+  <div class="gone-notice" role="status">
+    <p class="gone-notice__text">That submission is no longer available — it may have been
+      reset. Here's the queue.</p>
+  </div>
+  {% endif %}
+
   {% if waiting > 0 %}
   <p class="queue__eyebrow">Ready when you are.</p>
   <h1 class="queue__title">Pull the next label for review.</h1>

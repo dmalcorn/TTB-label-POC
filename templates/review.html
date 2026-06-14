@@ -90,6 +90,25 @@
 
     <div class="review-col-right">
 
+  {# ── LLM-unavailable degrade notice (Story 4.11 AC3) ───────────────────────
+     Shown ONLY when the submission's displayed VLM extraction errored (the model was
+     enabled and attempted but unreachable, FR-12) — the comparisons fell back to OCR.
+     A visible, plainly-worded notice carrying ICON + WORD (never color alone), in an
+     aria-live="polite" region so a screen reader announces it (EXPERIENCE.md). The
+     field cards below still render on the OCR-fallback values — this is additive, the
+     screen never blocks on an LLM call. With LLMs config-off there is NO ERROR row,
+     so this block is omitted entirely (clean OCR-only operation, not a warning). #}
+  {% if llm_notice %}
+  <section class="usa-alert usa-alert--warning llm-notice" role="status" aria-live="polite" aria-label="Extraction notice">
+    <div class="usa-alert__body">
+      <p class="usa-alert__text">
+        <span class="llm-notice__icon" aria-hidden="true">&#9888;</span>
+        {{ llm_notice.text }}
+      </p>
+    </div>
+  </section>
+  {% endif %}
+
   {# ── Stacked field comparison cards (Story 4.4) ─────────────────────────────
      Each FIELD_MATCH checklist row that links a field_comparisons row becomes one
      stacked card (application value above the OCR/LLM value), grouped problems-first.

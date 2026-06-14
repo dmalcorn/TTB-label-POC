@@ -311,11 +311,49 @@ def test_field_cards_excludes_rows_without_comparison_id():
     assert [c["field_key"] for c in cards] == ["brand_name"]
 
 
-def test_field_cards_excludes_row_whose_comparison_is_missing():
-    """A field_comparison_id pointing at no comparison row produces no card (defensive)."""
+def test_field_cards_dangling_comparison_surfaces_error_card_not_silent_drop():
+    """A field_comparison_id pointing at no comparison row is a check that couldn't
+    complete — surface a visible honest ERROR card (Story 4.11 AC2), never a silent
+    drop. The card carries the engine REVIEW register (never a guessed PASS/FAIL),
+    is flagged a problem, and shows the plain "couldn't be completed" note."""
     items = [_item("brand_name", "PASS", item_id=1, field_comparison_id=999)]
     cards = review_view.field_cards(items, [])
-    assert cards == []
+    assert len(cards) == 1
+    card = cards[0]
+    assert card["state"] == "error"
+    assert card["field_key"] == "brand_name"
+    assert card["is_problem"] is True
+    assert card["verdict"] == verdict.REVIEW
+    assert card["note"] == review_view._CHECK_ERROR_NOTE
+    # an honest error draws no fabricated char-diff
+    assert card["diff_application"] is None
+    assert card["diff_extracted"] is None
+
+
+def test_field_cards_dangling_comparison_keeps_sibling_clean_cards():
+    """The other checks still render when one check errored (AC2: 'Other checks still shown')."""
+    items = [
+        _item("brand_name", "PASS", item_id=1, field_comparison_id=10),
+        _item("alcohol_content", "PASS", item_id=2, field_comparison_id=999),
+    ]
+    comparisons = [_cmp("brand_name", cmp_id=10)]
+    cards = review_view.field_cards(items, comparisons)
+    by_key = {c["field_key"]: c for c in cards}
+    assert by_key["brand_name"]["state"] == "match"
+    assert by_key["alcohol_content"]["state"] == "error"
+
+
+# ── LLM-unavailable degrade notice (Story 4.11 AC3) ──────────────────────────
+
+
+def test_llm_notice_degraded_carries_experience_copy():
+    notice = review_view.llm_notice(True)
+    assert notice is not None
+    assert notice["text"] == "LLM check unavailable — showing OCR result"
+
+
+def test_llm_notice_not_degraded_is_none():
+    assert review_view.llm_notice(False) is None
 
 
 # ── State derivation ─────────────────────────────────────────────────────────
