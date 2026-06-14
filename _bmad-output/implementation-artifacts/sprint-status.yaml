@@ -1,5 +1,5 @@
 # generated: 2026-06-12
-# last_updated: 2026-06-13 (story 3.5 → done via code review)
+# last_updated: 2026-06-14 (story 3.6 → review via create-story + dev-story)
 # project: TTB-label-POC
 # project_key: NOKEY
 # tracking_system: file-system
@@ -35,7 +35,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 
 generated: 2026-06-12
-last_updated: 2026-06-13
+last_updated: 2026-06-14
 project: TTB-label-POC
 # story 3.1 moved ready-for-dev -> in-progress on 2026-06-13 (dev-story)
 # story 3.1 moved in-progress -> review on 2026-06-13 (dev-story: 51 new tests, 234 suite green / 1 skip; contracts #2 normalize + #3 verdict.rollup + field_comparisons/checklist_items schema)
@@ -101,7 +101,9 @@ development_status:
   # story 3.5 backlog -> review on 2026-06-13 (create-story + dev-story in one session: deterministic per-type format_checks evaluator on the 3.2 dispatch seam [no executor edit]; per-type ABV-presence policy as a DATA map keyed on repo.BeverageType [the cross-type false-reject trap — spirits-absent FAIL is the ONLY hard-fail-on-absence; table-wine ≤14% + malt absent PASS; unknown type REVIEW], 27 CFR 5.203 post-2020 standards-of-fill lookup [exact-after-canonicalize, no tolerance], proof↔ABV 2× consistency [PROOF_TOLERANCE=0.6], §5.65/§5.203/§5.66 rules as ruleset DATA; three new spirits Check rows + check_key registry in data-dictionary §6.2.1; name_address_format handler present-but-unwired for 3.8 reuse; no field_comparisons row; AC1 no-LLM AST+source guards + AC4 CFR-as-data guard; 22 new tests, 338 suite green / 1 skip; ruff + story-scope mypy clean)
   # story 3.5 moved review -> done on 2026-06-13 (code review: 6 patches applied + 6 regression tests, 2 deferred; F1 % removed from ABV abbreviation tokens [reachable bare-45% FAIL], F2 word-boundary abbreviation match [no REVOLVER/CALCIUM substring false-positive], F3 cue-aware extraction [promo 30% OFF not scavenged as ABV; net-cued size + drop ml<=0 + last-token fallback, no serving-size grab], F4 malt-absent ABV ⇒ REVIEW [§7.65 trigger undeterminable], F6 wine unreadable-app-ABV+no-label-ABV ⇒ REVIEW, F5 data-dictionary §6.2.1 HYBRID→FIELD_MATCH; 344 suite green / 1 skip; ruff + story-scope mypy clean)
   3-5-per-type-deterministic-format-checks: done
-  3-6-hybrid-class-type-designation-check: backlog
+  # story 3.6 backlog -> review on 2026-06-14 (create-story + dev-story in one session: HYBRID class/type-designation evaluator on the 3.2 dispatch seam [no executor edit] — the engine's SOLE model-assisted check; deterministic FIRST/model LAST&capped — cross-label conflict [≥2 distinct base-class groups in joined OCR text] ⇒ deterministic FAIL both cited, recognized designation [app value else OCR contains a catalog keyword] ⇒ deterministic PASS no-model, ambiguous ⇒ image-only VLM capped at REVIEW [model_id recorded, OCR text NEVER in prompt — VLM-only] degrading to rules-only REVIEW when LLM off/no-image/adapter-raises; recognized-keyword catalog + conflict-groups as ruleset DATA [KEYWORD_GROUPS, word-boundary phrase match so 'gin'≠'virgin'], §5.141 CFR-as-data; existing class_type_designation Check row [check_type=HYBRID] now routes here, no ruleset/schema edit; no field_comparisons row; AC1 no-LLM asserted behaviorally [spy adapter never called on deterministic paths] + CFR-not-inlined guard; data-dictionary §6.2.1 annotated; 18 new tests, 362 suite green / 1 skip; ruff + story-scope mypy clean [pre-existing auto-run/orchestrate.py mypy error out of story scope, walled off per CLAUDE.md])
+  # story 3.6 moved review -> done on 2026-06-14 (code review: 3 patches applied + 8 net regression tests [26 in test_class_type.py], 4 deferred; CR F1 `liqueur`/`cordial` group excluded from a new CONFLICT_GROUPS DATA frozenset [compound designations naming their base spirit — "Coffee Liqueur with Rum", "Sloe Gin Liqueur" — no longer false-FAIL]; CR F2 _detect_conflict now anchored to the declared class_type_designation + filtered to CONFLICT_GROUPS [un-anchored OCR-soup false-FAIL killed; residual incidental-back-label-mention case deferred — not deterministically separable from a true AC3 cross-label conflict which AC3 requires to FAIL]; CR F3 _contains_phrase matches hyphenated multi-word keywords ["single-malt" now recognized like "single malt"]; all 4 ACs satisfied, CFR-as-data + VLM-only invariants preserved; 370 suite green / 1 skip; ruff + story-scope mypy clean [pre-existing auto-run/orchestrate.py mypy error out of story scope, walled off per CLAUDE.md])
+  3-6-hybrid-class-type-designation-check: done
   3-7-flag-only-checks-surface-as-review: backlog
   3-8-wine-and-malt-beverage-rulesets-at-full-depth: backlog
   epic-3-retrospective: optional

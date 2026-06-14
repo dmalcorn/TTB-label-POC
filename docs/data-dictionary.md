@@ -320,8 +320,12 @@ single index of every `check_key`. Citations shown for reference use the post-20
 Part 5 renumbering. Scope is Story 3.2's always-mandatory elements + the Government
 Warning + the same-field-of-vision positional check; the Story 3.5 per-type
 DETERMINISTIC **format** checks (`abv_format`/`standards_of_fill`/
-`proof_abv_consistency`) augment the matchable elements below; §4 conditional/
-flag-only checks arrive with Story 3.7, and wine/malt keys with Story 3.8.
+`proof_abv_consistency`) augment the matchable elements below; the Story 3.6
+**HYBRID** `class_type_designation` check is the engine's sole model-assisted row
+(deterministic conflict→`FAIL` / recognized→`PASS` first; an ambiguous designation
+escalates to an image-only VLM **capped at `REVIEW`** — its catalog + conflict groups
+live as data in `app/engine/rulesets/class_type.py`); §4 conditional/flag-only checks
+arrive with Story 3.7, and wine/malt keys with Story 3.8.
 
 | `check_key` | Common Name | `check_type` | CFR Citation (ref) |
 |---|---|---|---|
