@@ -29,6 +29,15 @@ $venvScripts = Join-Path $repo ".venv\Scripts"
 if (Test-Path $venvScripts) {
   $env:PATH = "$venvScripts;$env:PATH"
   $py = Join-Path $venvScripts "python.exe"
+  # The BMAD agent activation runs `python3 …`; on Windows that hits the Store
+  # App-Execution-Alias stub ("Python was not found") and fails on the first try
+  # every phase. Make `python3` resolve to the venv interpreter (a copy of
+  # python.exe; Git Bash finds it on PATH ahead of the WindowsApps stub).
+  $py3 = Join-Path $venvScripts "python3.exe"
+  if ((Test-Path $py) -and -not (Test-Path $py3)) {
+    Copy-Item $py $py3
+    Write-Host "Created python3.exe shim in the venv."
+  }
 } else {
   Write-Host "WARNING: no .venv at $venvScripts — ci.sh may skip checks (false green)."
   $py = "python"

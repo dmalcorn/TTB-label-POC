@@ -15,6 +15,17 @@ redirection (`>`, `>>`, `| tee`) — that is denied. Run e.g. `pytest -q tests/.
 or `bash scripts/ci.sh`, not `cd <path> && pytest ... > out`. If a command is
 denied, it's outside the grant — take an allowed path, don't retry it verbatim.
 
+EFFICIENCY:
+- While iterating, run ONLY the targeted test file(s):
+  `.venv/Scripts/python.exe -m pytest tests/test_<x>.py -q`. Run the full gate
+  `bash scripts/ci.sh` at most ONCE, at the very end — the pipeline re-runs CI
+  after you finish, so do not repeat the full suite to "confirm" multiple times.
+- To exercise code ad-hoc, write a small `_probe.py` at the REPO ROOT (so `app`
+  imports work), run `.venv/Scripts/python.exe _probe.py`, then remove it with
+  `.venv/Scripts/python.exe -c "import os; os.remove('_probe.py')"`. Do NOT use
+  `PYTHONPATH=`/`export`, `/c/tmp`, `rm`/`del`/`sed`, or a multi-line `python -c`
+  (all denied as "multiple operations" or outside the grant).
+
 IMMEDIATE ACTION REQUIRED — your VERY FIRST action must be to invoke the agent
 persona, NOT a task skill:
 

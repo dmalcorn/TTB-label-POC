@@ -9,6 +9,15 @@ prefix commands with `cd` (cwd is already the project root), and never combine
 `cd` with output redirection (`>`, `| tee`) — that is denied. If a command is
 denied, it's outside the grant; take an allowed path, don't retry it verbatim.
 
+PROBING / VERIFYING THE CODE: to exercise the real code empirically, write a
+small `_probe.py` at the REPO ROOT (so `app` imports work), run
+`.venv/Scripts/python.exe _probe.py`, then remove it with
+`.venv/Scripts/python.exe -c "import os; os.remove('_probe.py')"`. Do NOT use
+`PYTHONPATH=`/`export`, `/c/tmp`, `rm`/`del`/`sed`, or a multi-line `python -c`
+(all denied). Run the full `bash scripts/ci.sh` at most ONCE near the end (the
+pipeline re-runs CI after this phase); use targeted `pytest tests/test_<x>.py`
+while iterating.
+
 IMMEDIATE ACTION REQUIRED — your VERY FIRST action must be to invoke the agent
 persona, NOT a task skill:
 
@@ -19,6 +28,13 @@ persona, NOT a task skill:
   Step 2: As that agent, run the code-review command — **CR for story
           {{STORY_ID}}** — and bring story {{STORY_ID}} (currently in `review`)
           to `done`.
+
+  Step 1b: BUILDING THE REVIEW DIFF — run each `git diff` as a SINGLE command;
+          never chain commands with `;`, `&&`, or `echo` (the compound form is
+          denied: "multiple operations require approval"). For tracked changes use
+          one `git diff <baseline> -- <paths>` call. For UNTRACKED new files, do
+          NOT fight `git diff --no-index` — you have already `Read` them, so treat
+          each untracked file's full content as the "new file" in the diff payload.
 
   Step 2a: REVIEW SUBAGENTS — the code-review workflow spawns parallel review
           layers (Blind Hunter / adversarial, Edge Case Hunter, Acceptance
