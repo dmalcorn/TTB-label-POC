@@ -23,8 +23,11 @@ select = ["E", "W", "F", "I", "UP", "B"]
 python_version = "3.13"
 # auto-run/ is the overnight orchestrator harness — walled off from story work and
 # already excluded from ruff. Exclude it from mypy too, so a harness type quirk
-# can never halt a story's CI gate (`mypy .` runs under `set -e`).
-exclude = ['^auto-run/']
+# can never halt a story's CI gate (`mypy .` runs under `set -e`). targetsetup/ is
+# gitignored local reference material (the "heavyweight factory variant", not this
+# POC); ruff skips it via .gitignore but `mypy .` does not, so exclude it here too —
+# its type debt must never gate the POC's CI.
+exclude = ['^auto-run/', '^targetsetup/']
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
