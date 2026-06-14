@@ -34,31 +34,22 @@ screens have data**.
 **Prerequisite — a current image must be built.** Building needs the internet (apt
 packages, pip, and the one-time PaddleOCR weight bake); *running* does not. The image is
 a **snapshot of the code at build time — rebuild it when the app advances** (see "build a
-fresh image" below). A current image (`ttb-label-poc:5-1` / `:latest`, built from `main`)
-is on disk:
+fresh image" below). A current image (`ttb-label-poc:latest`, built from `main`) is on disk:
 
 ```powershell
 docker images ttb-label-poc
-# ttb-label-poc:5-1     3.04GB   ...   <-- the current app
-# ttb-label-poc:latest  3.04GB   ...
+# ttb-label-poc:latest  3.04GB   ...   <-- the current app (rebuild as the code advances)
 ```
 
 Run it (PowerShell), with your laptop offline:
 
 ```powershell
-docker run --rm -e LLM_ENABLED=false -e PIPELINE_MAX_WORKERS=1 -p 8000:8000 ttb-label-poc:latest
+docker run --rm -e LLM_ENABLED=false -p 8000:8000 ttb-label-poc:latest
 ```
 
 Then open **http://localhost:8000** — the root redirects to the review **Queue**. The
-background sweep OCRs the seeded submissions one at a time, so the "N waiting" count
-climbs over the first minute or two and **Next Submission** serves a review screen.
-
-> [!IMPORTANT]
-> **Use `-e PIPELINE_MAX_WORKERS=1`.** With the default (2), the concurrent OCR workers
-> contend on the SQLite write lock and throw `database is locked` — submissions stick in
-> `PROCESSING` and the queue stays empty. One worker serializes the writes (a little
-> slower, but the queue populates cleanly). This is a known concurrency bug to be fixed
-> properly; until then, one worker is the reliable offline setting.
+background sweep OCRs the seeded submissions, so the "N waiting" count climbs over the
+first minute or two and **Next Submission** serves a review screen.
 
 Notes:
 
@@ -70,7 +61,7 @@ Notes:
   persistence across runs, mount a volume:
 
   ```powershell
-  docker run --rm -e LLM_ENABLED=false -e PIPELINE_MAX_WORKERS=1 -e DATABASE_PATH=/data/app.db `
+  docker run --rm -e LLM_ENABLED=false -e DATABASE_PATH=/data/app.db `
     -v ttb-data:/data -p 8000:8000 ttb-label-poc:latest
   ```
 
@@ -169,7 +160,6 @@ as in Option A — an offline laptop is fine because the app makes no outbound c
 |---|---|
 | Port 8000 already in use | Use another port: venv `--port 8001`; Docker `-p 8001:8000`. |
 | Host-venv queue is empty | Expected — no OCR on the host. Use Option A (Docker) for the review workflow. |
-| Docker queue stays "0 waiting"; logs show `database is locked` | The default 2 pipeline workers contend on the SQLite write lock. Run with `-e PIPELINE_MAX_WORKERS=1`. |
 | Submissions stuck at "Processing" (host) | Same cause as the empty host queue — the OCR sweep can't run host-side; expected. |
 | Want to reset the data | Host: delete `data/app.db` (it re-seeds on next boot). Docker: just rerun (ephemeral), or remove the `ttb-data` volume. |
 | Asked for a token unexpectedly | `ACCESS_TOKEN` is set in your environment — unset it for an open local gate. |
