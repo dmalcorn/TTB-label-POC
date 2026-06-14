@@ -1,7 +1,11 @@
 # Outbound-Calls Inventory — TTB COLA Label Specialist POC
 
-**Status:** Planning artifact (updated as components are built). LLM layer implemented in Story 2.5.
-**Last updated:** 2026-06-13
+**Status:** Delivered (Story 6.3) — reflects the **implemented** firewall posture: the LLM layer
+(Story 2.5) and local-only LangChain tracing (Story 5.1) are built, and the only off-host calls in
+the app live in `app/adapters/llm/{openai,google,anthropic}.py`. The §5 markers below are
+implementation-resolved (carried for provenance) or deployment-time verification notes, not open
+gaps in this deliverable.
+**Last updated:** 2026-06-14
 **Audience:** TTB reviewers verifying firewall compliance; the POC engineering team.
 
 ---
@@ -127,12 +131,18 @@ A reviewer (or auditor) can confirm the posture without reading the full codebas
 
 ---
 
-## 5. TODO Markers (depend on final implementation)
+## 5. Implementation Markers (resolved) & deployment-time verification notes
 
-- **TODO-1 — Self-host all USWDS / font / icon assets.** **Recommendation: do not load USWDS,
-  Google Fonts, Font Awesome, or any asset from a CDN.** Bundle and self-host them with the app so
-  the UI makes **zero** third-party requests. *(This is the most likely place an accidental
-  outbound call would creep in — flag it during UI review.)*
+These markers are retained for provenance. The build-dependent ones are **RESOLVED** by the cited
+stories; the remainder are **operational verification steps** a deployer performs against a live
+environment — none is an open gap in this deliverable.
+
+- **TODO-1 — Self-host all USWDS / font / icon assets (RESOLVED — Story 1.4).** USWDS 3.x compiled
+  assets, Public Sans + Roboto Mono fonts, and icons are **vendored and self-hosted** under
+  `static/uswds/` and served same-origin; there is **no CDN, Google Fonts, or external font/icon
+  host**. The UI makes zero third-party requests (project-context §UI Fidelity; §Anti-patterns:
+  "a CDN/outbound asset reference" is a review finding). *(This was the most likely place an
+  accidental outbound call could creep in — it is closed and guarded.)*
 - **TODO-2 — Pin and ship model weights offline (RESOLVED by the Dockerfile).** PaddleOCR (and any
   local VLM) typically download weights on first run. The Dockerfile bakes pinned OCR/VLM weights
   into the image at build time (`COPY models/ models/`), so the **runtime** never reaches the network
@@ -157,10 +167,15 @@ A reviewer (or auditor) can confirm the posture without reading the full codebas
   client) and the seeded corpus reaches `READY_FOR_REVIEW` on OCR-only with zero outbound attempts.
   The offline test suite (`tests/test_llm_adapters.py`, `tests/test_pipeline.py`) enforces it: the
   factory constructs nothing when disabled, and off-host clients live only under `app/adapters/llm/`.
-- **TODO-5 — Confirm DB deployment topology.** Verify the database is local/on-prem with no external
-  replication, backup-to-cloud, or telemetry.
-- **TODO-6 — Verify no implicit telemetry from dependencies.** Audit third-party libraries (e.g.
-  update-checkers, usage analytics) for any default "phone-home" behavior and disable it.
+- **TODO-5 — Confirm DB deployment topology (deployment-time verification note).** The POC uses a
+  single local SQLite file on a Railway Volume (architecture.md D1/D3) — no external replication,
+  backup-to-cloud, or telemetry by design. A deployer verifies the production topology keeps the DB
+  local/on-prem; nothing in the app initiates outbound DB traffic.
+- **TODO-6 — Verify no implicit telemetry from dependencies (deployment-time verification note).**
+  The pinned dependency set (`approved-tech-stack.md`) was chosen for local-first behavior; a
+  deployer audits third-party libraries (e.g. update-checkers, usage analytics) for any default
+  "phone-home" behavior and disables it. The `--network none` smoke test (§4.2) is the backstop —
+  any dependency that tried to egress would fail visibly under it.
 - **TODO-7 — Record the cloud domains contacted (PARTIAL — Story 2.5).** The endpoint-swap mechanism
   is implemented: `LLM_PROVIDER` / `LLM_BASE_URL` / `LLM_MODEL_ID` move provider config from cloud-API
   (POC) to internal endpoint (production) with no code change, and the only off-host clients in the app

@@ -154,9 +154,12 @@ OCR-only path stays fully functional. The deployed demo *may* reach cloud LLM AP
 provable zero-egress configuration. Production swaps the cloud API for an in-firewall endpoint
 via `LLM_BASE_URL` with no code change.
 
-> The full `docs/` deliverable set is indexed at **[`docs/index.md`](docs/index.md)** (linked
-> under [Documentation](#documentation) above); population of the remaining deliverables
-> completes in Epic 6.
+> The full `docs/` deliverable set is delivered and indexed at
+> **[`docs/index.md`](docs/index.md)** (linked under [Documentation](#documentation) above) —
+> approach, tools used, assumptions, trade-offs/limitations, pre-search, the data dictionary, the
+> three per-type rulesets, the landscape/COLAs-Online workflow narrative, the outbound-call
+> inventory, and the USWDS-compliance notes — so an evaluator can set up, run, and trust the POC
+> from this repo alone.
 
 ## USWDS compliance (summary)
 
