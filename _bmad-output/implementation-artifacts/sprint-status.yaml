@@ -1,5 +1,5 @@
 # generated: 2026-06-12
-# last_updated: 2026-06-14 (story 4.11 → review via create-story + dev-story in one session)
+# last_updated: 2026-06-14 (story 5.1 → done via code review — 5 patches applied [F1 critical AC3 fix], 1 deferral, host pytest 707 passed/1 skipped)
 # project: TTB-label-POC
 # project_key: NOKEY
 # tracking_system: file-system
@@ -163,8 +163,9 @@ development_status:
   epic-4-retrospective: optional
 
   # Epic 5: Benchmark Harness & Procurement Study
-  epic-5: backlog
-  5-1-local-only-toggleable-tracing: backlog
+  epic-5: in-progress
+  # story 5.1 moved review -> done on 2026-06-14 (code review: 5 patches applied, 1 deferral, three-layer adversarial review [Blind Hunter diff-only + Edge-Case Hunter + Acceptance Auditor]. F1 [CRITICAL — AC3 "behaves identically"]: a raising trace_llm_call propagated out of llm_stage and SKIPPED the durable insert_llm_result write, so an enabled run could lose the very llm_results row a disabled run would persist — empirically confirmed via _probe.py [llm_stage raised; insert_llm_result called=False]; fixed by wrapping the gated trace call in app/pipeline/llm.py in try/except [logger.exception + swallow] so the stage still persists the row; pinned by new regression test test_llm_stage_persists_the_row_even_if_tracing_raises. F3: resolve Settings once per stage call [trace_settings] threaded through both tracing_enabled and trace_llm_call — one env read, no toggle-flip window. F2: widen _build_handler LangChain guard to one try/except over import+subclass-def+instantiation, degrading to the local _LoggingTraceHandler sink on ANY failure [test_build_handler_degrades_to_local_sink_when_langchain_unavailable]. F4: docs reworded local-DB-write -> local-only sink [in-process record list + local log; durable record stays the llm_results row]. F5: tests gained task/status field asserts + ERROR-result honesty + handler= seam. Dismissed: cosmetic BaseCallbackHandler inheritance [by-design per Dev Notes], total_tokens derivation [by-design], socket-monkeypatch test [defense-in-depth atop the canonical egress-origin guard], _log_trace .get() leniency. Out-of-scope deferral: bash scripts/ci.sh halted in mypy Phase 3 on 12 errors in UNTRACKED targetsetup/scripts/{cola_capture,cola_backs}.py — NOT in this story's change set [git diff baseline -- targetsetup/ empty; not git-tracked]; story source passes mypy cleanly [mypy app/benchmark/tracing.py app/pipeline/llm.py => Success]; recorded in deferred-work.md, validated via canonical host pytest. No project invariant regressed [firewall posture: only off-host calls remain in adapters/llm/*; secrets never logged; pipeline-only writer of llm_results; 5s read contract untouched]. Post-CR full host pytest: 707 passed, 1 skipped [baseline 703 + 4 new CR tests])
+  5-1-local-only-toggleable-tracing: done
   5-2-accuracy-scoring-against-ground-truth: backlog
   5-3-speed-and-cost-statistics-with-cost-per-1000: backlog
   5-4-benchmark-report-screen: backlog

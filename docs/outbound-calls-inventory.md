@@ -60,7 +60,7 @@ Legend:
 | **PaddleOCR** (background job; optional PP-OCRv5) | **`none`** | Local process / local model files | **Yes** (background pre-compute) | Model weights are **downloaded once at build/setup time, then pinned and shipped offline**. At runtime it loads local weights only. See **TODO-2**. |
 | **OpenCV image enhancement** (deskew, perspective, glare/contrast) | **`none`** | Local process | **Yes** | Pure local CPU image processing (`cv2`). No model download, no network. _Source: research → Technical Trends → Image-Quality Remediation._ |
 | **Database** (mock COLA DB; e.g. SQLite/PostgreSQL on-prem) | **`local`** | localhost / on-prem only | **Yes** | Stores submissions, OCR/LLM results, and timing/benchmark stats. Local connection only; no external replication or telemetry. |
-| **LangChain tracing** (local, statistics only) | **`local`** *(when configured local-only — see TODO-3)* | Local DB / local trace sink only | **Yes** (when enabled) | Captures latencies, model name/ID, timestamps into the local DB. Runs with **local/offline tracing and no telemetry egress** — LangSmith/cloud tracing endpoints **disabled**. **Toggleable off.** _Source: research → Technical Trends._ See **TODO-3**. |
+| **LangChain tracing** (local, statistics only) | **`local`** *(local-only — TODO-3 RESOLVED, Story 5.1)* | Local trace sink (in-process record list + local log); durable record is the `llm_results` row | **Yes** (when enabled) | `app/benchmark/tracing.py` captures latency, model name/ID/full-ID, timestamps, and token counts to a **local-only sink** wrapped around each model call; the durable, queryable record stays the pipeline's `llm_results` row (no new schema). Runs with **local/offline tracing and no telemetry egress** — configures no LangSmith/cloud endpoint. **Toggleable off** via `LANGCHAIN_TRACING_ENABLED` (default off); disabled ⇒ no tracing code path executes. _Source: research → Technical Trends._ See **TODO-3 (RESOLVED)**. |
 | **Local LLM** (optional; locally-hosted small VLM) | **`local`** | Local inference endpoint (localhost) | **Optional** | A locally-hosted model (e.g. Ollama/vLLM on localhost) — the zero-egress model option. Weights pinned/shipped offline like PaddleOCR. See **TODO-2**. |
 | **LLM extraction + benchmark calls** (Gemini / OpenAI / Anthropic in the POC) | **`models-internal-endpoint`** | Provider APIs in the POC (e.g. `api.openai.com`, `generativelanguage.googleapis.com`, `api.anthropic.com`); **internal endpoints in production** | **Yes** *(toggleable off)* | The live pipeline runs LLM extraction and captures per-model benchmark stats (PRD §4.5). In a TTB deployment these resolve to **in-firewall endpoints**; the POC's cloud-API calls **model** them (PRD NFR-2 / addendum A2). **Toggle these off** and the pipeline completes on OCR-only — the zero-egress configuration (FR-12). API keys/base URLs are configuration, so production swaps cloud URLs for internal ones with no code change. See **TODO-7**. |
 
@@ -138,12 +138,19 @@ A reviewer (or auditor) can confirm the posture without reading the full codebas
   into the image at build time (`COPY models/ models/`), so the **runtime** never reaches the network
   for weights (architecture.md D7 / Infrastructure). Remaining: verify checksum/version pinning at the
   dependency-pinning step.
-- **TODO-3 — Document the pinned LangChain local-only config (PARTIAL — Story 2.5).** The master
+- **TODO-3 — Document the pinned LangChain local-only config (RESOLVED — Story 5.1).** The master
   off-switch `LANGCHAIN_TRACING_ENABLED` (default `false`) is wired and documented in `.env.example`
-  / README; Story 2.5 adds the `langchain` dependency but **wires no tracing and configures no
-  LangSmith/cloud endpoint**, so there is zero tracing egress. Remaining: the full local-only
-  tracing-to-DB harness is Epic 5 (`benchmark/tracing.py`); document it in
-  [`tools-used.md`](./tools-used.md) then.
+  / README; Story 2.5 added the `langchain` dependency but wired no tracing. **Story 5.1 lands the
+  full local-only tracing harness in `app/benchmark/tracing.py`:** gated entirely on
+  `LANGCHAIN_TRACING_ENABLED`, it captures per-call **model identity + timing + tokens** to a
+  **local-only sink** (an in-process record list + the local structured log) wrapped around each
+  model call; the durable, queryable record stays the `llm_results` row the pipeline writes
+  (`langchain_trace_id` is not a POC column — data-dictionary §4, no new schema). It **configures no
+  LangSmith/cloud trace endpoint** (no
+  `LANGCHAIN_ENDPOINT`/`LANGSMITH_API_KEY` set) and opens no off-host connection — classified
+  **`local`**, zero telemetry egress. When disabled, **no tracing code path executes** (LangChain is
+  imported lazily inside the handler factory, never on the web import path) and the review workspace
+  behaves identically. Documented in [`tools-used.md`](./tools-used.md). _(FR-24, NFR-2)_
 - **TODO-4 — Add the zero-egress smoke test to the run instructions (RESOLVED — Story 2.5).** The
   README "Offline egress smoke test" section documents `docker run --network none -e
   LLM_ENABLED=false`; the model layer is never constructed under that flag (no SDK import, no

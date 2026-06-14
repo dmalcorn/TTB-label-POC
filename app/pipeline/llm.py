@@ -39,6 +39,7 @@ import logging
 import sqlite3
 from typing import TYPE_CHECKING
 
+from app.benchmark import tracing
 from app.config import get_llm_adapter, get_settings
 from app.contracts import LlmResult
 from app.db import repositories as repo
@@ -126,6 +127,27 @@ def llm_stage(ctx: StageContext) -> None:
         return
 
     result = _run_adapter(adapter, _primary_image_path(primary))
+
+    # Local-only, toggleable tracing (Story 5.1, FR-24). Gated on
+    # LANGCHAIN_TRACING_ENABLED: when off (the default) this is a no-op that
+    # constructs/imports nothing — the stage behaves identically to the no-tracing
+    # baseline (AC3). When on, the call's identity/timing/tokens are captured to a
+    # LOCAL sink only (no egress, no LangSmith/cloud endpoint — AC2/AC4). The durable
+    # record stays the llm_results row written below.
+    #
+    # Tracing is ADDITIVE instrumentation: it must NEVER abort the stage or block the
+    # durable insert_llm_result write below. A tracer fault would otherwise make the
+    # enabled path lose the llm_results row a disabled run would have persisted — the
+    # exact opposite of AC3's "behaves identically". So the trace call is wrapped: any
+    # exception is logged and swallowed, and the stage still persists the row. Resolve
+    # settings ONCE and thread it through both calls (one env read; no window where the
+    # toggle could change between the gate and the trace).
+    trace_settings = get_settings()
+    if tracing.tracing_enabled(trace_settings):
+        try:
+            tracing.trace_llm_call(result, settings=trace_settings)
+        except Exception:  # noqa: BLE001 — tracing is additive; never break the pipeline
+            logger.exception("Local trace of the LLM call for submission %s failed", sid)
 
     try:
         repo.insert_llm_result(

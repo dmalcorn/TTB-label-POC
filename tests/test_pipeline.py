@@ -884,6 +884,96 @@ def test_pipeline_llm_enabled_persists_row_and_still_finalizes(tmp_path, monkeyp
     assert row is not None and row["status"] == "OK" and row["total_tokens"] == 30
 
 
+# ── Story 5.1: local-only toggleable tracing wired into the LLM stage ─────────
+
+
+def test_llm_stage_traces_the_call_when_tracing_enabled(tmp_path, monkeypatch):
+    """5.1 AC2: with LANGCHAIN_TRACING_ENABLED=true, the stage records the call's
+    telemetry locally (trace_llm_call invoked once with the produced LlmResult)."""
+    from app.benchmark import tracing as trc
+    from app.pipeline import llm as llmmod
+
+    db_path = _make_db(tmp_path)
+    with connect(db_path) as conn:
+        sid = _insert_received(conn, status="PROCESSING")
+        _insert_image(conn, sid)
+
+    monkeypatch.setenv("LANGCHAIN_TRACING_ENABLED", "true")
+    monkeypatch.setattr(llmmod, "get_llm_adapter", lambda settings: _FakeModel())
+    traced: list = []
+    monkeypatch.setattr(trc, "trace_llm_call", lambda result, **k: traced.append(result))
+    with connect(db_path) as conn:
+        llmmod.llm_stage(_stage_ctx(conn, sid, {}))
+
+    assert len(traced) == 1
+    assert traced[0].model_id == "fake-1" and traced[0].status == "OK"
+
+
+def test_llm_stage_does_not_trace_when_tracing_disabled(tmp_path, monkeypatch):
+    """5.1 AC3: with tracing OFF (default), the stage takes the no-tracing path —
+    trace_llm_call is never invoked — and the persisted llm_results row is unchanged."""
+    from app.benchmark import tracing as trc
+    from app.pipeline import llm as llmmod
+
+    db_path = _make_db(tmp_path)
+    with connect(db_path) as conn:
+        sid = _insert_received(conn, status="PROCESSING")
+        _insert_image(conn, sid)
+
+    monkeypatch.delenv("LANGCHAIN_TRACING_ENABLED", raising=False)
+    monkeypatch.setattr(llmmod, "get_llm_adapter", lambda settings: _FakeModel())
+
+    def _boom(*_a, **_k):  # pragma: no cover - must never run when disabled
+        raise AssertionError("trace_llm_call invoked while tracing disabled")
+
+    monkeypatch.setattr(trc, "trace_llm_call", _boom)
+    with connect(db_path) as conn:
+        llmmod.llm_stage(_stage_ctx(conn, sid, {}))
+
+    with connect(db_path) as conn:
+        row = conn.execute(
+            "SELECT status, model_id, total_tokens FROM llm_results WHERE submission_id = ?",
+            (sid,),
+        ).fetchone()
+    # The displayed extraction row is identical whether tracing is on or off.
+    assert row is not None
+    assert row["status"] == "OK" and row["model_id"] == "fake-1" and row["total_tokens"] == 30
+
+
+def test_llm_stage_persists_the_row_even_if_tracing_raises(tmp_path, monkeypatch):
+    """5.1 AC3 (additive instrumentation): a tracer fault on the ENABLED path must NEVER
+    abort the stage or drop the durable llm_results write. With tracing on but
+    trace_llm_call raising, the stage swallows it and still persists the identical row a
+    tracing-off run would have written."""
+    from app.benchmark import tracing as trc
+    from app.pipeline import llm as llmmod
+
+    db_path = _make_db(tmp_path)
+    with connect(db_path) as conn:
+        sid = _insert_received(conn, status="PROCESSING")
+        _insert_image(conn, sid)
+
+    monkeypatch.setenv("LANGCHAIN_TRACING_ENABLED", "true")
+    monkeypatch.setattr(llmmod, "get_llm_adapter", lambda settings: _FakeModel())
+
+    def _raise(*_a, **_k):
+        raise RuntimeError("simulated tracer failure")
+
+    monkeypatch.setattr(trc, "trace_llm_call", _raise)
+    with connect(db_path) as conn:
+        # Must not raise — the tracer fault is contained in the stage.
+        llmmod.llm_stage(_stage_ctx(conn, sid, {}))
+
+    with connect(db_path) as conn:
+        row = conn.execute(
+            "SELECT status, model_id, total_tokens FROM llm_results WHERE submission_id = ?",
+            (sid,),
+        ).fetchone()
+    # The durable extraction row survives the tracer fault — byte-identical to off.
+    assert row is not None
+    assert row["status"] == "OK" and row["model_id"] == "fake-1" and row["total_tokens"] == 30
+
+
 # ── Story 3.2: engine_stage wired LAST — checklist + advisory verdict pre-computed ──
 
 

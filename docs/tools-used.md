@@ -283,15 +283,24 @@ benefits but easy to turn off** and **used only for gathering statistics**. It g
 way to capture **model name, model ID, full model ID, timestamps, and latencies** into the DB
 (feeding the cost analysis and the OCR/LLM benchmark).
 
-**How it's used here.** Wraps OCR/LLM calls to record per-call timing + model metadata into the
-local DB. Run in **local/offline mode only**.
+**How it's used here.** Implemented in **`app/benchmark/tracing.py`** (Story 5.1). It captures
+per-call **model identity (name / ID / full ID), timestamps, latency, and token counts** to a
+**local-only sink** — an in-process record list plus the local structured log — wrapped around each
+model call. The **durable, queryable record stays the `llm_results` row** that the pipeline already
+writes; the tracer is the toggleable local-only instrumentation envelope on top of it, adding **no**
+schema (`langchain_trace_id` is **not** a POC column — see
+[`data-dictionary.md` §4](./data-dictionary.md)). The whole module is **gated on the
+master off-switch `LANGCHAIN_TRACING_ENABLED`** (default `false`): when off, no tracing code path
+executes (LangChain is imported lazily inside the handler factory, never on the web import path) and
+the review workspace behaves identically; when on, capture is **identity + timing + tokens only** —
+never the prompt, label-image bytes, OCR text, or any secret. Run in **local/offline mode only**.
 
 **Firewall status — local, with hard guardrails.** LangChain can phone home to **LangSmith**
-cloud tracing; that is **disabled**. The deployed config must force local-only tracing with
-**no telemetry egress** (e.g. `LANGCHAIN_TRACING_V2=false`, no `LANGCHAIN_ENDPOINT`, no
-`LANGSMITH_API_KEY`), and a **master off-switch** so tracing can be fully disabled and never
-touch the firewall. Exact flag names are **TODO-3** in
-[`outbound-calls-inventory.md` §5](./outbound-calls-inventory.md).
+cloud tracing; that is **disabled**. `app/benchmark/tracing.py` **configures no LangSmith/cloud
+trace endpoint** — it never sets `LANGCHAIN_ENDPOINT` / `LANGCHAIN_TRACING_V2` / `LANGSMITH_API_KEY`
+and opens no off-host connection — so tracing runs **local-only with no telemetry egress**, even
+when enabled. The **master off-switch** is `LANGCHAIN_TRACING_ENABLED` (default `false`); see
+**TODO-3 (RESOLVED)** in [`outbound-calls-inventory.md` §5](./outbound-calls-inventory.md).
 
 **License.** **MIT.**
 
@@ -406,8 +415,9 @@ provider, no outbound call.
   accidental-outbound spot.
 - **TODO-2** *(in inventory)* — **Pin & ship PaddleOCR / local-VLM weights offline** so runtime
   never reaches the network.
-- **TODO-3** *(in inventory)* — Finalize **LangChain local-only config** + master off-switch flag
-  names.
+- **TODO-3** *(in inventory)* — **RESOLVED (Story 5.1).** LangChain local-only tracing implemented
+  in `app/benchmark/tracing.py`; master off-switch `LANGCHAIN_TRACING_ENABLED` (default `false`); no
+  LangSmith/cloud endpoint configured; identity + timing + tokens captured to the local DB only.
 - **TODO-OCR-1** — Evaluate **PP-OCRv5** alongside default PaddleOCR models in the benchmark.
 - **TODO-JOB-1** — Confirm the **scheduler** (recommended: APScheduler for POC).
 - **TODO-LLM-1** — Pick the **local fallback model** + confirm its weight license.
