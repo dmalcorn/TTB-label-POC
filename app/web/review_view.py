@@ -31,7 +31,7 @@ from collections.abc import Iterable
 from difflib import SequenceMatcher
 from typing import cast
 
-from app import disposition, verdict
+from app import disposition, normalize, verdict
 from app.db.repositories import ChecklistItem, FieldComparison, LabelImage
 
 # ── Beverage-type banner (DESIGN.md beverage accents) ────────────────────────
@@ -298,6 +298,77 @@ def _diff_text_equivalent(application: str | None, extracted: str | None) -> str
     return f"Application: {app!r} — on label: {ext!r}"
 
 
+def _isolate_ocr_snippet(field_key: str, application_value: str | None, blob: str) -> str | None:
+    """Isolate the part of the whole-label OCR blob that corresponds to ONE field.
+
+    The OCR-only fallback (Story 3.3) stores the entire label's OCR text as a field's
+    candidate ``extracted_value`` (the comparator locates the value within it). For
+    DISPLAY that would dump the whole label into every card; instead show just the
+    located snippet — the matching ``<number><unit>`` line for a numeric field, or the
+    best-matching word window for a text field — so the discovered side reads
+    "OLD TOM DISTILLERY" / "750 mL", not the full dump. Deterministic string work over
+    already-stored text (no model; VLM-only purity is untouched). Returns the blob
+    unchanged if it cannot isolate (never empties a non-empty value)."""
+    text = (blob or "").strip()
+    if not text or application_value is None or not application_value.strip():
+        return blob
+    if field_key in normalize.NUMERIC_FIELD_KEYS:
+        snippet = _isolate_numeric_line(field_key, application_value, text)
+    else:
+        snippet = _isolate_text_window(field_key, application_value, text)
+    return snippet or blob
+
+
+def _isolate_numeric_line(field_key: str, application_value: str, text: str) -> str | None:
+    """The blob line carrying this field's quantity — preferring the application's unit
+    (so net_contents shows the ``750 ml`` line, not a stray ``45 %`` ABV elsewhere)."""
+    _, app_unit = normalize.parse_numeric(application_value, field_key)
+    lines = text.splitlines() or [text]
+    for line in lines:  # prefer a same-unit number+unit token
+        num, unit = normalize.parse_numeric(line, field_key)
+        if num is not None and (app_unit is None or unit == app_unit):
+            return line.strip()
+    for line in lines:  # else any line bearing a number for this field
+        num, _ = normalize.parse_numeric(line, field_key)
+        if num is not None:
+            return line.strip()
+    return None
+
+
+def _isolate_text_window(field_key: str, application_value: str, text: str) -> str | None:
+    """The original-text word window that best matches the application value (by
+    normalized similarity). Returns the closest window verbatim, so the card shows what
+    OCR actually read for this field — the matched form for a hit, the nearest text
+    otherwise — instead of the entire label."""
+    app_norm = normalize.normalize(application_value, field_key)
+    words = text.split()
+    if not app_norm or not words:
+        return None
+    n = max(1, len(app_norm.split()))
+    best_score, best = -1.0, None
+    for size in {min(n, len(words)), min(n + 1, len(words))}:
+        for i in range(0, len(words) - size + 1):
+            window = " ".join(words[i : i + size])
+            score = SequenceMatcher(None, app_norm, normalize.normalize(window, field_key)).ratio()
+            if score > best_score:
+                best_score, best = score, window
+    return best
+
+
+def _displayed_extracted(comparison: FieldComparison) -> str | None:
+    """The discovered value to SHOW on a card.
+
+    LLM-sourced comparisons already carry a structured per-field value (shown as-is).
+    The OCR-text fallback stores the WHOLE label blob, so isolate just this field's
+    snippet (:func:`_isolate_ocr_snippet`) — otherwise every card shows the full dump."""
+    ext = comparison.extracted_value
+    if ext is None:
+        return None
+    if comparison.source_llm_result_id is None and comparison.source_ocr_result_id is not None:
+        return _isolate_ocr_snippet(comparison.field_key, comparison.application_value, ext)
+    return ext
+
+
 def _derive_state(item: ChecklistItem, comparison: FieldComparison) -> str:
     """Derive the card state from (verdict, match_status, blank-application).
 
@@ -422,6 +493,9 @@ def field_cards(
 
         vdt = item.verdict or verdict.REVIEW
         state = _derive_state(item, comparison)
+        # The OCR-only fallback stores the whole-label blob as extracted_value; show
+        # just this field's isolated snippet (the card + diff render this, not the dump).
+        display_extracted = _displayed_extracted(comparison)
 
         note: str | None = None
         diff_application: list[dict[str, str]] | None = None
@@ -436,11 +510,11 @@ def field_cards(
             note = {"soft": _SOFT_NOTE, "near_miss": _NEAR_MISS_NOTE}.get(state)
             diff_application, diff_extracted = _char_diff(
                 comparison.application_value or "",
-                comparison.extracted_value or "",
+                display_extracted or "",
                 soft=(vdt != verdict.FAIL),
             )
             diff_text_equivalent = _diff_text_equivalent(
-                comparison.application_value, comparison.extracted_value
+                comparison.application_value, display_extracted
             )
         elif state == "not_found":
             note = _NOT_FOUND_NOTE
@@ -460,7 +534,7 @@ def field_cards(
                 "chip_word": _CHIP_WORD.get(vdt, "REVIEW"),
                 "state": state,
                 "application_value": comparison.application_value,
-                "extracted_value": comparison.extracted_value,
+                "extracted_value": display_extracted,
                 "extracted_source": comparison.extracted_source,
                 "detail": item.detail,
                 "diff_application": diff_application,

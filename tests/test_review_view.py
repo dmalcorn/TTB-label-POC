@@ -299,6 +299,76 @@ def test_field_cards_join_pairs_checklist_to_comparison():
     assert cards[0]["extracted_value"] == "Stone's Throw"
 
 
+def _ocr_blob_cmp(field_key: str, application_value: str, blob: str, cmp_id: int = 10):
+    """An OCR-fallback comparison: extracted_value is the WHOLE label blob, sourced from
+    an OCR row (no LLM) — the case the card must isolate down to this field's snippet."""
+    return FieldComparison(
+        id=cmp_id,
+        submission_id=1,
+        field_key=field_key,
+        application_value=application_value,
+        extracted_value=blob,
+        match_status="MATCH",
+        similarity=1.0,
+        source_ocr_result_id=7,  # OCR-sourced ...
+        source_llm_result_id=None,  # ... not LLM ⇒ extracted_value is the whole blob
+        extracted_source="ocr:tesseract",
+        created_at="2026-06-14T00:00:00Z",
+    )
+
+
+def test_field_cards_ocr_fallback_isolates_text_field_not_whole_blob():
+    """OCR-only fallback stores the WHOLE label OCR blob as a field's extracted_value;
+    the card must show just this field's located snippet, never the entire label dump."""
+    blob = (
+        "OLD TOM DISTILLERY\nKentucky Straight Bourbon Whiskey\n"
+        "45% Alc./Vol. (90 Proof)\n750 mL\n"
+        "GOVERNMENT WARNING: According to the Surgeon General..."
+    )
+    card = review_view.field_cards(
+        [_item("brand_name", "PASS", item_id=1, field_comparison_id=10)],
+        [_ocr_blob_cmp("brand_name", "Old Tom Distillery", blob)],
+    )[0]
+    ev = card["extracted_value"] or ""
+    assert ev == "OLD TOM DISTILLERY"  # the located field value, not the dump
+    assert "GOVERNMENT WARNING" not in ev
+    assert "\n" not in ev  # not the multi-line blob
+
+
+def test_field_cards_ocr_fallback_isolates_numeric_line_by_unit():
+    """A numeric field isolates the matching-unit line — net_contents shows the mL line,
+    not the % ABV line elsewhere in the blob."""
+    blob = "OLD TOM DISTILLERY\n45% Alc./Vol. (90 Proof)\n750 mL"
+    card = review_view.field_cards(
+        [_item("net_contents", "PASS", item_id=1, field_comparison_id=10)],
+        [_ocr_blob_cmp("net_contents", "750 mL", blob)],
+    )[0]
+    ev = card["extracted_value"] or ""
+    assert "750" in ev
+    assert "Alc" not in ev  # not the ABV line
+
+
+def test_field_cards_llm_sourced_value_shown_verbatim():
+    """An LLM-sourced (structured) per-field value is already isolated — show as-is."""
+    cmp_llm = FieldComparison(
+        id=10,
+        submission_id=1,
+        field_key="brand_name",
+        application_value="Old Tom Distillery",
+        extracted_value="Old Tom Distillery",
+        match_status="MATCH",
+        similarity=1.0,
+        source_ocr_result_id=None,
+        source_llm_result_id=3,
+        extracted_source="llm:gpt-4o-mini",
+        created_at="2026-06-14T00:00:00Z",
+    )
+    card = review_view.field_cards(
+        [_item("brand_name", "PASS", item_id=1, field_comparison_id=10)], [cmp_llm]
+    )[0]
+    assert card["extracted_value"] == "Old Tom Distillery"
+
+
 def test_field_cards_excludes_rows_without_comparison_id():
     """Gov Warning / flag-only checks (no field_comparison_id) are NOT field cards."""
     items = [
