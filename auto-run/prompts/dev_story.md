@@ -8,8 +8,10 @@ on tie-breaks. Do not run `sleep` or poll background tasks.
 
 TOOL PERMISSIONS: you have a scoped allowlist (Read/Edit/Write/Glob/Grep/Skill,
 Python + pytest/ruff/mypy, `bash`, read-only git, file inspection). git is
-READ-ONLY — no add/commit/push (the pipeline commits); Docker is not granted, so
-validate on the host venv. BASH: do NOT prefix commands with `cd` (your working
+READ-ONLY — no add/commit/push (the pipeline commits). Validate with `bash
+scripts/ci.sh`: the pipeline brings the dev container up for you and ci.sh runs the
+checks inside it (full native-OCR dep parity), else host-side — you don't run
+`docker` yourself. BASH: do NOT prefix commands with `cd` (your working
 directory is already the project root), and never combine `cd` with output
 redirection (`>`, `>>`, `| tee`) — that is denied. Run e.g. `pytest -q tests/...`
 or `bash scripts/ci.sh`, not `cd <path> && pytest ... > out`. If a command is
@@ -72,9 +74,9 @@ Hard requirements:
   (import, never re-implement), the firewall/offline boundary, the verdict (engine)
   vs disposition (human) separation, VLM-only purity (OCR text never feeds the
   model), snake_case everywhere, CFR rules as data (never hard-coded in Python).
-- Validate on the HOST venv (`bash scripts/ci.sh` or `.venv/Scripts/python.exe -m
-  pytest -q`); do NOT run CI inside the Docker container (it holds a frozen,
-  baked-in copy of the source). See CLAUDE.md.
+- Validate with `bash scripts/ci.sh` (it runs inside the dev container the pipeline
+  starts — full native-OCR parity — or host-side if the container is down; the same
+  gate either way). See CLAUDE.md.
 - End with `_bmad-output/implementation-artifacts/sprint-status.yaml` showing
   story {{STORY_ID}} at `review`.
 - Do NOT commit, push, or run the code-review skill — later phases do that.

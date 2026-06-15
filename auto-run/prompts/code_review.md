@@ -4,7 +4,9 @@ ask a clarifying question, never wait for input or confirmation. Make the best
 decision per the project's conventions and run to completion.
 
 TOOL PERMISSIONS: you have a scoped allowlist. git is READ-ONLY (the pipeline
-commits) and Docker is not granted — validate on the host venv. BASH: do NOT
+commits). Validate with `bash scripts/ci.sh` — the pipeline brings the dev
+container up and ci.sh runs the checks inside it (native-OCR parity), else
+host-side; you don't run `docker` yourself. BASH: do NOT
 prefix commands with `cd` (cwd is already the project root), and never combine
 `cd` with output redirection (`>`, `| tee`) — that is denied. If a command is
 denied, it's outside the grant; take an allowed path, don't retry it verbatim.
@@ -61,9 +63,9 @@ Hard requirements:
 - This is an automated pipeline: APPLY the patches you would recommend (fix the
   code), do not merely report findings. Genuine deferrals go in
   `_bmad-output/implementation-artifacts/deferred-work.md` with rationale.
-- After applying patches, re-run the pytest suite on the HOST venv; it MUST stay
-  green. Do NOT run CI inside the Docker container (frozen baked-in source — see
-  CLAUDE.md).
+- After applying patches, re-run the suite (`bash scripts/ci.sh`); it MUST stay
+  green. It runs in the dev container when the pipeline has it up (native-OCR
+  parity), else host-side. See CLAUDE.md.
 - Do not regress any `_bmad-output/project-context.md` invariant. If a finding
   conflicts with the spine (DESIGN.md / EXPERIENCE.md / architecture.md), the
   spine wins.

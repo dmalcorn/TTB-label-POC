@@ -4,8 +4,10 @@ NEVER ask a question, never wait for input. Make the fix and proceed.
 FIRST ACTION: use the Skill tool to invoke **`bmad-agent-dev`** (the developer
 agent) and work as that persona — do not invoke a task skill bare.
 
-TOOL PERMISSIONS: scoped allowlist. git is READ-ONLY (the pipeline commits) and
-Docker is not granted — validate on the host venv. BASH: do NOT prefix commands
+TOOL PERMISSIONS: scoped allowlist. git is READ-ONLY (the pipeline commits).
+Validate with `bash scripts/ci.sh` — the pipeline brings the dev container up and
+ci.sh runs the checks inside it (native-OCR parity), else host-side; you don't run
+`docker` yourself. BASH: do NOT prefix commands
 with `cd` (cwd is already the project root), and never combine `cd` with output
 redirection — that is denied. If a command is denied, it's outside the grant;
 take an allowed path, don't retry it verbatim.

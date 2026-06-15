@@ -64,10 +64,10 @@ result_chars   = 400       # the tool-result snippet                 (<- result 
 # `docker compose up -d` needed. The image bakes ruff/mypy/pytest + native OCR
 # deps, so in-container checks really run (no false-green skip). Failure is
 # non-fatal: ci.sh degrades to host-side with a warning.
-enabled        = false       # HOST-SIDE for now: the container COPYs source at build time (no
-                             # bind-mount), so in-container CI would test frozen code. Epic-3 is
-                             # pure-Python (no OCR) — host CI is complete + fast. Flip to true after
-                             # compose.yaml gets dev bind-mounts (planned for the OCR epics).
+enabled        = true        # compose.yaml now bind-mounts the live source, so in-container CI tests
+                             # the CURRENT code with full native-OCR dep parity. The orchestrator
+                             # brings the container up at run start (ensure_container) and ci.sh
+                             # dispatches the checks into it. Set false to fall back to fast host CI.
 service        = "web"       # compose service name (matches compose.yaml)
 compose_file   = "compose.yaml"
 build          = false       # true = `--build` every run; false = build only if the image is missing
