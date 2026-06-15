@@ -8,6 +8,8 @@ recommendation.
 
 ## Start here
 
+- [`cover-note.md`](cover-note.md) — one-page **submission summary**: the deliverable at a
+  glance (repo + live URL), how it meets the brief's core, and where everything lives.
 - [`requirements-mapping.md`](requirements-mapping.md) — what the take-home **requires**
   (mandatory) vs. the **above-and-beyond** features added, plus the project goals.
 - [`approach.md`](approach.md) — the central design: architecture, the pre-compute pipeline,
