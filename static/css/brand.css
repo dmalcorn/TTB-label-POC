@@ -676,23 +676,22 @@ a {
   text-transform: uppercase;
   color: var(--brand-ink-muted);
 }
-/* Comparison values are sized up for older eyes (DESIGN.md type-scale): the
- * application/OCR values the specialist reads most are 19px, above the 16px body
- * floor; the OCR raw value is Roboto Mono 17px so character-level diff spans line
- * up column-for-column between the application and on-label strings. */
+/* Comparison values: BOTH the application and the on-label (OCR) value are Roboto Mono
+ * at the SAME 19px, so the character-level diff lines up column-for-column between the
+ * two rows and the eye jumps straight to WHAT differs (DESIGN.md type-scale + the
+ * diff-alignment goal). 19px sits above the 16px body floor for older eyes. A single
+ * shared font + size is what makes the alignment work — different family or size breaks it. */
 .field-card__kv-val {
+  font-family: var(--brand-font-mono);
   font-size: 19px;
   color: var(--brand-ink);
   margin: 0;
   word-break: break-word;
 }
-/* Generic mono helper (also used by the Why? raw-value <code>); the kv-val gets a
- * 17px size so the diff lines up column-for-column with the 19px application row. */
+/* Generic mono helper — also used by the Why? raw-value <code>. The kv-val rows are
+ * already mono above; both share the single 19px size so the diff columns align. */
 .mono {
   font-family: var(--brand-font-mono);
-}
-.field-card__kv-val.mono {
-  font-size: 17px;
 }
 .field-card__empty-val {
   color: var(--brand-ink-muted);
