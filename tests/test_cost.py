@@ -143,6 +143,43 @@ def test_latency_stats_empty_sample_is_none_not_zero():
     assert stats.p95_ms is None
 
 
+def test_processing_time_summary_over_known_sample(tmp_path):
+    """Per-submission processing_ms reduces to count/min/median/mean/p95/max."""
+    db_path = _make_db(tmp_path)
+    with connect(db_path) as conn:
+        for i, ms in enumerate((1000, 2000, 3000, 4000, 5000)):
+            _insert_submission(conn, ttb_id=f"2600100000{i:04d}", processing_ms=ms)
+        conn.commit()
+        s = cost.processing_time_summary(conn)
+    assert s.count == 5
+    assert s.min_ms == 1000
+    assert s.max_ms == 5000
+    assert s.median_ms == 3000
+    assert s.mean_ms == 3000.0
+    assert s.p95_ms == 5000  # nearest-rank ceil(0.95*5)=5 ⇒ 5th value
+
+
+def test_processing_time_summary_ignores_unprocessed_rows(tmp_path):
+    """A not-yet-processed submission (NULL processing_ms) is excluded from the sample."""
+    db_path = _make_db(tmp_path)
+    with connect(db_path) as conn:
+        _insert_submission(conn, ttb_id="26001000000010", processing_ms=1200)
+        _insert_submission(conn, ttb_id="26001000000011")  # NULL ⇒ excluded
+        conn.commit()
+        s = cost.processing_time_summary(conn)
+    assert s.count == 1
+    assert s.min_ms == 1200 and s.max_ms == 1200
+
+
+def test_processing_time_summary_empty_is_none_not_zero(tmp_path):
+    """No processed submissions ⇒ honest all-None summary, count 0 (never a fake 0)."""
+    db_path = _make_db(tmp_path)
+    with connect(db_path) as conn:
+        s = cost.processing_time_summary(conn)
+    assert s.count == 0
+    assert s.median_ms is None and s.min_ms is None and s.max_ms is None
+
+
 def test_corpus_latency_keyed_by_engine_variant_and_model(tmp_path):
     db_path = _make_db(tmp_path)
     with connect(db_path) as conn:

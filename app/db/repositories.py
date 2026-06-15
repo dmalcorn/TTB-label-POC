@@ -578,6 +578,16 @@ def update_processing_ms(conn: sqlite3.Connection, submission_id: int, processin
     )
 
 
+def list_processing_ms(conn: sqlite3.Connection) -> list[int]:
+    """Every non-NULL ``submissions.processing_ms`` (per-submission whole-pipeline
+    pre-compute wall-time, ms) — the sample behind the benchmark throughput summary.
+    SELECT-only; NULLs (not-yet-processed rows) are excluded."""
+    rows = conn.execute(
+        "SELECT processing_ms FROM submissions WHERE processing_ms IS NOT NULL"
+    ).fetchall()
+    return [int(r[0]) for r in rows]
+
+
 def list_received_ids(conn: sqlite3.Connection, limit: int) -> list[int]:
     """List ``RECEIVED`` submission ids, oldest-first, capped at ``limit`` — the
     bounded batch the background sweep claims each tick (AC1/AC5).

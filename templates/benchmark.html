@@ -127,6 +127,22 @@
   </div>
   {% endif %}
 
+  {# Per-submission pre-compute throughput — the background pipeline cost behind the
+     instant read; complementary to the per-engine latency in the table above. #}
+  {% if processing_time.count %}
+  <h2 class="benchmark__sec-h">Per-submission pre-compute time</h2>
+  <p class="benchmark__sec-sub">Whole-pipeline wall-time per submission (preprocess → OCR →
+    analysis). It runs once in the background at submission time — off the reviewer's path — so the
+    review screen is an instant pre-computed read. This is the throughput behind the ~5-second claim.</p>
+  <div class="benchmark__footer-meta">
+    <span><b>{{ processing_time.median_s }} s</b> median</span>
+    <span><b>{{ processing_time.mean_s }} s</b> mean</span>
+    <span><b>{{ processing_time.p95_s }} s</b> p95</span>
+    <span>range {{ processing_time.min_s }}–{{ processing_time.max_s }} s</span>
+    <span>{{ processing_time.count }} submissions</span>
+  </div>
+  {% endif %}
+
   {# Honesty note (amber) — the caveats stated plainly, not buried (NFR-5). #}
   <div class="benchmark__honesty">
     <div class="benchmark__honesty-h"><span class="benchmark__honesty-ic" aria-hidden="true">⚠</span>How to read these numbers</div>

@@ -445,3 +445,26 @@ def test_benchmark_includes_cost_only_extractor_not_dropped(monkeypatch, tmp_pat
     assert "PaddleOCR (PP-OCRv5)" in body
     # Its accuracy reads the honest "—" (unscored), never a fabricated number/zero.
     assert "—" in body
+
+
+def test_benchmark_shows_per_submission_processing_time(monkeypatch, tmp_path) -> None:
+    """The screen reports the per-submission end-to-end pre-compute time (the background
+    throughput behind the instant read) — count + seconds figures from processing_ms."""
+    client = _client(monkeypatch, tmp_path)
+    with connect(_db_path(tmp_path)) as conn:
+        _insert_submission(conn, ttb_id="26001000000801", processing_ms=2000)
+        _insert_submission(conn, ttb_id="26001000000802", processing_ms=4000)
+        conn.commit()
+    resp = client.get("/benchmark")
+    assert resp.status_code == 200
+    body = resp.text
+    assert "Per-submission pre-compute time" in body
+    assert "2 submissions" in body
+    assert "3.0" in body  # median & mean of 2000,4000 ms = 3.0 s
+
+
+def test_benchmark_hides_processing_time_when_no_processed_rows(monkeypatch, tmp_path) -> None:
+    """No processed submissions ⇒ the throughput section is omitted (no fake 0.0 s)."""
+    client = _client(monkeypatch, tmp_path)
+    body = client.get("/benchmark").text
+    assert "Per-submission pre-compute time" not in body

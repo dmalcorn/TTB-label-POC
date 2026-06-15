@@ -109,6 +109,11 @@ def _fmt_cost(cost_per_1000: Decimal | None) -> str:
     return f"${cost_per_1000:.2f}"
 
 
+def _fmt_seconds(ms: float | None) -> str:
+    """Milliseconds → seconds to one decimal (e.g. ``3.2``), or "—" on an empty sample."""
+    return "—" if ms is None else f"{ms / 1000:.1f}"
+
+
 def _best_key(
     rates: dict[str, float | None],
 ) -> str | None:
@@ -213,6 +218,7 @@ def benchmark(request: Request) -> Response:
     with connect(settings.database_path) as conn:
         score = scoring.score_corpus(conn)
         report = cost.cost_corpus(conn)
+        proc = cost.processing_time_summary(conn)
 
     engine_rows = _build_engine_rows(score, report)
     model_rows = _build_model_rows(score, report)
@@ -226,5 +232,15 @@ def benchmark(request: Request) -> Response:
             "engine_rows": engine_rows,
             "model_rows": model_rows,
             "fixture_count": score.scored_submissions,
+            # Per-submission pre-compute throughput (the background cost behind the
+            # instant read) — pre-formatted to seconds so the template stays presentational.
+            "processing_time": {
+                "count": proc.count,
+                "median_s": _fmt_seconds(proc.median_ms),
+                "mean_s": _fmt_seconds(proc.mean_ms),
+                "p95_s": _fmt_seconds(proc.p95_ms),
+                "min_s": _fmt_seconds(proc.min_ms),
+                "max_s": _fmt_seconds(proc.max_ms),
+            },
         },
     )

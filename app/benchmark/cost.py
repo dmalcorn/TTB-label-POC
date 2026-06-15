@@ -100,6 +100,48 @@ def _nearest_rank(sorted_values: Sequence[int], percentile: float) -> int:
     return sorted_values[rank - 1]
 
 
+# ── per-submission pre-compute throughput (the background cost behind the read) ──
+
+
+@dataclass(frozen=True, slots=True)
+class ProcessingTimeSummary:
+    """Per-SUBMISSION end-to-end pre-compute time (``submissions.processing_ms``).
+
+    Distinct from the per-extractor :class:`LatencyStats` above: this is the WHOLE
+    background pipeline's wall-time per submission (preprocess → OCR → analysis), which
+    runs once at submission time — off the reviewer's read path. It is the throughput
+    picture behind the ~5-second read claim (the specialist never waits on it). ``count``
+    is the number of processed submissions covered; an empty corpus ⇒ all-``None``."""
+
+    count: int = 0
+    min_ms: int | None = None
+    median_ms: float | None = None
+    mean_ms: float | None = None
+    p95_ms: float | None = None
+    max_ms: int | None = None
+
+
+def processing_time_summary(conn: sqlite3.Connection) -> ProcessingTimeSummary:
+    """Summarize per-submission ``processing_ms`` across the processed corpus.
+
+    Reads every non-NULL ``submissions.processing_ms`` once (SELECT-only) and reduces to
+    count / min / median / mean / p95 / max — reusing :func:`latency_stats` for the
+    mean/median/p95 so the method matches the per-extractor figures. Empty sample ⇒ an
+    all-``None`` summary with ``count = 0`` (honest, not a fabricated zero)."""
+    kept = sorted(repo.list_processing_ms(conn))
+    if not kept:
+        return ProcessingTimeSummary()
+    base = latency_stats(kept)
+    return ProcessingTimeSummary(
+        count=base.count,
+        min_ms=kept[0],
+        median_ms=base.median_ms,
+        mean_ms=base.mean_ms,
+        p95_ms=base.p95_ms,
+        max_ms=kept[-1],
+    )
+
+
 # ── pricing basis (labeled — NFR-5) ──────────────────────────────────────────
 
 
