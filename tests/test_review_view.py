@@ -893,7 +893,10 @@ def test_gov_warning_card_pass_quiet_no_diff():
     assert card["outcome"] == "pass"
     assert card["diff_required"] is None
     assert card["diff_onlabel"] is None
-    assert card["note"] is None
+    # A compliant pass draws no diff/stack, but carries a plain confirmation note so the
+    # card is not a bare green chip (the on-label warning matched the required statement).
+    assert card["note"] == review_view._GW_PASS_NOTE
+    assert "matches" in card["note"].lower()
 
 
 def test_gov_warning_card_reworded_fail_carries_char_diff():

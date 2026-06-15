@@ -583,6 +583,9 @@ _GW_ABSENT_NOTE = "Required Government Warning not found on the submitted images
 _GW_COULDNT_VERIFY_NOTE = (
     "Couldn't confirm the bold/visual styling from a photo — please verify by eye."
 )
+# A compliant pass has no diff to stack; a bare chip read as "empty" to reviewers, so
+# confirm in plain words that the on-label warning matched the statute (citation in header).
+_GW_PASS_NOTE = "On-label warning matches the required statement — exact wording and casing."
 
 
 def _gw_diff_text_equivalent(expected: str, found: str) -> str:
@@ -746,14 +749,17 @@ def government_warning_card(items: Iterable[ChecklistItem]) -> dict[str, object]
         )
 
     if outcome == _GW_OUTCOME_PASS:
-        # The quiet compliant state. The engine's ``pass`` payload carries NO on-label
-        # text (only the outcome + citation) and AR-5 forbids re-reading OCR here, so
-        # the card shows the chip + "Why?" with no required/on-label stack.
+        # The compliant state. The engine's ``pass`` payload carries NO on-label text
+        # (only the outcome + citation) and AR-5 forbids re-reading OCR here, so there is
+        # no required/on-label stack to draw — but a bare green chip read as "empty" to
+        # reviewers, so add a plain confirmation note that the on-label warning matched the
+        # required statement (citation is in the header). No warning text is re-typed.
         return _gw_card(
             row,
             outcome=_GW_OUTCOME_PASS,
             vdt=vdt,
             cfr_citation=cfr_citation,
+            note=_GW_PASS_NOTE,
         )
 
     # A missing or UNKNOWN ``outcome`` on an otherwise-valid dict is ambiguous — fold it
