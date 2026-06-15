@@ -103,6 +103,11 @@ cp .env.example .env          # then set ACCESS_TOKEN to a value of your choice
 docker compose up --build     # serves http://localhost:8000
 ```
 
+> **Heads-up:** the *first* build takes ~10–20 minutes — it installs the native OCR stack
+> (Tesseract, OpenCV) and bakes the pinned PaddleOCR weights into the image so the runtime
+> never downloads them (the firewall-safe guarantee). It's a one-time cost; later starts are
+> seconds. To skip the build entirely, just use the deployed URL.
+
 Open <http://localhost:8000>. With `ACCESS_TOKEN` set you'll meet the **token gate** — enter
 the same value at `/access` to reach the app. With `ACCESS_TOKEN` empty/unset the gate is
 disabled (clone-and-run convenience).
