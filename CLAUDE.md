@@ -5,25 +5,34 @@ The authoritative AI rules for this codebase live in
 writing code and follow it exactly. This file adds operational notes that agents
 working in this repo need.
 
-## Validate on the HOST venv — do NOT run CI inside the container (for now)
+## Validating: host venv (fast) or the dev container (full dep parity)
 
-Validate your work with the **host venv** (Python 3.14): `bash scripts/ci.sh` or
-`.venv/Scripts/python.exe -m pytest -q`. It has every pure-Python dep and is fast.
+Two equally-valid ways to validate — pick by whether you need the native OCR stack:
 
-**Do NOT try to run the test/CI suite inside the `web` Docker container.** The
-container COPYs the source at build time (no bind-mount in `compose.yaml`), so it
-holds a **frozen, stale** snapshot — `docker compose exec web …` would test old code,
-not your edits. Don't `docker compose up -d` to "get dep parity for CI"; it won't
-reflect your changes and just wastes time. (Live bind-mounted container CI is a
-planned future enhancement; until then, host validation is canonical.)
+**Host venv** (Python 3.14) — fast, pure-Python: `bash scripts/ci.sh` or
+`.venv/Scripts/python.exe -m pytest -q`. Has every pure-Python dep; the OCR-native
+tests skip cleanly (Tesseract/PaddleOCR aren't installed host-side). Best for the
+inner loop.
 
-mypy note: the host has no `cv2`/OCR natives, so `mypy --ignore-missing-imports`
-treats those as `Any` — type errors in code that imports them won't surface
-host-side. That's expected; don't chase it.
+**Dev container** (`web`) — full parity with the shipped image, including native
+Tesseract + PaddleOCR + OpenCV:
 
-The container/image is for **building the production artifact and the zero-egress
-smoke test** (NFR-2): `docker run --rm --network none -e LLM_ENABLED=false ttb-label-poc`
-— not for live development CI.
+```
+docker compose up -d        # start the web service (built image + LIVE source mounts)
+bash scripts/ci.sh          # auto-detects the running service & runs the checks IN it
+```
+
+`compose.yaml` now **bind-mounts the live source** onto the image, so the container
+tests *your current code* — not a build-time snapshot. Use it to run the OCR-native
+tests for real and to type-check the OCR/`cv2` code paths.
+
+mypy note: on the **host** there's no `cv2`/OCR natives, so `mypy
+--ignore-missing-imports` treats those as `Any` — type errors in OCR-importing code
+won't surface host-side (run mypy in the container to catch them). That's expected
+for a host run; don't chase it there.
+
+The image also serves the **production artifact + the zero-egress smoke test**
+(NFR-2): `docker run --rm --network none -e LLM_ENABLED=false ttb-label-poc`.
 
 ## CI
 

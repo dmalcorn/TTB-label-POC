@@ -1,16 +1,18 @@
 # Local dev for the TTB COLA Label Specialist POC (AR-2).
-# Single service, built from the offline-pinned Dockerfile.
+# Single service, built from the offline-pinned Dockerfile, with live bind-mounts.
 #
-#   docker compose up --build       # run the skeleton at http://localhost:8000
+#   docker compose up -d --build    # run the app at http://localhost:8000 (live source)
 #
-# Egress smoke test (NFR-2 / AR-8) — proves the zero-egress OCR-only boot.
-# Run the built image directly with no network and confirm /healthz answers:
+# In-container CI (full dependency parity incl. native Tesseract/PaddleOCR):
+#
+#   docker compose up -d            # start the web service (built image + live mounts)
+#   bash scripts/ci.sh              # auto-detects the running service & runs checks in it
+#
+# Egress smoke test (NFR-2 / AR-8) — proves the zero-egress OCR-only boot. Run the
+# built image directly with no network and confirm /healthz answers:
 #
 #   docker build -t ttb-label-poc .
 #   docker run --rm --network none -e LLM_ENABLED=false -p 8000:8000 ttb-label-poc
-#
-# (Later stories mount a Volume for the SQLite file + generated images; the
-# skeleton needs no persistent storage yet.)
 services:
   web:
     build:
@@ -18,6 +20,31 @@ services:
       dockerfile: Dockerfile
     ports:
       - "8000:8000"
+    # Dev bind-mounts (AR-2): overlay the LIVE host source onto the baked image so the
+    # running container reflects local edits — in-container CI (`bash scripts/ci.sh`
+    # dispatches checks into this service) tests THIS code, not a build-time snapshot.
+    # The pip deps (site-packages, /usr/local/lib) and the baked PaddleOCR weights
+    # (/app/models) stay from the image, so OCR still runs offline. `data/` stays
+    # unmounted (container-ephemeral; the app re-seeds on boot).
+    volumes:
+      - ./app:/app/app
+      - ./tests:/app/tests
+      - ./templates:/app/templates
+      - ./static:/app/static
+      - ./fixtures:/app/fixtures
+      - ./pyproject.toml:/app/pyproject.toml
+      # Repo artifacts the suite's meta-tests read (test_deploy_config /
+      # test_docs_deliverables / the data-dictionary check). Not part of the shipped
+      # image — mounted so the FULL suite passes in-container, same gate as host.
+      - ./docs:/app/docs
+      - ./README.md:/app/README.md
+      - ./railway.toml:/app/railway.toml
+      - ./Dockerfile:/app/Dockerfile
+      - ./.env.example:/app/.env.example
+      # The README / docs link-resolution tests follow links into these trees:
+      - ./_bmad-output:/app/_bmad-output
+      - ./ref-docs:/app/ref-docs
+      - ./samples:/app/samples
     # `.env` (when present) is the single source for runtime config. No
     # `environment:` overrides here — a Compose `environment:` value takes
     # precedence over `env_file`, which would silently shadow a value set in
