@@ -656,8 +656,17 @@ a {
   background-color: var(--verdict-fail-bg);
 }
 
-/* stacked application-over-extracted key/value rows. */
+/* application/OCR values as a two-column label|value grid (Story 4.4 refinement): the
+ * two values stack in column 2 so the specialist eyeballs them directly, with the
+ * source labels in a quiet column 1 — easier to scan and saves vertical space. The
+ * <dl>'s dt/dd pairs flow into the grid (dt → col 1, dd → col 2); row-gap owns the
+ * spacing the per-item margins used to. */
 .field-card__kv {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  column-gap: 16px;
+  row-gap: 6px;
+  align-items: baseline;
   margin: 0;
 }
 .field-card__kv-term {
@@ -666,7 +675,6 @@ a {
   letter-spacing: 0.04em;
   text-transform: uppercase;
   color: var(--brand-ink-muted);
-  margin-top: 6px;
 }
 /* Comparison values are sized up for older eyes (DESIGN.md type-scale): the
  * application/OCR values the specialist reads most are 19px, above the 16px body
@@ -675,7 +683,7 @@ a {
 .field-card__kv-val {
   font-size: 19px;
   color: var(--brand-ink);
-  margin: 0 0 4px;
+  margin: 0;
   word-break: break-word;
 }
 /* Generic mono helper (also used by the Why? raw-value <code>); the kv-val gets a
