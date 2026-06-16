@@ -130,51 +130,24 @@ MALT_BEVERAGE_RULESET: tuple[Check, ...] = (
         source_date=_SOURCE_DATE,
         strategy="government_warning",
     ),
-    # ── §7.63(b) CONDITIONAL flag-only ingredient disclosures (doc §4) ────────
-    # Each reuses the Story-3.7 ``positional`` strategy: an unhandled flag-only
-    # check_key degrades to an honest REVIEW, deferring the trigger to the
-    # specialist. Citations travel as DATA. Note: Part 7 has NO general
-    # coloring-material/caramel disclosure (doc §4) — only the four items below.
+    # ── conditional element RETAINED: country of origin (doc §4) ──────────────
+    # POC scope decision (see docs/tradeoffs-and-limitations.md): the §7.63(b)
+    # formula/ingredient-conditional disclosures (FD&C Yellow No. 5, cochineal/carmine,
+    # sulfites, aspartame) were REMOVED — the POC's application data carries no formula/
+    # ingredient signal to anchor them, so each could only surface as an un-actionable
+    # REVIEW on every product. Country of origin is KEPT because it keys off the
+    # application's import / source-of-product flag. Reuses the Story-3.7 ``positional``
+    # strategy: an unhandled flag-only key degrades to an honest REVIEW for the specialist.
     Check(
-        check_key="fdc_yellow_5",
-        label="FD&C Yellow No. 5 declaration",
-        check_type="MANUAL",
-        cfr_citation="27 CFR 7.63(b)(1)",
-        source_date=_SOURCE_DATE,
-        strategy="positional",
-    ),
-    Check(
-        check_key="cochineal_carmine",
-        label="Cochineal extract / carmine declaration",
-        check_type="MANUAL",
-        cfr_citation="27 CFR 7.63(b)(2)",
-        source_date=_SOURCE_DATE,
-        strategy="positional",
-    ),
-    Check(
-        check_key="sulfite_declaration",
-        label="Sulfite declaration",
-        check_type="MANUAL",
-        cfr_citation="27 CFR 7.63(b)(3)",
-        source_date=_SOURCE_DATE,
-        strategy="positional",
-    ),
-    Check(
-        check_key="aspartame_disclosure",
-        label="Aspartame disclosure",
-        check_type="MANUAL",
-        cfr_citation="27 CFR 7.63(b)(4)",
-        source_date=_SOURCE_DATE,
-        strategy="positional",
-    ),
-    Check(
-        # CBP-governed (§7.69 + 19 CFR 102/134); the Part 7 anchor §7.69 is the
-        # truthful 27 CFR citation for malt's country-of-origin element.
+        # Required for IMPORTED products (CBP-governed; Part 7 anchor §7.69); a DOMESTIC
+        # product auto-passes. FIELD_MATCH so it renders as a comparison card; the
+        # ``country_of_origin`` evaluator trusts ``source_of_product`` to branch.
         check_key="country_of_origin",
         label="Country of origin",
-        check_type="MANUAL",
+        check_type="FIELD_MATCH",
         cfr_citation="27 CFR 7.69",
         source_date=_SOURCE_DATE,
-        strategy="positional",
+        strategy="country_of_origin",
+        field_key="country_of_origin",
     ),
 )

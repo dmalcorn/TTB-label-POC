@@ -173,12 +173,15 @@ def _score_numeric(field_key: str, extracted: str, gold: str) -> FieldScore:
     if gold_num is None:
         # Gold itself unparseable — cannot anchor a numeric comparison.
         return FieldScore(field_key, _UNVERIFIABLE, None)
-    ext_num, _ext_unit = field_match._extract_numeric_for_unit(extracted, field_key, gold_unit)
-    if ext_num is None:
+    ext_nums = field_match._extracted_numbers_for_unit(extracted, field_key, gold_unit)
+    if not ext_nums:
         # No same-unit number on the extraction side ⇒ not found.
         return FieldScore(field_key, _MISSING, None)
     tolerance = _NUMERIC_TOLERANCE.get(field_key, Decimal("0"))
-    if abs(gold_num - ext_num) <= tolerance:
+    # Mirror field_match: the gold value is confirmed if the CLOSEST same-unit token is
+    # within tolerance (a stray OCR neighbour like ``0%`` must not score a false miss).
+    closest = min(ext_nums, key=lambda n: abs(gold_num - n))
+    if abs(gold_num - closest) <= tolerance:
         return FieldScore(field_key, _MATCH, 1.0)
     return FieldScore(field_key, _MISMATCH, 0.0)
 

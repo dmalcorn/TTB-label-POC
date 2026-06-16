@@ -30,6 +30,10 @@ CREATE TABLE IF NOT EXISTS submissions (
     alcohol_content         TEXT,
     net_contents            TEXT,
     grape_varietal          TEXT,
+    -- The filed country of origin (origin_code): a foreign country for IMPORTED, the US
+    -- state/region for DOMESTIC. The country_of_origin check trusts source_of_product to
+    -- decide import-required vs domestic-auto-pass (never re-derives it from this value).
+    country_of_origin       TEXT,
     wine_appellation        TEXT,
     wine_vintage            TEXT,
     formula_id              TEXT,
@@ -271,7 +275,8 @@ CREATE INDEX IF NOT EXISTS idx_checklist_items_submission ON checklist_items (su
 -- (Epic 6). ON DELETE CASCADE keeps it tied to its submission.
 CREATE TABLE IF NOT EXISTS review_progress (
     submission_id     INTEGER PRIMARY KEY REFERENCES submissions(id) ON DELETE CASCADE,
-    ticked_check_keys TEXT NOT NULL DEFAULT '[]',   -- JSON array of manually-ticked check_keys
+    ticked_check_keys TEXT NOT NULL DEFAULT '[]',   -- legacy Story-4.6 tick set (retired in the UI)
+    decisions         TEXT NOT NULL DEFAULT '{}',   -- JSON object: check_key -> 'pass' | 'fail' (per-card human call)
     draft_notes       TEXT,                         -- in-progress Notes (written by Story 4.8)
     updated_at        TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );

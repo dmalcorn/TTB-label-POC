@@ -134,18 +134,6 @@ WINE_RULESET: tuple[Check, ...] = (
         source_date=_SOURCE_DATE,
         strategy="format_checks",
     ),
-    # ── standards of fill (doc §4, §4.72) ────────────────────────────────────
-    # Divergence (2): wine's §4.72 table differs from the spirits §5.203 table,
-    # and an off-table size is a flag-REVIEW; surfaced via ``positional`` (an
-    # unknown flag-only key → honest REVIEW) rather than mis-applying §5.203.
-    Check(
-        check_key="standards_of_fill",
-        label="Net contents standard of fill",
-        check_type="MANUAL",
-        cfr_citation="27 CFR 4.72",
-        source_date=_SOURCE_DATE,
-        strategy="positional",
-    ),
     # ── Government Warning (Part 16; applies to all types ≥0.5% ABV) ──────────
     Check(
         check_key="government_warning",
@@ -155,50 +143,25 @@ WINE_RULESET: tuple[Check, ...] = (
         source_date=_SOURCE_DATE,
         strategy="government_warning",
     ),
-    # ── §4 CONDITIONAL flag-only elements (doc §4) ───────────────────────────
-    # Each reuses the Story-3.7 ``positional`` strategy: an unhandled flag-only
-    # check_key degrades to an honest REVIEW (finalize-don't-abort), deferring the
-    # trigger/judgment to the specialist. Citations travel as DATA.
+    # ── conditional element RETAINED: country of origin (doc §4) ─────────────
+    # POC scope decision (see docs/tradeoffs-and-limitations.md): the formula/
+    # ingredient-conditional disclosures (appellation of origin, sulfites, FD&C
+    # Yellow No. 5, cochineal/carmine) and the wine §4.72 standards-of-fill flag were
+    # REMOVED — the POC's application data carries no formula/ingredient signal to
+    # anchor them, so each could only ever surface as an un-actionable REVIEW on every
+    # product. Country of origin is KEPT because it keys off the application's import /
+    # source-of-product flag, which is anchorable. It reuses the Story-3.7 ``positional``
+    # strategy: an unhandled flag-only key degrades to an honest REVIEW for the specialist.
     Check(
-        check_key="appellation_of_origin",
-        label="Appellation of origin",
-        check_type="MANUAL",
-        cfr_citation="27 CFR 4.25",
-        source_date=_SOURCE_DATE,
-        strategy="positional",
-    ),
-    Check(
-        check_key="sulfite_declaration",
-        label="Sulfite declaration",
-        check_type="MANUAL",
-        cfr_citation="27 CFR 4.32(e)",
-        source_date=_SOURCE_DATE,
-        strategy="positional",
-    ),
-    Check(
-        check_key="fdc_yellow_5",
-        label="FD&C Yellow No. 5 declaration",
-        check_type="MANUAL",
-        cfr_citation="27 CFR 4.32(c)",
-        source_date=_SOURCE_DATE,
-        strategy="positional",
-    ),
-    Check(
-        check_key="cochineal_carmine",
-        label="Cochineal extract / carmine declaration",
-        check_type="MANUAL",
-        cfr_citation="27 CFR 4.32(d)",
-        source_date=_SOURCE_DATE,
-        strategy="positional",
-    ),
-    Check(
-        # CBP-governed (doc §3); its citation is recorded truthfully as 19 CFR,
-        # not forced into 27 CFR.
+        # Required for IMPORTED products (CBP-governed, 19 CFR 134.11); a DOMESTIC product
+        # auto-passes. FIELD_MATCH so it renders as a comparison card; the
+        # ``country_of_origin`` evaluator trusts ``source_of_product`` to branch.
         check_key="country_of_origin",
         label="Country of origin",
-        check_type="MANUAL",
+        check_type="FIELD_MATCH",
         cfr_citation="19 CFR 134.11",
         source_date=_SOURCE_DATE,
-        strategy="positional",
+        strategy="country_of_origin",
+        field_key="country_of_origin",
     ),
 )

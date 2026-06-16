@@ -8,8 +8,8 @@ Covers the four ACs of the first Epic-4 UI story:
   redirects to ``/review/{id}`` — or, on an empty queue, re-renders the calm State-2
   screen (NOT an error, NOT a redirect).
 - AC2: the screen reproduces ``mockups/queue.html`` in both states (auto-focused
-  Next Submission button that submits a form, the segmented filter, the deferred
-  Phase-2 placeholder, the disabled empty-state button + calm copy).
+  Next Submission button that submits a form, the segmented filter, the disabled
+  empty-state button + calm copy).
 - AC3: tokens resolve via the linked brand stylesheet (no inline ``<style>``),
   mockup scaffolding + fabricated demo stats are excluded, and the stats strip shows
   only the honestly-computable live "N waiting" count.
@@ -279,9 +279,6 @@ def test_queue_state1_fidelity(monkeypatch, tmp_path) -> None:
     for label in ("Any", "Wine", "Spirits", "Beer"):
         assert f">{label}<" in body
     assert 'aria-pressed="true"' in body
-    # The Phase-2 deferred placeholder — present, not a live control.
-    assert "deferred" in body
-    assert 'aria-hidden="true"' in body
     # The shared app shell header is inherited from base.html.
     assert 'class="app-header"' in body
 

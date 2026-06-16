@@ -910,16 +910,17 @@ a {
   margin: 0;
 }
 
-/* one checklist row: a real focusable anchor (mouse path works without JS). */
+/* one checklist row: a fixed 3-column grid (label | engine verdict | decision) so the
+   three columns line up straight down the list regardless of content. */
 .cli {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 6em 8.5em;
   align-items: center;
-  gap: 10px;
+  column-gap: 12px;
   padding: 8px 6px;
   border-top: 1px solid var(--brand-border);
   font-size: 16px;
   color: var(--brand-ink);
-  text-decoration: none;
 }
 .cli:first-of-type {
   border-top: 0;
@@ -928,89 +929,117 @@ a {
 .cli:focus {
   background-color: var(--verdict-review-bg);
 }
-/* the box glyph (✓ / ✗ / empty): a square that carries the tick, always paired
- * with the right-side WORD so it never conveys state by color alone. */
-.cli__box {
-  flex: 0 0 auto;
-  width: 20px;
-  height: 20px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border: 2px solid var(--brand-border);
-  border-radius: var(--brand-radius-sm);
-  font-size: 14px;
-  font-weight: 700;
-  line-height: 1;
+/* column 1: the label — a jump link to the card (carded) or plain text (carded-less). */
+.cli__jump {
+  min-width: 0;
+  text-decoration: none;
+  color: var(--brand-ink);
+}
+.cli__jump:hover {
+  text-decoration: underline;
 }
 .cli__label {
-  flex: 1 1 auto;
+  min-width: 0;
 }
-/* the right-side verdict cluster: icon + WORD + machine/confirmation tag. */
-.cli__right {
-  flex: 0 0 auto;
+/* column 2: the engine's automated verdict — context only, muted + small (icon + WORD).
+   Left-aligned in its fixed cell so the verdict words form a clean column. */
+.cli__engine {
+  justify-self: start;
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  font-size: 14px;
-  font-weight: 700;
+  gap: 5px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--brand-ink-muted);
   white-space: nowrap;
 }
 .cli__icon {
   font-weight: 700;
 }
-.cli__machine {
-  font-weight: 400;
-  font-style: italic;
-  color: var(--brand-ink-muted);
-}
-
-/* verdict tint on the right cluster — resolves to spine --verdict-* tokens. */
-.cli__right--pass {
+.cli__engine--pass {
   color: var(--verdict-pass);
 }
-.cli__right--review {
+.cli__engine--review {
   color: var(--verdict-review);
 }
-.cli__right--fail {
+.cli__engine--fail {
   color: var(--verdict-fail);
 }
 
-/* ── Row states ──────────────────────────────────────────────────────────────
- * done: auto-verified PASS/NA — muted, grey filled ✓ box (quiet, already handled).
- * usercheck: a human confirmed a REVIEW/FAIL — navy-filled ✓ box (acknowledged).
- * open: a REVIEW awaiting eyes — amber, outline box.
- * openfail: a FAIL needing a call — red, ✗ box, highlighted background. */
-.cli--done {
-  color: var(--brand-ink-muted);
+/* column 3 (carded): the read-only result of the reviewer's call (decided ON the card). */
+.cli__decision {
+  text-align: right;
+  font-size: 14px;
+  font-weight: 700;
+  white-space: nowrap;
 }
-.cli--done .cli__box {
-  background-color: var(--brand-border);
-  border-color: var(--brand-border);
-  color: var(--brand-surface);
+.cli__decision--pass {
+  color: var(--verdict-pass);
 }
-.cli--usercheck .cli__box {
-  /* A human-confirmed tick is an acknowledgement (a throughput cue), NOT the
-     engine's PASS verdict — so the box uses the secondary/civic accent
-     (mockup: var(--secondary)), never the green verdict-PASS tint. Keeping it
-     distinct from .cli--done's auto-PASS box also keeps "I looked" visually
-     separate from "the engine passed it" (contract #3/#4). */
-  background-color: var(--brand-secondary);
-  border-color: var(--brand-secondary);
-  color: var(--brand-secondary-foreground);
+.cli__decision--fail {
+  color: var(--verdict-fail);
+}
+.cli__decision--open {
+  color: var(--verdict-review);
+  font-weight: 400;
+  font-style: italic;
+}
+/* column 3 (carded-less): the Pass/Fail control, right-aligned in the same fixed cell as a
+   carded row's result text — so the engine-verdict column to its left stays straight. */
+.cli .decide {
+  justify-self: end;
+  justify-content: flex-end;
+}
+
+/* ── Row states (driven by the reviewer's decision) ──────────────────────────
+ * pass: the reviewer marked it Pass — quiet. fail: marked Fail — red wash.
+ * open: not yet decided — amber wash (needs a call). */
+.cli--pass {
+  color: var(--brand-ink);
 }
 .cli--open {
   background-color: var(--verdict-review-bg);
 }
-.cli--open .cli__box {
-  border-color: var(--verdict-review);
-}
-.cli--openfail {
+.cli--fail {
   background-color: var(--verdict-fail-bg);
 }
-.cli--openfail .cli__box {
-  border-color: var(--verdict-fail);
+
+/* ── Per-card Pass/Fail controls (to the right of the engine chip) ────────────
+ * The reviewer's own call on each card: a Match pre-selects Pass; either can be
+ * overridden. A record/aid only — never the overall disposition (contract #4). */
+.field-card__verdict {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+.decide {
+  display: inline-flex;
+  gap: 4px;
+}
+.decide__btn {
+  cursor: pointer;
+  padding: 2px 10px;
+  border: 1px solid var(--brand-border);
+  border-radius: var(--brand-radius-pill);
+  background-color: var(--brand-surface);
+  color: var(--brand-ink-muted);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.4;
+}
+.decide__btn:hover {
+  border-color: var(--brand-ink-muted);
+}
+.decide__btn--pass.is-active {
+  color: var(--verdict-pass);
+  border-color: var(--verdict-pass);
+  background-color: var(--verdict-pass-bg);
+}
+.decide__btn--fail.is-active {
   color: var(--verdict-fail);
+  border-color: var(--verdict-fail);
+  background-color: var(--verdict-fail-bg);
 }
 
 /* ── Label image panel + Enhance toggle (Story 4.7) ──────────────────────────
@@ -1034,6 +1063,12 @@ a {
 .review-col-left {
   position: sticky;
   top: 16px;
+  /* Its OWN scroll region: the stacked label images scroll independently of the
+     right-hand findings, with the scrollbar at the column's right edge (right of the
+     images). The viewport-relative cap keeps the panel within view while the right
+     column scrolls the page. */
+  max-height: calc(100vh - 32px);
+  overflow-y: auto;
 }
 .review-col-right {
   min-width: 0;
@@ -1053,9 +1088,41 @@ a {
   gap: 12px;
   margin-bottom: 12px;
 }
+/* Each stacked label face (front, back, …) with breathing room between them. The
+   face is the zoom VIEWPORT: it clips the enlarged image to its frame (zoom.js). */
+.image-panel__face {
+  margin: 0 0 16px;
+  overflow: hidden;
+}
+.image-panel__face:last-child {
+  margin-bottom: 0;
+}
+/* Zoom + pan (zoom.js): origin top-left for the cursor-anchored zoom math; a hint
+   cursor invites the click, then grab/grabbing while panning. */
+.image-panel__img {
+  transform-origin: 0 0;
+  cursor: zoom-in;
+}
+.image-panel__img.is-zooming {
+  cursor: grab;
+}
+.image-panel__img.is-zooming:active {
+  cursor: grabbing;
+}
 .image-panel__role {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
   font-weight: 700;
   color: var(--brand-ink);
+  margin-bottom: 6px;
+}
+/* the quiet zoom/pan affordance hint, right-aligned on the role line. */
+.image-panel__zoomhint {
+  font-weight: 400;
+  font-size: 0.8rem;
+  color: var(--brand-ink-muted);
 }
 .image-panel__counter {
   font-size: 0.85rem;
@@ -1322,6 +1389,38 @@ a {
   margin: 0;
   font-size: 16px;
   color: var(--brand-ink-muted);
+}
+
+/* ---------- Branded error page (templates/error.html) ----------
+ * The calm, on-brand replacement for FastAPI's default terse error body — most
+ * visibly the 409 a double-submitted disposition raises. Centered card + one clear
+ * way back to the queue; same explain-don't-blame voice as the gone-notice. */
+.error-page {
+  margin: 48px auto 0;
+  max-width: 36rem;
+  padding: 0 20px;
+  text-align: center;
+}
+.error-page .usa-alert {
+  text-align: left;
+}
+.error-page__eyebrow {
+  margin: 0 0 4px;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--brand-ink-muted);
+}
+.error-page__title {
+  margin: 0 0 6px;
+}
+.error-page__text {
+  margin: 0;
+  font-size: 16px;
+}
+.error-page__action {
+  margin-top: 20px;
 }
 
 /* ---------- Help panel (Story 4.9) — mockups/help-panel.html ----------
@@ -1794,6 +1893,19 @@ a {
   font-size: 15px;
   color: var(--brand-ink-muted);
   margin: 0 0 16px;
+}
+
+/* The "why two rows per OCR engine" clarifier — a calm note above the table, slightly
+ * smaller than the section sub-text, on a muted surface so it reads as guidance. */
+.benchmark__sec-note {
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--brand-ink-muted);
+  margin: -6px 0 16px;
+  padding: 10px 14px;
+  border-left: 3px solid var(--brand-border);
+  background: var(--brand-surface-muted, var(--brand-surface));
+  border-radius: var(--brand-radius-sm, 4px);
 }
 
 /* Comparison table */

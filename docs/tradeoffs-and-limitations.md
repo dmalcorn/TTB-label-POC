@@ -200,21 +200,44 @@ over-claim.*
   is available, the engine reports **"cannot verify type size — physical dimensions
   unknown"** rather than guessing.
 
-## B2. "Same field of vision" spatial inference is hard → flagged REVIEW, not FAIL
+## B2. Checklist scoped to checks the engine can anchor (conditional disclosures deferred)
 
-- **Limitation:** §5.63 requires brand name + alcohol content + class/type to share the
-  **same field of vision** (one viewable side; for a cylinder, 40% of the circumference).
-  The POC cannot reliably *prove* spatial co-location across a multi-image submission.
-- **Why it's hard:** OCR yields text + bounding boxes *per image*, but "are these on the
-  same physical side?" inference across separate front/back/neck images is non-trivial and
-  error-prone.
-- **Mitigation:** the engine performs a deterministic **presence** check and emits an
-  advisory **REVIEW** verdict with a note, rather than asserting a confident pass/fail —
-  honoring the brief's **"recommend, don't decide"** mandate. A REVIEW band also curbs the
-  costliest error class, **false rejects** (see the regulatory risk assessment).
-- **Future work:** layout/region analysis (PaddleOCR ships layout tooling) plus
-  image-tag metadata (each upload is tagged brand/neck/back) to raise confidence toward an
-  auto-determinable verdict.
+- **Decision:** a checklist item earns its place only if the engine can hand the reviewer
+  something to act on — an expected value to compare, or a deterministic rule it can apply.
+  Several regulatory elements fail that test *for this POC* because there is no signal to
+  anchor them, so they would surface as an **un-actionable REVIEW on every product** —
+  noise that dilutes the real checks. Those were **removed** rather than left as perpetual
+  "needs your call" rows.
+- **What was removed and why:**
+  - **Formula/ingredient-conditional disclosures** — sulfite declaration, FD&C Yellow No. 5,
+    cochineal/carmine, aspartame (malt), appellation of origin (wine). These apply *only* if
+    the product contains that ingredient or makes that claim. A real COLA application carries
+    a **formula / ingredients** field that would anchor them ("formula declares sulfites →
+    expect 'CONTAINS SULFITES' on the label"); the POC's application data (sourced from the
+    public registry) does not carry that field, so the engine cannot know whether the
+    disclosure is even required.
+  - **§5.63 "same field of vision"** (spirits) — co-location of brand + class/type + ABV on
+    one viewable face cannot be proven from flat, separately-shot photos, and the three
+    elements are already verified individually by their own field-match cards.
+  - **Wine §4.72 standards of fill** — the wine size table is not implemented (the spirits
+    §5.203 table is); without it the row could only defer.
+- **What was kept:** every check the engine genuinely evaluates — the application↔OCR field
+  matches (brand, class/type, grape/fanciful, ABV, net contents, name/address), the
+  Government Warning, the ABV-statement format check, and (spirits) the §5.203
+  standards-of-fill table lookup + proof/ABV consistency. **Country of origin** is now a real
+  comparison **card** (no longer a flag-only REVIEW): it keys off the application's **import /
+  source-of-product** flag — `IMPORTED` ⇒ field-match the filed country (e.g. "Scotland")
+  against the label; `DOMESTIC` ⇒ auto-PASS with "Not imported" (no country statement required,
+  and we trust the flag rather than recognizing US states).
+- **Why this honors the brief:** the take-home scopes the core review to *matching* the
+  listed common elements + the Government Warning, and explicitly prefers "a working core
+  application … over ambitious but incomplete features." Trimming to the anchorable checks is
+  that core, and the human-in-the-loop **REVIEW** band is still demonstrated by the verdicts
+  that arise naturally (name/address near-misses, garbled warnings, net contents the OCR
+  could not read).
+- **What would re-enable the removed checks:** surfacing the application's **formula /
+  ingredients** fields (for the conditional disclosures) and layout/region analysis plus
+  per-image brand/neck/back tags (for same-field-of-vision).
 
 ## B3. The Government Warning is checked against the regulation, not a maker value (by design)
 

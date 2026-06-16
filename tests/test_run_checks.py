@@ -68,10 +68,10 @@ def test_distilled_spirits_ruleset_is_data_with_real_citations():
     non-empty check_key, a valid check_type, a "27 CFR …" citation, and a
     source_date."""
     ruleset = get_ruleset("DISTILLED_SPIRITS")
-    assert len(ruleset) >= 7  # brand, class/type, abv, net, name/addr, gov warning, sfov
+    assert len(ruleset) >= 6  # brand, class/type, abv, net, name/addr, gov warning
 
     keys = {c.check_key for c in ruleset}
-    # The always-mandatory spirits elements + Gov Warning + same-field-of-vision.
+    # The always-mandatory spirits elements + Gov Warning.
     assert {
         "brand_name",
         "class_type_designation",
@@ -79,8 +79,10 @@ def test_distilled_spirits_ruleset_is_data_with_real_citations():
         "net_contents",
         "name_address",
         "government_warning",
-        "same_field_of_vision",
     } <= keys
+    # The §5.63 same-field-of-vision flag-only check was removed for the POC (it could
+    # only emit an un-actionable REVIEW); see docs/tradeoffs-and-limitations.md.
+    assert "same_field_of_vision" not in keys
 
     for c in ruleset:
         assert isinstance(c, Check)
@@ -92,13 +94,11 @@ def test_distilled_spirits_ruleset_is_data_with_real_citations():
         assert c.strategy  # which evaluator handles it
 
 
-def test_government_warning_is_deterministic_and_sfov_is_manual():
+def test_government_warning_is_deterministic():
     """AC1: determinism classes are carried as DATA — the Government Warning is
-    DETERMINISTIC (never an LLM), and the positional same-field-of-vision check is
-    MANUAL (flag-REVIEW)."""
+    DETERMINISTIC (never an LLM)."""
     by_key = {c.check_key: c for c in get_ruleset("DISTILLED_SPIRITS")}
     assert by_key["government_warning"].check_type == "DETERMINISTIC"
-    assert by_key["same_field_of_vision"].check_type == "MANUAL"
     # Post-2022 renumbering: class/type lives at §5.141, not the old §5.35.
     assert "5.141" in by_key["class_type_designation"].cfr_citation
     assert by_key["government_warning"].cfr_citation == "27 CFR 16.21"
@@ -111,6 +111,25 @@ def test_wine_and_malt_rulesets_are_authored_after_story_3_8():
     (see ``test_get_ruleset_unknown_type_is_empty_not_an_error`` below)."""
     assert len(get_ruleset("WINE")) > 0
     assert len(get_ruleset("MALT_BEVERAGE")) > 0
+
+
+def test_seven_common_elements_on_every_beverage_type():
+    """The take-home lists seven elements as common to EVERY beverage type; each ruleset
+    must carry all seven so none is silently dropped for a type (the check_key for name &
+    address is ``name_address``; country of origin is the positional flag-only row)."""
+    common = {
+        "brand_name",
+        "class_type_designation",
+        "alcohol_content",
+        "net_contents",
+        "name_address",
+        "country_of_origin",
+        "government_warning",
+    }
+    for beverage_type in ("DISTILLED_SPIRITS", "WINE", "MALT_BEVERAGE"):
+        keys = {c.check_key for c in get_ruleset(beverage_type)}
+        missing = common - keys
+        assert not missing, f"{beverage_type} ruleset is missing common element(s): {missing}"
 
 
 def test_get_ruleset_unknown_type_is_empty_not_an_error():

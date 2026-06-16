@@ -12,10 +12,23 @@
 <article id="field-{{ card.field_key }}" class="field-card field-card--{{ card.state }}" aria-label="{{ card.field_label }}" tabindex="-1">
   <header class="field-card__head">
     <h3 class="field-card__label">{{ card.field_label }}</h3>
-    <span class="chip {{ card.chip_class }}">
-      <span class="chip__icon" aria-hidden="true">{{ card.icon }}</span>
-      <span class="chip__word">{{ card.chip_word }}</span>
-    </span>
+    <div class="field-card__verdict">
+      {# The engine's automated verdict (kept). #}
+      <span class="chip {{ card.chip_class }}">
+        <span class="chip__icon" aria-hidden="true">{{ card.icon }}</span>
+        <span class="chip__word">{{ card.chip_word }}</span>
+      </span>
+      {# The reviewer's OWN Pass/Fail call, to the right of the engine chip. A Match
+         pre-selects Pass; the human can override either way. Persisted via review.js;
+         the server render already reflects the saved / pre-selected state. #}
+      <div class="decide" data-check-key="{{ card.check_key }}" role="group"
+           aria-label="Your call for {{ card.field_label }}">
+        <button type="button" class="decide__btn decide__btn--pass{% if card.decision_pass %} is-active{% endif %}"
+                data-decision="pass" aria-pressed="{{ 'true' if card.decision_pass else 'false' }}">Pass</button>
+        <button type="button" class="decide__btn decide__btn--fail{% if card.decision_fail %} is-active{% endif %}"
+                data-decision="fail" aria-pressed="{{ 'true' if card.decision_fail else 'false' }}">Fail</button>
+      </div>
+    </div>
   </header>
 
   {# A11Y hard requirement: when a char-diff is drawn, name the difference in plain

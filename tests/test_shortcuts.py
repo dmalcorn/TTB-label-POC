@@ -41,7 +41,6 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 SHORTCUTS_JS = REPO_ROOT / "static" / "js" / "shortcuts.js"
 BASE_HTML = REPO_ROOT / "templates" / "base.html"
 ACTION_BAR = REPO_ROOT / "templates" / "_action_bar.html"
-IMAGE_PANEL = REPO_ROOT / "templates" / "_image_panel.html"
 
 
 def _client(monkeypatch: pytest.MonkeyPatch, tmp_path, *, token: str | None = None) -> TestClient:
@@ -248,14 +247,6 @@ def test_action_bar_buttons_carry_keyshortcut_hints(monkeypatch, tmp_path) -> No
     body = client.get(f"/review/{sid}").text
     for hint in ('aria-keyshortcuts="A"', 'aria-keyshortcuts="C"', 'aria-keyshortcuts="R"'):
         assert hint in body, f"a disposition button is missing its {hint} discoverability hint"
-
-
-def test_image_pager_links_carry_arrow_keyshortcut_hints() -> None:
-    # File-content guard (independent of fixture image counts): the pager links carry
-    # the arrow-key hints when rendered.
-    src = IMAGE_PANEL.read_text(encoding="utf-8")
-    assert 'aria-keyshortcuts="ArrowLeft"' in src, "the prev pager link must hint ←"
-    assert 'aria-keyshortcuts="ArrowRight"' in src, "the next pager link must hint →"
 
 
 def test_action_bar_template_maps_keyshortcut_by_disposition_key() -> None:

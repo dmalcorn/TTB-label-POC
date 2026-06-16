@@ -65,6 +65,22 @@ _HEADER_LOCATE = re.compile(
     r"\s+".join(re.escape(part) for part in data.HEADER.split()), re.IGNORECASE
 )
 
+# PRESENCE fallback (real-OCR robustness): the header token routinely OCRs garbled on
+# real labels — e.g. an all-caps back-label warning read as "OVERNMENT MARNING" /
+# "veANMET WARMING" — so an exact-header miss must NOT be reported as "absent" when the
+# warning is plainly there. These distinctive §16.21 body phrases survive OCR far better
+# than the header; ≥ _ANCHOR_PRESENCE_MIN of them ⇒ the warning is present-but-unlocatable
+# ⇒ REVIEW (couldn't-verify), never a false absent-FAIL. Matched on collapsed, lowercased OCR.
+_WARNING_ANCHORS = (
+    "surgeon general",
+    "during pregnancy",
+    "birth defects",
+    "operate machinery",
+    "health problems",
+    "impairs your ability",
+)
+_ANCHOR_PRESENCE_MIN = 2
+
 
 def government_warning(check: Check, ctx: CheckContext) -> CheckResult:
     """Verify the Government Warning deterministically against §16.21 (AC1–AC3).
@@ -86,6 +102,11 @@ def government_warning(check: Check, ctx: CheckContext) -> CheckResult:
     # prominent one). Absent from ALL images ⇒ AC3(b): plain FAIL, NO diff against empty.
     matches = list(_HEADER_LOCATE.finditer(ocr_text))
     if not matches:
+        # Header not locatable — but if distinctive §16.21 phrases are present, the
+        # warning IS on the label (OCR just garbled the header). Don't false-FAIL as
+        # absent; defer to the human with the OCR'd region shown.
+        if _anchor_hits(ocr_text) >= _ANCHOR_PRESENCE_MIN:
+            return _review_detected_unverified(_warning_region(ocr_text))
         return _fail_absent()
 
     first_non_pass: CheckResult | None = None
@@ -118,7 +139,7 @@ def _evaluate_occurrence(ctx: CheckContext, ocr_text: str, match: re.Match[str])
     # deviant ⇒ reworded FAIL (header casing).
     collapsed_header = _collapse_ws(header_found)
     if collapsed_header != data.HEADER:
-        return _fail_reworded(
+        return _reworded_or_review(
             located,
             deviation=f"header casing: expected {data.HEADER!r}, found {collapsed_header!r}",
         )
@@ -130,7 +151,7 @@ def _evaluate_occurrence(ctx: CheckContext, ocr_text: str, match: re.Match[str])
     found_body = _collapse_ws(located[len(header_found) :])
     expected_body = _collapse_ws(data.BODY)
     if not _body_matches(found_body, expected_body):
-        return _fail_reworded(located, deviation="body wording / punctuation deviates")
+        return _reworded_or_review(located, deviation="body wording / punctuation deviates")
 
     # The matched warning body span (excludes any trailing label copy) — the window the
     # casing check inspects.
@@ -146,7 +167,9 @@ def _evaluate_occurrence(ctx: CheckContext, ocr_text: str, match: re.Match[str])
     if not _is_all_caps(matched_body):
         for word in data.RULES.mixed_case_capitals:
             if not _initial_is_capital(matched_body, word):
-                return _fail_reworded(located, deviation=f"casing: {word!r} must be capitalized")
+                return _reworded_or_review(
+                    located, deviation=f"casing: {word!r} must be capitalized"
+                )
 
     # (5) Bold/visual styling undeterminable ⇒ AC3(c): REVIEW, never a silent PASS.
     # Bold cannot be recovered from OCR text; when a caller signals it could not be
@@ -180,7 +203,7 @@ def _fail_reworded(located: str, *, deviation: str) -> CheckResult:
     Diffs the located (whitespace-collapsed) warning against the canonical
     ``data.FULL_TEXT`` so Story 4.5 can render the precise deviation + its text
     equivalent. ``deviation`` is a short human label of what differs."""
-    found = _collapse_ws(located)
+    found = _clip_to_warning(located)
     expected = _collapse_ws(data.FULL_TEXT)
     payload = {
         "outcome": _OUTCOME_REWORDED,
@@ -203,6 +226,54 @@ def _review_couldnt_verify() -> CheckResult:
     return CheckResult(verdict=verdict.REVIEW, detail=json.dumps(payload))
 
 
+def _review_detected_unverified(region: str) -> CheckResult:
+    """Header too OCR-garbled to locate, but distinctive §16.21 phrases ARE present ⇒ the
+    warning is on the label, exact wording/casing just can't be auto-verified ⇒ REVIEW
+    (never a false 'absent' FAIL). Carries the OCR'd warning region so the reviewer sees
+    what was read and confirms wording/casing on the label."""
+    payload = {
+        "outcome": _OUTCOME_COULDNT_VERIFY,
+        "found": _clip_to_warning(region),
+        "message": (
+            "Government Warning detected on the label, but OCR could not verify the "
+            "exact wording — confirm wording and casing against the label."
+        ),
+        "cfr_citation": data.CFR_CITATION,
+    }
+    return CheckResult(verdict=verdict.REVIEW, detail=json.dumps(payload))
+
+
+# Distinguish OCR noise from a genuine deviation on a located-but-deviant warning, using
+# TWO signals together:
+#   1. Case-insensitive character match to §16.21. A clean text with a real deviation
+#      (wrong casing, a changed comma, interleaved text) still matches the LETTERS closely
+#      (high ratio) ⇒ a genuine deviation ⇒ FAIL. Heavy OCR garble mangles the letters
+#      themselves (low ratio).
+#   2. Both §16.21 clauses substantially PRESENT. OCR garble keeps all the content; a real
+#      OMISSION drops whole phrases. So a low-ratio text still FAILs if a clause is missing.
+# Only LOW char-match AND both clauses present ⇒ a complete-but-OCR-garbled warning on a
+# real label ⇒ REVIEW (defer, show the OCR text). Everything else stays FAIL.
+_OCR_LEGIBLE_FLOOR = 0.90
+_CLAUSE1_ANCHORS = ("surgeon general", "during pregnancy", "birth defects")
+_CLAUSE2_ANCHORS = ("operate machinery", "health problems", "impairs your ability")
+
+
+def _clauses_substantially_present(located: str) -> bool:
+    low = _collapse_ws(located).lower()
+    c1 = sum(1 for a in _CLAUSE1_ANCHORS if a in low)
+    c2 = sum(1 for a in _CLAUSE2_ANCHORS if a in low)
+    return c1 >= 2 and c2 >= 2
+
+
+def _reworded_or_review(located: str, *, deviation: str) -> CheckResult:
+    found = _collapse_ws(located)
+    expected = _collapse_ws(data.FULL_TEXT)
+    ratio = SequenceMatcher(None, expected.lower(), found[: len(expected)].lower()).ratio()
+    if ratio < _OCR_LEGIBLE_FLOOR and _clauses_substantially_present(located):
+        return _review_detected_unverified(located)
+    return _fail_reworded(located, deviation=deviation)
+
+
 # ── helpers (whitespace-only normalization; punctuation + case preserved) ────
 
 
@@ -220,6 +291,53 @@ def _is_all_caps(text: str) -> bool:
     An all-caps body is compliant (AC1) and trivially satisfies the Surgeon/General
     capital rule, so the S/G check is skipped for it."""
     return any(c.isalpha() for c in text) and not any(c.islower() for c in text)
+
+
+def _anchor_hits(ocr_text: str) -> int:
+    """How many distinctive §16.21 body phrases appear in the OCR (presence fallback)."""
+    low = _collapse_ws(ocr_text).lower()
+    return sum(1 for anchor in _WARNING_ANCHORS if anchor in low)
+
+
+def _warning_region(ocr_text: str) -> str:
+    """The collapsed OCR slice around the first matched anchor — what to show the reviewer
+    when the warning is present but the header couldn't be located."""
+    collapsed = _collapse_ws(ocr_text)
+    low = collapsed.lower()
+    positions = [low.find(a) for a in _WARNING_ANCHORS if a in low]
+    if not positions:
+        return collapsed[:400]
+    start = max(0, min(positions) - 60)
+    return collapsed[start : start + 420].strip()
+
+
+# What to DISPLAY as the on-label warning. ``ocr_text[match.start():]`` runs from the
+# header to the END of the OCR blob, so the located text drags in everything printed
+# after the warning (brand, importer address, other panels). These bound the text shown
+# to the reviewer to the GOVERNMENT WARNING section itself — display only; verdict logic
+# still reads the full located text, so no decision changes.
+_WARNING_END_ANCHORS = ("cause health problems", "health problems")
+_WARNING_DISPLAY_MARGIN = 80  # chars of slack past the statutory length when no end anchor
+
+
+def _clip_to_warning(located: str) -> str:
+    """Collapse ``located`` and trim it to just the Government Warning. Prefers a tight cut
+    at the statutory end ("…cause health problems."), keeping the sentence-ending period;
+    falls back to the statutory length plus a margin (ellipsized) when that last clause is
+    too garbled to find — so a reviewer sees the warning, never the whole label tail."""
+    collapsed = _collapse_ws(located)
+    low = collapsed.lower()
+    for anchor in _WARNING_END_ANCHORS:
+        idx = low.find(anchor)
+        if idx != -1:
+            end = idx + len(anchor)
+            if collapsed[end : end + 1] == ".":
+                end += 1
+            return collapsed[:end]
+    limit = len(_collapse_ws(data.FULL_TEXT)) + _WARNING_DISPLAY_MARGIN
+    if len(collapsed) <= limit:
+        return collapsed
+    return collapsed[:limit].rstrip() + "…"
 
 
 def _initial_is_capital(body: str, word: str) -> bool:

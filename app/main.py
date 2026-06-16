@@ -15,9 +15,10 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, Request
-from fastapi.responses import RedirectResponse
+from fastapi.responses import JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.config import get_settings
 from app.db.connection import connect, init_db
@@ -38,6 +39,30 @@ STATIC_DIR = BASE_DIR / "static"
 TEMPLATES_DIR = BASE_DIR / "templates"
 
 logger = logging.getLogger(__name__)
+
+# Friendly copy for the branded error page, keyed by HTTP status — (headline, body,
+# USWDS alert variant). Status codes NOT listed fall back to a generic message in the
+# handler. The 409 a double-submitted disposition raises is the benign already-recorded
+# race, so it reads as reassuring (green) rather than alarming.
+_ERROR_COPY: dict[int, tuple[str, str, str]] = {
+    400: (
+        "That request couldn't be processed",
+        "",  # fall back to the route's own detail (e.g. the missing-reason message)
+        "warning",
+    ),
+    404: (
+        "We couldn't find that",
+        "The page or submission you're looking for isn't here — it may have been reset "
+        "or already moved on. Here's your queue.",
+        "warning",
+    ),
+    409: (
+        "Already recorded",
+        "This submission has already been decided — your first decision stands, and "
+        "there's nothing more to record. Here's your queue.",
+        "success",
+    ),
+}
 
 
 def _seed_if_empty(db_path: str) -> None:
@@ -144,6 +169,48 @@ def create_app() -> FastAPI:
     # re-seed + derived-images purge). Carries no exemption, so the token gate
     # protects /reset like every screen (operator route behind the gate).
     app.include_router(ops_router)
+
+    @app.exception_handler(StarletteHTTPException)
+    async def styled_http_exception(request: Request, exc: StarletteHTTPException) -> Response:
+        """Render an HTTPException as the branded ``error.html`` for a human navigating,
+        instead of FastAPI's default terse JSON body (the "ugly plain page" a
+        double-submitted disposition's calm 409 used to show). Only HTML-accepting
+        callers get the styled page; fetch/XHR beacons (review.js decision + notes
+        autosave) and ``<img>`` requests only read the status code, so they keep the
+        terse default body. Advisory chrome only — the route still owns the outcome
+        (e.g. the first disposition already stands behind a 409)."""
+        accepts_html = "text/html" in request.headers.get("accept", "")
+        if not accepts_html:
+            return JSONResponse(
+                {"detail": exc.detail},
+                status_code=exc.status_code,
+                headers=getattr(exc, "headers", None),
+            )
+        # (headline, body, USWDS alert variant). A 409 here is the benign
+        # already-recorded race — green/reassuring, not alarming.
+        title, message, variant = _ERROR_COPY.get(
+            exc.status_code,
+            ("Something went sideways", "", "error"),
+        )
+        if not message:
+            message = (
+                exc.detail
+                if isinstance(exc.detail, str) and exc.detail
+                else "We hit an unexpected snag. Here's your queue."
+            )
+        return templates.TemplateResponse(
+            request,
+            "error.html",
+            {
+                "error_status": f"Error {exc.status_code}",
+                "error_title": title,
+                "error_message": message,
+                "error_variant": variant,
+                "action_href": "/queue",
+                "action_label": "Back to the queue",
+            },
+            status_code=exc.status_code,
+        )
 
     @app.get("/healthz")
     def healthz() -> dict[str, str]:

@@ -1,56 +1,45 @@
 /*
- * Smart-checklist progressive enhancement (Story 4.6).
+ * Review-workspace progressive enhancement.
  *
  * Same-origin, no build step, no CDN (NFR-2 / UX-DR-6): the server render is already
  * correct and usable without this script — every checklist row is a real `<a href="#…">`
- * so the mouse path (scroll to the field group) works with JS disabled. This file only
- * ADDS polish (UX-DR-16 two-track):
+ * so the mouse path (scroll to the field group) works with JS disabled, and each Pass/Fail
+ * control is already rendered (a Match pre-selects Pass). This file ADDS:
  *
- *   1. Smooth-scroll + move focus to the target field group on a row click.
- *   2. For an actionable (REVIEW/FAIL) row, persist the manual tick via a same-origin
- *      `POST /review/{id}/progress` and update the "N of M done" live counter.
+ *   1. Smooth-scroll + move focus to the target field group on a checklist-row click.
+ *   2. The per-check Pass/Fail call. The SAME control appears on a field card AND on its
+ *      checklist row (keyed by `check_key`); clicking either one persists the decision via
+ *      `POST /review/{id}/progress` and live-syncs EVERY control for that check_key plus the
+ *      checklist row + the "N of M decided" counter. The checklist is the universal decision
+ *      surface — even checks with no card are decided there. Optimistic UI reverts on a
+ *      failed fetch (honest UI).
  *
- * A manual tick is an "I looked at this" acknowledgement — NEVER a disposition and never
- * a change to the engine verdict (contract #4). The optimistic UI swap reverts on a
- * failed fetch so we never show a tick that did not persist (honest UI).
- *
- * The script is inert / no-throw when the checklist is absent.
+ * A per-check call is the reviewer's record/aid — NEVER the overall disposition and never a
+ * change to the engine verdict (contract #4). Inert / no-throw when nothing matches.
  */
 (function () {
   "use strict";
 
-  var checklist = document.querySelector(".checklist");
-  if (!checklist) {
-    return; // no checklist on this page — nothing to enhance
-  }
-
-  // The submission id is in the URL: /review/{id} (the POST goes to /review/{id}/progress).
   var match = window.location.pathname.match(/\/review\/(\d+)/);
   var submissionId = match ? match[1] : null;
+  if (submissionId === null) {
+    return; // not a review page — nothing to enhance
+  }
 
-  var countRegion = checklist.querySelector("[data-checklist-count]");
-  var doneSpan = checklist.querySelector("[data-done-count]");
-  var totalSpan = checklist.querySelector("[data-total-count]");
+  var checklist = document.querySelector(".checklist");
+  var doneSpan = checklist ? checklist.querySelector("[data-done-count]") : null;
 
-  function recountDone() {
-    // Recompute "done" from the DOM so the announced count never drifts from what is
-    // shown: a row is done when it is in the muted `done` or human-confirmed `usercheck`
-    // state.
-    var done = checklist.querySelectorAll(".cli--done, .cli--usercheck").length;
-    if (doneSpan) {
-      doneSpan.textContent = String(done);
+  function recountDecided() {
+    // "Decided" = a checklist row carrying a pass/fail decision class.
+    if (!checklist || !doneSpan) {
+      return;
     }
-    return done;
+    doneSpan.textContent = String(checklist.querySelectorAll(".cli--pass, .cli--fail").length);
   }
 
   function focusTarget(target) {
-    // Move focus so keyboard users land on the field group. The group <section>s
-    // carry tabindex="-1" so they are focusable programmatically without entering
-    // the tab order. Two anchors are scroll-only `aria-hidden` <span> markers
-    // (group-mandatory-text lives inside group-identity; group-conditional is a
-    // standalone marker) — focusing an aria-hidden element is a WCAG anti-pattern,
-    // so we walk to the nearest focusable, non-hidden element instead. The scroll
-    // already landed the viewport; this only repairs WHERE focus goes (UX-DR-16).
+    // Move focus to the field group (its <section> carries tabindex="-1"); walk to the
+    // nearest focusable, non-aria-hidden node so we never focus a hidden marker.
     var node = target;
     while (node && node.nodeType === 1) {
       var hidden = node.getAttribute && node.getAttribute("aria-hidden") === "true";
@@ -74,14 +63,10 @@
     focusTarget(target);
   }
 
-  function postTick(checkKey, ticked) {
-    if (submissionId === null) {
-      return Promise.reject(new Error("no submission id"));
-    }
+  function postDecision(checkKey, decision) {
     var body = new URLSearchParams();
     body.set("check_key", checkKey);
-    body.set("ticked", ticked ? "true" : "false");
-    // Same-origin relative POST — no cross-origin / CDN request (NFR-2 no egress).
+    body.set("decision", decision === null ? "clear" : decision);
     return fetch("/review/" + submissionId + "/progress", {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
@@ -89,72 +74,92 @@
       credentials: "same-origin",
     }).then(function (resp) {
       if (!resp.ok) {
-        throw new Error("tick failed: " + resp.status);
+        throw new Error("decision failed: " + resp.status);
       }
       return resp;
     });
   }
 
-  function toggleRow(row) {
-    var checkKey = row.getAttribute("data-check-key");
-    if (!checkKey) {
-      return;
-    }
-    var wasTicked = row.getAttribute("data-ticked") === "true";
-    var nowTicked = !wasTicked;
-
-    // Remember the pre-toggle class so a failed POST can revert cleanly.
-    var priorClass = row.className;
-    var priorTicked = row.getAttribute("data-ticked");
-
-    // Optimistic swap: an actionable row toggles between its open state
-    // (open / openfail) and the human-confirmed `usercheck` state.
-    if (nowTicked) {
-      row.classList.remove("cli--open", "cli--openfail");
-      row.classList.add("cli--usercheck");
-    } else {
-      row.classList.remove("cli--usercheck");
-      // Restore the engine register: a FAIL row reverts to openfail, else open.
-      if ((row.getAttribute("data-verdict") || "").toUpperCase() === "FAIL") {
-        row.classList.add("cli--openfail");
-      } else {
-        row.classList.add("cli--open");
-      }
-    }
-    row.setAttribute("data-ticked", nowTicked ? "true" : "false");
-    recountDone();
-
-    postTick(checkKey, nowTicked).catch(function () {
-      // Honest UI: the tick did not persist — revert the optimistic state + counter.
-      row.className = priorClass;
-      if (priorTicked === null) {
-        row.removeAttribute("data-ticked");
-      } else {
-        row.setAttribute("data-ticked", priorTicked);
-      }
-      recountDone();
-    });
+  function groupDecision(group) {
+    var active = group.querySelector(".decide__btn.is-active");
+    return active ? active.getAttribute("data-decision") : null;
   }
 
-  checklist.addEventListener("click", function (event) {
-    var row = event.target.closest(".cli");
-    if (!row || !checklist.contains(row)) {
+  function applyGroup(group, decision) {
+    var btns = group.querySelectorAll(".decide__btn");
+    for (var i = 0; i < btns.length; i++) {
+      var on = decision !== null && btns[i].getAttribute("data-decision") === decision;
+      btns[i].classList.toggle("is-active", on);
+      btns[i].setAttribute("aria-pressed", on ? "true" : "false");
+    }
+  }
+
+  // Sync a decision across EVERY control for this check_key — the card's buttons AND any
+  // carded-less checklist-row buttons — plus the read-only result text on a carded row, the
+  // row tint, and the count. `decision` is "pass"/"fail" or null (clear).
+  function syncDecision(checkKey, decision) {
+    var groups = document.querySelectorAll(".decide");
+    for (var i = 0; i < groups.length; i++) {
+      if (groups[i].getAttribute("data-check-key") === checkKey) {
+        applyGroup(groups[i], decision);
+      }
+    }
+    if (checklist) {
+      var rows = checklist.querySelectorAll(".cli");
+      for (var j = 0; j < rows.length; j++) {
+        if (rows[j].getAttribute("data-check-key") !== checkKey) {
+          continue;
+        }
+        rows[j].classList.remove("cli--pass", "cli--fail", "cli--open");
+        rows[j].classList.add("cli--" + (decision || "open"));
+        rows[j].setAttribute("data-decision", decision || "");
+        var txt = rows[j].querySelector("[data-checklist-decision]");
+        if (txt) {
+          txt.textContent =
+            decision === "pass" ? "You passed" : decision === "fail" ? "You failed" : "needs your call";
+          txt.className = "cli__decision cli__decision--" + (decision || "open");
+        }
+      }
+    }
+    recountDecided();
+  }
+
+  // The Pass/Fail buttons live on cards AND checklist rows — delegate on the document.
+  document.addEventListener("click", function (event) {
+    var btn = event.target.closest ? event.target.closest(".decide__btn") : null;
+    if (!btn) {
       return;
     }
-    // Always do the scroll/focus polish (the anchor would do it too, less smoothly).
-    var href = row.getAttribute("href");
-    if (href && href.charAt(0) === "#") {
-      event.preventDefault();
-      scrollToTarget(href);
+    var group = btn.closest(".decide");
+    if (!group) {
+      return;
     }
-    // Only actionable rows (REVIEW/FAIL) carry data-actionable; toggle their tick.
-    if (row.getAttribute("data-actionable") === "true") {
-      toggleRow(row);
+    var checkKey = group.getAttribute("data-check-key");
+    var decision = btn.getAttribute("data-decision");
+    if (!checkKey || !decision) {
+      return;
     }
+
+    var prior = groupDecision(group); // null when previously undecided
+    syncDecision(checkKey, decision);
+    postDecision(checkKey, decision).catch(function () {
+      // Honest UI: the call did not persist — revert every synced control + the counter.
+      syncDecision(checkKey, prior);
+    });
   });
 
-  // Mark the live region as ready (defensive — server already set aria-live).
-  if (countRegion && totalSpan) {
-    countRegion.setAttribute("aria-live", "polite");
+  // Checklist jump-link clicks → smooth-scroll/focus the field group (the anchor works too).
+  if (checklist) {
+    checklist.addEventListener("click", function (event) {
+      var jump = event.target.closest(".cli__jump");
+      if (!jump || !checklist.contains(jump)) {
+        return;
+      }
+      var href = jump.getAttribute("href");
+      if (href && href.charAt(0) === "#") {
+        event.preventDefault();
+        scrollToTarget(href);
+      }
+    });
   }
 })();

@@ -137,9 +137,17 @@ def _iter_lines(raw: Any) -> list[tuple[str, float, Any]]:
     for result in raw if isinstance(raw, (list, tuple)) else [raw]:
         as_dict = result if isinstance(result, dict) else getattr(result, "__dict__", None)
         if isinstance(as_dict, dict) and "rec_texts" in as_dict:
-            texts = as_dict.get("rec_texts") or []
-            scores = as_dict.get("rec_scores") or []
-            polys = as_dict.get("rec_polys") or as_dict.get("rec_boxes") or []
+            # NB: rec_* may be numpy arrays — `arr or fallback` raises
+            # "truth value of an empty array is ambiguous" (it bites on textless
+            # images, e.g. a blank neck band), so guard on None explicitly.
+            texts = as_dict.get("rec_texts")
+            texts = list(texts) if texts is not None else []
+            scores = as_dict.get("rec_scores")
+            scores = list(scores) if scores is not None else []
+            polys = as_dict.get("rec_polys")
+            if polys is None:
+                polys = as_dict.get("rec_boxes")
+            polys = list(polys) if polys is not None else []
             for i, text in enumerate(texts):
                 score = float(scores[i]) if i < len(scores) else 0.0
                 box = polys[i] if i < len(polys) else None

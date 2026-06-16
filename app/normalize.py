@@ -46,6 +46,20 @@ _UNIT_PATTERNS: tuple[tuple[str, str], ...] = (
     ("milliliter", "ml"),
     ("millilitre", "ml"),
     ("ml", "ml"),
+    # Fluid ounces — US malt/beer net contents (e.g. "16 FL OZ"). Longest spellings
+    # first so the alternation matches "fl oz" before the bare "oz"; the trailing
+    # ``(?![a-z])`` boundary keeps each from matching a shorter prefix of a longer word.
+    ("fluid ounces", "fl oz"),
+    ("fluid ounce", "fl oz"),
+    ("fl. oz.", "fl oz"),
+    ("fl.oz.", "fl oz"),
+    ("fl oz", "fl oz"),
+    ("floz", "fl oz"),
+    ("oz", "fl oz"),
+    # Gallons — keg net contents (e.g. "15.5 Gallons").
+    ("gallons", "gal"),
+    ("gallon", "gal"),
+    ("gal", "gal"),
     ("liter", "l"),
     ("litre", "l"),
     ("l", "l"),
@@ -125,6 +139,37 @@ def parse_numeric(value: str | None, field_key: str) -> tuple[Decimal | None, st
     s = re.sub(r"\s+", " ", s)
     s = unicodedata.normalize("NFKC", s).casefold()
     return _parse_numeric_from_normalized(s)
+
+
+def parse_all_numeric(value: str | None, field_key: str) -> list[tuple[Decimal, str]]:
+    """Every ``(Decimal, canonical_unit)`` token in ``value``, left to right.
+
+    Like :func:`parse_numeric` but returns ALL ``<number><unit>`` tokens, not just the
+    first — so a single line carrying several quantities (e.g. an OCR
+    ``"750ml | 12.5% alc./vol."``) yields BOTH the net-contents AND the ABV token, rather
+    than shadowing the second behind the first. Each number+unit stays one adjacent token
+    (the same :data:`_NUMBER_UNIT_RE` discipline — no cross-quantity pairing); tokens whose
+    number or unit is unparseable are skipped. Empty list for a non-numeric ``field_key``,
+    an empty value, or a token-less string."""
+    if field_key not in NUMERIC_FIELD_KEYS or value is None:
+        return []
+    s = value.strip()
+    if not s:
+        return []
+    s = re.sub(r"\s+", " ", s)
+    s = unicodedata.normalize("NFKC", s).casefold()
+    s = _strip_thousands_separators(s)
+    out: list[tuple[Decimal, str]] = []
+    for match in _NUMBER_UNIT_RE.finditer(s):
+        try:
+            number = Decimal(match.group(1))
+        except InvalidOperation:
+            continue
+        canonical = _UNIT_CANONICAL.get(match.group(2))
+        if canonical is None:
+            continue
+        out.append((number, canonical))
+    return out
 
 
 def _parse_numeric_from_normalized(s: str) -> tuple[Decimal | None, str | None]:

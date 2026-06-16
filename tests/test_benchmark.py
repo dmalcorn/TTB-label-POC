@@ -29,9 +29,9 @@ from app.benchmark import cost, scoring
 from app.db.connection import connect, init_db
 from app.main import create_app
 
-# The first committed fixtures/ground_truth.csv row — its gt_* gold matches the
-# OCR/LLM text below, so the default-CSV scorer scores these seeded rows for real.
-_SEEDED_TTB_ID = "26150000000001"
+# A real fixtures/ground_truth.csv row (SINCERELY — a South African red wine) — its gt_*
+# gold matches the OCR/LLM text below, so the default-CSV scorer scores these rows for real.
+_SEEDED_TTB_ID = "06296001000053"
 
 _GOV_WARNING = (
     "GOVERNMENT WARNING: (1) According to the Surgeon General, women should not "
@@ -41,25 +41,18 @@ _GOV_WARNING = (
 )
 
 
-def _ocr_blob(*, abv: str = "45% Alc./Vol.", brand: str = "STONE'S THROW") -> str:
-    return (
-        f"{brand}\n"
-        "Kentucky Straight Bourbon Whiskey\n"
-        f"{abv}\n"
-        "750 mL\n"
-        "Distilled and Bottled By Stone's Throw Co., Bardstown, KY\n"
-        f"{_GOV_WARNING}\n"
-    )
+def _ocr_blob(*, abv: str = "13.0% Alc./Vol.", brand: str = "SINCERELY") -> str:
+    return f"{brand}\nRed Wine\n{abv}\n750 mL\nProduct of South Africa\n{_GOV_WARNING}\n"
 
 
-def _llm_json(*, brand: str = "Stone's Throw", abv: str = "45% Alc./Vol.") -> str:
+def _llm_json(*, brand: str = "SINCERELY", abv: str = "13.0% Alc./Vol.") -> str:
     return json.dumps(
         {
             "brand_name": brand,
-            "class_type_designation": "Kentucky Straight Bourbon Whiskey",
+            "class_type_designation": "Red Wine",
             "alcohol_content": abv,
             "net_contents": "750 mL",
-            "applicant_name_address": ("Distilled and Bottled By Stone's Throw Co., Bardstown, KY"),
+            "applicant_name_address": "Product of South Africa",
             "government_warning": _GOV_WARNING,
         }
     )
@@ -91,12 +84,12 @@ def _db_path(tmp_path) -> str:
 def _insert_submission(conn: sqlite3.Connection, **overrides) -> int:
     cols = {
         "ttb_id": _SEEDED_TTB_ID,
-        "beverage_type": "DISTILLED_SPIRITS",
-        "brand_name": "Stone's Throw",
-        "class_type_designation": "Kentucky Straight Bourbon Whiskey",
-        "alcohol_content": "45% Alc./Vol.",
+        "beverage_type": "WINE",
+        "brand_name": "SINCERELY",
+        "class_type_designation": "Red Wine",
+        "alcohol_content": "13.0% Alc./Vol.",
         "net_contents": "750 mL",
-        "applicant_name_address": "Distilled and Bottled By Stone's Throw Co., Bardstown, KY",
+        "applicant_name_address": "Product of South Africa",
         "status": "READY_FOR_REVIEW",
         "submitted_at": "2026-06-01T12:00:00Z",
     }
@@ -232,6 +225,40 @@ def test_benchmark_renders_real_figure_from_score_corpus(monkeypatch, tmp_path) 
     assert tess.field_match_rate is not None
     expected_pct = f"{tess.field_match_rate * 100:.1f}"
     assert expected_pct in body
+
+
+def test_benchmark_labels_ocr_image_variant_rows(monkeypatch, tmp_path) -> None:
+    """Each OCR engine is scored per IMAGE VARIANT (original photo vs its preprocessed
+    variant) and gets its own row. The variant must be surfaced so the two rows per engine
+    aren't indistinguishable, plus an intro note explaining the two-row pattern."""
+    client = _client(monkeypatch, tmp_path)
+    with connect(_db_path(tmp_path)) as conn:
+        sub_id = _insert_submission(conn)
+        img_id = _insert_image(conn, sub_id)
+        _insert_ocr(
+            conn,
+            sub_id,
+            img_id,
+            engine_name="paddleocr",
+            text=_ocr_blob(),
+            image_variant="ORIGINAL",
+        )
+        _insert_ocr(
+            conn,
+            sub_id,
+            img_id,
+            engine_name="paddleocr",
+            text=_ocr_blob(),
+            image_variant="ENHANCED",
+        )
+        conn.commit()
+
+    body = client.get("/benchmark").text
+    # Both variant rows are labeled (the fix for "two identical-looking PaddleOCR rows").
+    assert "original photo" in body
+    assert "enhanced (preprocessed)" in body
+    # And the screen explains WHY an engine appears twice.
+    assert "two rows" in body
 
 
 def test_benchmark_route_is_pure_db_read_no_provider_client(monkeypatch, tmp_path) -> None:

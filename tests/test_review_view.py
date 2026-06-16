@@ -348,6 +348,19 @@ def test_field_cards_ocr_fallback_isolates_numeric_line_by_unit():
     assert "Alc" not in ev  # not the ABV line
 
 
+def test_field_cards_numeric_isolates_value_sharing_a_line_with_other_units():
+    """ABV shares ONE OCR line with net contents + proof (the BLACK SHEEP line). The ABV
+    card must still show that line — not "(not found)" — even though the ml/proof tokens
+    come first on the line (parse_all_numeric, not first-token-only)."""
+    blob = "BLACK SHEEP\n750ml! / 151 Proof / Alc. 75.5% by Vol.\nCORN WHISKEY"
+    card = review_view.field_cards(
+        [_item("alcohol_content", "PASS", item_id=1, field_comparison_id=10)],
+        [_ocr_blob_cmp("alcohol_content", "75.5% Alc./Vol.", blob)],
+    )[0]
+    ev = card["extracted_value"] or ""
+    assert "75.5%" in ev
+
+
 def test_field_cards_llm_sourced_value_shown_verbatim():
     """An LLM-sourced (structured) per-field value is already isolated — show as-is."""
     cmp_llm = FieldComparison(
@@ -443,7 +456,7 @@ def test_state_match():
     assert card["diff_extracted"] is None
 
 
-def test_state_mismatch_has_red_char_diff():
+def test_state_mismatch_shows_plain_values_no_diff():
     items = [_item("brand_name", "FAIL", field_comparison_id=10, detail="values differ")]
     comparisons = [
         _cmp(
@@ -459,14 +472,11 @@ def test_state_mismatch_has_red_char_diff():
     assert card["state"] == "mismatch"
     assert card["verdict"] == verdict.FAIL
     assert card["chip_class"] == "chip--fail"
-    # char diff present on both sides, marking only the differing span
-    assert card["diff_application"] is not None
-    assert card["diff_extracted"] is not None
-    kinds = {seg["kind"] for seg in card["diff_application"]}
-    assert "equal" in kinds  # the common span is preserved
-    assert any(seg["kind"] == "del" for seg in card["diff_application"])
-    # no soft-kind segment in a hard mismatch
-    assert all(seg["kind"] != "soft" for seg in card["diff_application"])
+    # NO character-level redline — the two values are shown verbatim for eyeball compare.
+    assert card["diff_application"] is None
+    assert card["diff_extracted"] is None
+    assert card["application_value"] == "Stone's Throw"
+    assert card["extracted_value"] == "Stoned Throw"
 
 
 def test_state_soft_is_amber_never_red():
@@ -486,10 +496,9 @@ def test_state_soft_is_amber_never_red():
     assert card["verdict"] == verdict.REVIEW
     assert card["chip_class"] == "chip--review"
     assert card["note"] == "Capitalization differs; the text otherwise matches."
-    # soft diff uses the amber `soft` kind, never the red `del`/`ins`
-    kinds = {seg["kind"] for seg in card["diff_application"]}
-    assert "soft" in kinds
-    assert "del" not in kinds and "ins" not in kinds
+    # no redline markup — the plain note + values carry it
+    assert card["diff_application"] is None
+    assert card["diff_extracted"] is None
 
 
 def test_state_not_found_is_review_no_diff():
@@ -600,11 +609,9 @@ def test_state_near_miss_is_amber_diff_not_soft_capitalization():
     # the note must NOT falsely claim a capitalization-only difference
     assert card["note"] != "Capitalization differs; the text otherwise matches."
     assert card["note"] == "The values are close but not identical — please verify by eye."
-    # a real diff is shown, but amber (soft kind) — a REVIEW never paints red
-    assert card["diff_application"] is not None
-    kinds = {seg["kind"] for seg in card["diff_application"]}
-    assert "soft" in kinds
-    assert "del" not in kinds and "ins" not in kinds
+    # no redline markup — the note + the two plain values convey the near-miss
+    assert card["diff_application"] is None
+    assert card["diff_extracted"] is None
 
 
 def test_state_low_confidence_match_review_identical_raw_is_unreadable_no_phantom_diff():
@@ -638,11 +645,9 @@ def test_state_low_confidence_match_review_identical_raw_is_unreadable_no_phanto
 # ── A11Y: char-diff screen-reader text equivalent (F2) ───────────────────────
 
 
-def test_diff_text_equivalent_present_for_each_diff_state():
-    """Whenever a char-diff is drawn (soft / near_miss / mismatch), the card must
-    carry a plain-language screen-reader text equivalent naming WHICH value differs —
-    the diff is never conveyed by a colored span alone (A11Y hard requirement, F2).
-    It names both raw strings so it also survives forced-colors mode."""
+def test_differ_states_show_plain_values_no_diff_equivalent():
+    """The differ states (soft / near_miss / mismatch) no longer draw a char-diff or its
+    screen-reader equivalent — the two raw values are shown verbatim for eyeball compare."""
     cases = [
         # (verdict, match_status, application, extracted, expected_state)
         ("REVIEW", "MATCH", "Stone's Throw", "STONE'S THROW", "soft"),
@@ -663,11 +668,11 @@ def test_diff_text_equivalent_present_for_each_diff_state():
         ]
         card = review_view.field_cards(items, comparisons)[0]
         assert card["state"] == expected_state
-        eq = card["diff_text_equivalent"]
-        assert eq is not None, f"{expected_state} must carry a diff text equivalent"
-        # names BOTH raw values so the difference is legible without color
-        assert app_val in eq
-        assert ext_val in eq
+        assert card["diff_text_equivalent"] is None
+        assert card["diff_application"] is None
+        # the raw values are shown verbatim instead of a redline
+        assert card["application_value"] == app_val
+        assert card["extracted_value"] == ext_val
 
 
 def test_diff_text_equivalent_absent_when_no_diff_drawn():
@@ -899,31 +904,19 @@ def test_gov_warning_card_pass_quiet_no_diff():
     assert "matches" in card["note"].lower()
 
 
-def test_gov_warning_card_reworded_fail_carries_char_diff():
+def test_gov_warning_card_reworded_fail_shows_plain_required_and_onlabel():
     card = review_view.government_warning_card([_gw_item(_reworded_detail(), "FAIL")])
     assert card is not None
     assert card["verdict"] == verdict.FAIL
     assert card["chip_class"] == "chip--fail"
     assert card["chip_word"] == "FAIL"
     assert card["outcome"] == "reworded"
+    # The required §16.21 text and the OCR'd on-label text are carried verbatim — NO redline.
     assert card["required_text"] == "GOVERNMENT WARNING: text"
     assert card["onlabel_text"] == "Government Warning: text"
-
-    # A ``replace`` opcode → a del on the required side + an ins on the on-label side.
-    req_kinds = [seg["kind"] for seg in card["diff_required"]]
-    onlabel_kinds = [seg["kind"] for seg in card["diff_onlabel"]]
-    assert "del" in req_kinds
-    assert "ins" in onlabel_kinds
-    assert "equal" in req_kinds and "equal" in onlabel_kinds
-    # required side carries the expected ("GOVERNMENT WARNING") fragment, on-label the found.
-    req_text = "".join(seg["text"] for seg in card["diff_required"])
-    onlabel_text = "".join(seg["text"] for seg in card["diff_onlabel"])
-    assert req_text == "GOVERNMENT WARNING: text"
-    assert onlabel_text == "Government Warning: text"
-    # A11Y text equivalent names both sides.
-    assert card["diff_text_equivalent"]
-    assert "GOVERNMENT WARNING: text" in card["diff_text_equivalent"]
-    assert "Government Warning: text" in card["diff_text_equivalent"]
+    assert card["diff_required"] is None
+    assert card["diff_onlabel"] is None
+    assert card["diff_text_equivalent"] is None
 
 
 def test_gov_warning_card_absent_fail_plain_no_diff():
@@ -1043,7 +1036,7 @@ def _ck(check_key: str, vdt: str, *, check_type: str = "FIELD_MATCH", item_id: i
 
 def test_smart_checklist_header_type_word_title_cased():
     vm = review_view.smart_checklist(
-        [_ck("brand_name", "PASS")], beverage_type="DISTILLED_SPIRITS", ticked_keys=set()
+        [_ck("brand_name", "PASS")], beverage_type="DISTILLED_SPIRITS", decisions={}
     )
     # Header word is title-cased (mockup "Distilled Spirits"), NOT the all-caps banner.
     assert vm["type_word"] == "Distilled Spirits"
@@ -1055,30 +1048,29 @@ def test_smart_checklist_one_row_per_item_in_id_order():
         _ck("alcohol_content", "REVIEW", item_id=2),
         _ck("net_contents", "FAIL", item_id=3),
     ]
-    vm = review_view.smart_checklist(items, beverage_type="WINE", ticked_keys=set())
+    vm = review_view.smart_checklist(items, beverage_type="WINE", decisions={})
     assert [r["check_key"] for r in vm["rows"]] == ["brand_name", "alcohol_content", "net_contents"]
     assert vm["total"] == 3
 
 
-def test_smart_checklist_auto_pass_is_done_and_ticked_muted():
+def test_smart_checklist_match_pre_selects_pass_decided():
     vm = review_view.smart_checklist(
-        [_ck("brand_name", "PASS")], beverage_type="WINE", ticked_keys=set()
+        [_ck("brand_name", "PASS")], beverage_type="WINE", decisions={}
     )
     row = vm["rows"][0]
-    assert row["state"] == "done"
-    assert row["ticked"] is True
+    assert row["decision"] == "pass"  # a Match pre-selects Pass
+    assert row["decided"] is True
     assert row["is_problem"] is False
     assert row["chip_word"] == "PASS"
-    assert row["machine_tag"] == "auto"
 
 
-def test_smart_checklist_na_is_done_and_ticked():
+def test_smart_checklist_na_pre_selects_pass_decided():
     vm = review_view.smart_checklist(
-        [_ck("standards_of_fill", "NA")], beverage_type="WINE", ticked_keys=set()
+        [_ck("standards_of_fill", "NA")], beverage_type="WINE", decisions={}
     )
     row = vm["rows"][0]
-    assert row["state"] == "done"
-    assert row["ticked"] is True
+    assert row["decision"] == "pass"
+    assert row["decided"] is True
     assert row["is_problem"] is False
 
 
@@ -1088,81 +1080,93 @@ def test_smart_checklist_na_renders_own_word_and_check_icon_not_review_failsafe(
     without them it inherited the REVIEW fail-safe and read "! REVIEW auto",
     wrongly flagging a not-applicable check as a problem (AC2)."""
     vm = review_view.smart_checklist(
-        [_ck("standards_of_fill", "NA")], beverage_type="WINE", ticked_keys=set()
+        [_ck("standards_of_fill", "NA")], beverage_type="WINE", decisions={}
     )
     row = vm["rows"][0]
     assert row["chip_word"] == "N/A"
     assert row["icon"] == "\u2713"  # ✓ (the auto-verified check, NOT "!")
-    assert row["machine_tag"] == "auto"
 
 
-def test_smart_checklist_review_unticked_is_open():
+def test_smart_checklist_review_undecided_is_open_problem():
     vm = review_view.smart_checklist(
-        [_ck("alcohol_content", "REVIEW")], beverage_type="WINE", ticked_keys=set()
+        [_ck("alcohol_content", "REVIEW")], beverage_type="WINE", decisions={}
     )
     row = vm["rows"][0]
-    assert row["state"] == "open"
-    assert row["ticked"] is False
+    assert row["decision"] == ""
+    assert row["decided"] is False
     assert row["is_problem"] is True
     assert row["chip_word"] == "REVIEW"
 
 
-def test_smart_checklist_fail_unticked_is_openfail():
+def test_smart_checklist_fail_undecided_is_problem():
     vm = review_view.smart_checklist(
-        [_ck("net_contents", "FAIL")], beverage_type="WINE", ticked_keys=set()
+        [_ck("net_contents", "FAIL")], beverage_type="WINE", decisions={}
     )
     row = vm["rows"][0]
-    assert row["state"] == "openfail"
-    assert row["ticked"] is False
+    assert row["decision"] == ""
+    assert row["decided"] is False
     assert row["is_problem"] is True
     assert row["chip_word"] == "FAIL"
 
 
-def test_smart_checklist_review_manually_ticked_is_usercheck():
+def test_smart_checklist_review_decided_pass():
     vm = review_view.smart_checklist(
         [_ck("alcohol_content", "REVIEW")],
         beverage_type="WINE",
-        ticked_keys={"alcohol_content"},
+        decisions={"alcohol_content": "pass"},
     )
     row = vm["rows"][0]
-    assert row["state"] == "usercheck"
-    assert row["ticked"] is True
+    assert row["decision"] == "pass"
+    assert row["decided"] is True
 
 
-def test_smart_checklist_fail_manually_ticked_is_usercheck():
+def test_smart_checklist_match_can_be_overridden_to_fail():
+    vm = review_view.smart_checklist(
+        [_ck("brand_name", "PASS")],
+        beverage_type="WINE",
+        decisions={"brand_name": "fail"},
+    )
+    row = vm["rows"][0]
+    assert row["decision"] == "fail"
+    assert row["decided"] is True
+
+
+def test_smart_checklist_fail_decided_fail():
     vm = review_view.smart_checklist(
         [_ck("net_contents", "FAIL")],
         beverage_type="WINE",
-        ticked_keys={"net_contents"},
+        decisions={"net_contents": "fail"},
     )
     row = vm["rows"][0]
-    assert row["state"] == "usercheck"
-    assert row["ticked"] is True
+    assert row["decision"] == "fail"
+    assert row["decided"] is True
 
 
-def test_smart_checklist_done_count_unions_auto_and_manual():
+def test_smart_checklist_done_count_counts_decided():
     items = [
-        _ck("brand_name", "PASS", item_id=1),  # auto-tick
-        _ck("class_type_designation", "NA", item_id=2),  # auto-tick
-        _ck("alcohol_content", "REVIEW", item_id=3),  # manual-tick
-        _ck("net_contents", "FAIL", item_id=4),  # untouched
+        _ck("brand_name", "PASS", item_id=1),  # match → pre-pass (decided)
+        _ck("class_type_designation", "NA", item_id=2),  # NA → pre-pass (decided)
+        _ck("alcohol_content", "REVIEW", item_id=3),  # explicit pass (decided)
+        _ck("net_contents", "FAIL", item_id=4),  # undecided
     ]
-    vm = review_view.smart_checklist(items, beverage_type="WINE", ticked_keys={"alcohol_content"})
-    # 2 auto-ticked + 1 manual = 3 done of 4.
+    vm = review_view.smart_checklist(
+        items, beverage_type="WINE", decisions={"alcohol_content": "pass"}
+    )
+    # 2 pre-pass matches + 1 explicit = 3 decided of 4.
     assert vm["done_count"] == 3
     assert vm["total"] == 4
 
 
-def test_smart_checklist_manual_tick_on_auto_pass_not_double_counted():
-    """A manual tick that duplicates an auto-PASS must not inflate the count."""
+def test_smart_checklist_explicit_pass_on_match_not_double_counted():
+    """An explicit Pass on an already-pre-passed Match must not inflate the count."""
     items = [_ck("brand_name", "PASS", item_id=1), _ck("net_contents", "FAIL", item_id=2)]
-    vm = review_view.smart_checklist(items, beverage_type="WINE", ticked_keys={"brand_name"})
+    vm = review_view.smart_checklist(items, beverage_type="WINE", decisions={"brand_name": "pass"})
     assert vm["done_count"] == 1
     assert vm["total"] == 2
 
 
 def test_smart_checklist_empty_is_zero_of_zero():
-    vm = review_view.smart_checklist([], beverage_type="WINE", ticked_keys=set())
+    vm = review_view.smart_checklist([], beverage_type="WINE", decisions={})
     assert vm["rows"] == []
     assert vm["done_count"] == 0
     assert vm["total"] == 0
@@ -1170,7 +1174,7 @@ def test_smart_checklist_empty_is_zero_of_zero():
 
 def test_smart_checklist_anchor_maps_identity_to_group_anchor():
     vm = review_view.smart_checklist(
-        [_ck("brand_name", "PASS")], beverage_type="WINE", ticked_keys=set()
+        [_ck("brand_name", "PASS")], beverage_type="WINE", decisions={}
     )
     assert vm["rows"][0]["anchor"] == "group-identity"
 
@@ -1179,7 +1183,7 @@ def test_smart_checklist_anchor_maps_gov_warning():
     vm = review_view.smart_checklist(
         [_ck("government_warning", "FAIL", check_type="DETERMINISTIC")],
         beverage_type="WINE",
-        ticked_keys=set(),
+        decisions={},
     )
     assert vm["rows"][0]["anchor"] == "group-gov-warning"
 
@@ -1188,7 +1192,7 @@ def test_smart_checklist_anchor_conditional_for_unmapped_manual():
     vm = review_view.smart_checklist(
         [_ck("allergen_disclosure", "REVIEW", check_type="MANUAL")],
         beverage_type="WINE",
-        ticked_keys=set(),
+        decisions={},
     )
     assert vm["rows"][0]["anchor"] == "group-conditional"
 
@@ -1196,18 +1200,16 @@ def test_smart_checklist_anchor_conditional_for_unmapped_manual():
 def test_smart_checklist_unknown_verdict_treated_as_problem_not_muted():
     """Fail-safe: an unmapped/garbled verdict renders as a problem (open), never a
     silent muted done (carry 4.5's ambiguity⇒REVIEW instinct)."""
-    vm = review_view.smart_checklist(
-        [_ck("brand_name", "WAT")], beverage_type="WINE", ticked_keys=set()
-    )
+    vm = review_view.smart_checklist([_ck("brand_name", "WAT")], beverage_type="WINE", decisions={})
     row = vm["rows"][0]
-    assert row["ticked"] is False
+    assert row["decided"] is False
     assert row["is_problem"] is True
-    assert row["state"] in ("open", "openfail")
+    assert row["decision"] == ""
 
 
 def test_smart_checklist_unknown_beverage_type_degrades_word():
     vm = review_view.smart_checklist(
-        [_ck("brand_name", "PASS")], beverage_type="CIDER", ticked_keys=set()
+        [_ck("brand_name", "PASS")], beverage_type="CIDER", decisions={}
     )
     # Unknown type still yields a word (title-cased), never blank / crash.
     assert vm["type_word"] == "Cider"
@@ -1215,7 +1217,7 @@ def test_smart_checklist_unknown_beverage_type_degrades_word():
 
 def test_smart_checklist_emits_no_disposition_word():
     items = [_ck("net_contents", "FAIL")]
-    vm = review_view.smart_checklist(items, beverage_type="WINE", ticked_keys=set())
+    vm = review_view.smart_checklist(items, beverage_type="WINE", decisions={})
     blob = " ".join(str(v) for v in vm["rows"][0].values()).lower()
     for disposition in ("approved", "needs_correction", "rejected", "needs correction"):
         assert disposition not in blob
@@ -1229,7 +1231,7 @@ def test_smart_checklist_reuses_chip_class_and_icon():
             _ck("net_contents", "FAIL", item_id=3),
         ],
         beverage_type="WINE",
-        ticked_keys=set(),
+        decisions={},
     )
     by_key = {r["check_key"]: r for r in vm["rows"]}
     assert by_key["brand_name"]["chip_class"] == "chip--pass"

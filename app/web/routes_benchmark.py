@@ -61,6 +61,22 @@ def _engine_label(engine_name: str) -> tuple[str, str]:
     return _ENGINE_LABELS.get(engine_name, (engine_name, "self-hosted"))
 
 
+# Each engine is scored on TWO inputs and gets its own row (Story 2.4 / AR-7): the raw
+# ORIGINAL photo and the engine's preferred preprocessed variant (PaddleOCR→ENHANCED,
+# Tesseract→BINARIZED). Without this label the two rows per engine look identical — so the
+# variant is surfaced in the row's sub-line (and explained in the screen's intro note).
+_VARIANT_LABELS: dict[str, str] = {
+    "ORIGINAL": "original photo",
+    "ENHANCED": "enhanced (preprocessed)",
+    "BINARIZED": "binarized (preprocessed)",
+}
+
+
+def _variant_label(variant: str) -> str:
+    """Friendly name for an OCR image variant; raw value lower-cased if unknown."""
+    return _VARIANT_LABELS.get(variant, (variant or "").lower())
+
+
 def _model_label(model_id: str) -> str:
     """Friendly display name for a model id, falling back to the raw id verbatim."""
     return _MODEL_LABELS.get(model_id, model_id or "—")
@@ -156,6 +172,10 @@ def _build_engine_rows(score: scoring.CorpusScore, report: cost.CostReport) -> l
         es = score.engines.get((engine_name, variant))
         ec = report.engines.get((engine_name, variant))
         label, subline = _engine_label(engine_name)
+        # Surface WHICH image this row scored so the two rows per engine are distinct
+        # (original photo vs the engine's preprocessed variant) — the cause of the
+        # "two identical-looking rows" confusion.
+        subline = f"{subline} · {_variant_label(variant)}"
         rows.append(
             BenchmarkRow(
                 name=label,

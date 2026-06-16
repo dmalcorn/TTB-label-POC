@@ -64,6 +64,12 @@ NET_CONTENTS_TOLERANCE = Decimal("0")
 # near-miss ⇒ REVIEW (the false-reject safety valve); below ⇒ substantive ⇒ FAIL.
 REVIEW_FLOOR = 0.85
 
+# Fields read from a label's free-form fine print where an OCR mismatch is inherently
+# untrustworthy (the bottler name/address is abbreviated, reflowed, multi-line, and rarely
+# OCRs to the filed string). A mismatch here NEVER advises FAIL — it defers to the human
+# (REVIEW), never a false reject. The reviewer can still mark it failed on the card.
+_REVIEW_ONLY_FIELDS = frozenset({"applicant_name_address"})
+
 # OCR-confidence floor: an apparent match read from an OCR row below this confidence
 # is forced to REVIEW — the extraction cannot be trusted (the cross-type-trap valve).
 # Does NOT apply to LLM-sourced values.
@@ -111,6 +117,12 @@ def field_match(check: Check, ctx: CheckContext) -> CheckResult:
         ocr_confidence=ocr_confidence,
         is_llm_sourced=source_llm_id is not None,
     )
+
+    # Name/address never hard-FAILs on an OCR mismatch — its fine print can't be matched
+    # reliably, so defer to the human (REVIEW) instead of a false reject.
+    if field_key in _REVIEW_ONLY_FIELDS and vdict == verdict.FAIL:
+        vdict = verdict.REVIEW
+        detail = f"{detail} — name/address OCR is unreliable; deferring to human review"
 
     comparison_id = repo.insert_field_comparison(
         ctx.conn,
@@ -359,8 +371,8 @@ def _compare_numeric(
         # Application side unparseable — defer (we cannot anchor the comparison).
         return (_UNVERIFIABLE, None, verdict.REVIEW, f"application value unparseable: {field_key}")
 
-    ext_num, ext_unit = _extract_numeric_for_unit(extracted_value, field_key, app_unit)
-    if ext_num is None:
+    ext_nums = _extracted_numbers_for_unit(extracted_value, field_key, app_unit)
+    if not ext_nums:
         # No SAME-UNIT number+unit token on the label. Either the label has no number
         # at all, or it carries only an unrelated quantity in a different unit (a stray
         # ``45 %`` while we sought ``ml``). We cannot honestly compare ⇒ UNVERIFIABLE/
@@ -374,40 +386,49 @@ def _compare_numeric(
             "no matching-unit number found on label",
         )
 
-    # Reaching here, ext_unit == app_unit by construction (see _extract_numeric_for_unit).
-    if abs(app_num - ext_num) <= tolerance:
+    # A label routinely OCRs several same-unit numbers — the stated value PLUS noise (a
+    # stray ``0%`` from a smudge, a number echoed across stacked panels). The stated value
+    # is CONFIRMED if it appears ANYWHERE, so pick the token CLOSEST to the application
+    # value: if that closest token is within tolerance ⇒ MATCH (don't false-FAIL on a
+    # spurious neighbour); else the closest IS the real discrepancy to report.
+    closest = min(ext_nums, key=lambda n: abs(app_num - n))
+    if abs(app_num - closest) <= tolerance:
         return (
             _MATCH,
             1.0,
             verdict.PASS,
-            f"{app_num}{app_unit} ≈ {ext_num}{ext_unit} (±{tolerance})",
+            f"{app_num}{app_unit} ≈ {closest}{app_unit} (±{tolerance})",
         )
-    # Same unit, out of band — a SUBSTANTIVE numeric mismatch (the "45% vs 40%" case).
+    # No same-unit token within tolerance — a SUBSTANTIVE numeric mismatch (the engineered
+    # "6.7% vs 6.1%" case); report the closest as the deviation.
     return (
         _MISMATCH,
         0.0,
         verdict.FAIL,
-        f"numeric mismatch: {app_num}{app_unit} vs {ext_num}{ext_unit} (tol ±{tolerance})",
+        f"numeric mismatch: {app_num}{app_unit} vs {closest}{app_unit} (tol ±{tolerance})",
     )
 
 
-def _extract_numeric_for_unit(
+def _extracted_numbers_for_unit(
     extracted_value: str, field_key: str, app_unit: str | None
-) -> tuple[Decimal | None, str | None]:
-    """Pick the extracted ``(Decimal, unit)`` whose unit MATCHES ``app_unit``.
+) -> list[Decimal]:
+    """ALL extracted numbers whose unit MATCHES ``app_unit`` (document order).
 
-    Scans the extracted candidate line-by-line (the OCR blob may carry several
-    quantities) via the centralized ``parse_numeric`` and returns the FIRST token whose
-    unit equals the application's unit. A token in a DIFFERENT unit is never returned: a
-    stray cross-quantity number (e.g. a ``45 %`` ABV line while we are matching
-    ``net_contents`` in ``ml``) must NOT be paired with the application value and forced
-    to a FAIL — that is a false reject. ``(None, None)`` when no same-unit
-    ``<number><unit>`` token is present, which the caller maps to UNVERIFIABLE/REVIEW."""
+    Scans the extracted candidate via the centralized ``parse_all_numeric`` — EVERY
+    ``<number><unit>`` token, not just the first, so a label that prints net contents and
+    ABV on one line (``"750ML | 12.5% ALC./VOL."``) yields the ``%`` token even though the
+    ``ml`` token comes first, AND a value echoed across stacked panels / shadowed by an OCR
+    smudge (a stray ``0%``) is all surfaced for the caller to choose among. A token in a
+    DIFFERENT unit is never returned: a stray cross-quantity number (e.g. a ``45 %`` ABV
+    while we are matching ``net_contents`` in ``ml``) must NOT be paired with the
+    application value and forced to a FAIL — that is a false reject. Empty list when no
+    same-unit token is present, which the caller maps to UNVERIFIABLE/REVIEW."""
+    out: list[Decimal] = []
     for line in extracted_value.splitlines() or [extracted_value]:
-        num, unit = normalize.parse_numeric(line, field_key)
-        if num is not None and unit == app_unit:
-            return (num, unit)
-    return (None, None)
+        for num, unit in normalize.parse_all_numeric(line, field_key):
+            if unit == app_unit:
+                out.append(num)
+    return out
 
 
 def _has_value(value: str | None) -> bool:

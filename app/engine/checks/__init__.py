@@ -111,6 +111,9 @@ def get_evaluator(strategy: str) -> Evaluator:
 # CheckContext/CheckResult from this package without a cycle. Each module's import
 # is the single line that wires its strategy into EVALUATORS.
 from app.engine.checks.class_type import class_type as _class_type  # noqa: E402
+from app.engine.checks.country_of_origin import (  # noqa: E402
+    country_of_origin as _country_of_origin,
+)
 from app.engine.checks.field_match import field_match as _field_match  # noqa: E402
 from app.engine.checks.flag_only import flag_only as _flag_only  # noqa: E402
 from app.engine.checks.format_checks import format_checks as _format_checks  # noqa: E402
@@ -122,4 +125,5 @@ EVALUATORS["field_match"] = _field_match
 EVALUATORS["government_warning"] = _government_warning
 EVALUATORS["format_checks"] = _format_checks
 EVALUATORS["class_type"] = _class_type
+EVALUATORS["country_of_origin"] = _country_of_origin
 EVALUATORS["positional"] = _flag_only

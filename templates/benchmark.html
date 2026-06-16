@@ -63,6 +63,11 @@
 
   <h2 class="benchmark__sec-h">Side-by-side comparison</h2>
   <p class="benchmark__sec-sub">OCR engines and language models on the same four measures.</p>
+  {# Why each OCR engine appears on TWO rows — otherwise they read as duplicates. #}
+  <p class="benchmark__sec-note">Each OCR engine appears on <b>two rows</b>: it is scored
+    separately on the <b>original photo</b> and on its own <b>preprocessed variant</b>
+    (PaddleOCR &rarr; enhanced, Tesseract &rarr; binarized), so the benefit of preprocessing
+    is visible. The variant each row scored is shown beneath the engine name.</p>
 
   {% if has_data %}
   <div class="benchmark__table-wrap">

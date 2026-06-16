@@ -42,6 +42,7 @@ _SUBMISSION_COLUMNS = [
     "alcohol_content",
     "net_contents",
     "grape_varietal",
+    "country_of_origin",
     "wine_appellation",
     "wine_vintage",
     "formula_id",

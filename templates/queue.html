@@ -108,13 +108,6 @@
   {% endif %}
   {% endif %}
 
-  {# Phase-2 deferred placeholder — visible deferral, clearly NOT a live control. #}
-  <div class="deferred" aria-hidden="true">
-    <span class="deferred__tag">Two-bucket triage — Phase 2</span>
-    <p class="deferred__note">"Likely compliant" / "Needs a closer look" arrives once we
-      have calibration data. Reserved here; not yet active.</p>
-  </div>
-
   {# Informational stats strip (civic green, read-only). Live (type-scoped) count only. #}
   <p class="stats"><strong>{{ waiting }} waiting</strong></p>
 </div>

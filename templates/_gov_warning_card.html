@@ -19,10 +19,20 @@
       <span class="gov-warning__cfr">Required ({{ gov_warning.cfr_citation }})</span>
       {% endif %}
     </div>
-    <span class="chip {{ gov_warning.chip_class }}">
-      <span class="chip__icon" aria-hidden="true">{{ gov_warning.icon }}</span>
-      <span class="chip__word">{{ gov_warning.chip_word }}</span>
-    </span>
+    <div class="field-card__verdict">
+      <span class="chip {{ gov_warning.chip_class }}">
+        <span class="chip__icon" aria-hidden="true">{{ gov_warning.icon }}</span>
+        <span class="chip__word">{{ gov_warning.chip_word }}</span>
+      </span>
+      {# The reviewer's own Pass/Fail call (same control as the field cards). #}
+      <div class="decide" data-check-key="{{ gov_warning.check_key }}" role="group"
+           aria-label="Your call for Government Warning">
+        <button type="button" class="decide__btn decide__btn--pass{% if gov_warning.decision_pass %} is-active{% endif %}"
+                data-decision="pass" aria-pressed="{{ 'true' if gov_warning.decision_pass else 'false' }}">Pass</button>
+        <button type="button" class="decide__btn decide__btn--fail{% if gov_warning.decision_fail %} is-active{% endif %}"
+                data-decision="fail" aria-pressed="{{ 'true' if gov_warning.decision_fail else 'false' }}">Fail</button>
+      </div>
+    </div>
   </header>
 
   {# A11Y hard requirement: when a char-diff is drawn, name the difference in plain
@@ -56,6 +66,17 @@
           {{ gov_warning.onlabel_text }}
         {%- endif -%}
       </div>
+    </div>
+  </div>
+  {% endif %}
+
+  {# Warning detected via content anchors (header OCR-garbled): show the OCR'd region so
+     the reviewer can confirm wording/casing. No diff — exact wording isn't verifiable. #}
+  {% if gov_warning.outcome == 'couldnt_verify' and gov_warning.onlabel_text %}
+  <div class="gov-warning__block">
+    <div class="gov-warning__row">
+      <div class="gov-warning__lab">On label (OCR)</div>
+      <div class="gov-warning__text mono">{{ gov_warning.onlabel_text }}</div>
     </div>
   </div>
   {% endif %}

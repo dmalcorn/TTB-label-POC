@@ -83,14 +83,13 @@ def _media_type_for(row: repo.LabelImage, variant: str) -> str:
 
 
 @router.get("/review/{submission_id}", response_class=HTMLResponse)
-def review(request: Request, submission_id: int, image: int | None = None) -> HTMLResponse:
+def review(request: Request, submission_id: int) -> HTMLResponse:
     """Render the Review Workspace shell for one submission (pure read, AR-5).
 
     Reads the submission + its checklist + its single ``review_progress`` row, builds
     the banner / chevron / suggested-verdict / field-card / gov-warning / smart-checklist
-    view-models + the label-image panel (Story 4.7), and renders ``review.html``. The
-    optional ``image`` query param selects which face (by ``position``) the panel shows
-    so paging works without JS (AC3). A missing id ⇒ calm 404.
+    view-models + the label-image panel (all faces stacked, always visible), and renders
+    ``review.html``. A missing id ⇒ calm 404.
     """
     settings = request.app.state.settings
     templates = request.app.state.templates
@@ -100,9 +99,9 @@ def review(request: Request, submission_id: int, image: int | None = None) -> HT
             raise HTTPException(status_code=404, detail="Submission not found")
         items = repo.list_checklist_items(conn, submission_id)
         comparisons = repo.list_field_comparisons(conn, submission_id)
-        # The human-tick layer (Story 4.6): the MANUAL ticked set. The presenter
-        # unions in the auto-tick set (PASS/NA) itself, keeping the merge in one place.
-        ticked_keys = repo.get_ticked_check_keys(conn, submission_id)
+        # The human-decision layer: the reviewer's per-card Pass/Fail map. The presenter
+        # applies the Match→Pass pre-select itself, keeping that logic in one place.
+        decisions = repo.get_decisions(conn, submission_id)
         # The label-image set (Story 4.7), in position order; ``[]`` ⇒ calm empty state.
         images = repo.list_label_images(conn, submission_id)
         # The autosaved draft Notes (Story 4.8), rehydrated into the textarea so a
@@ -113,12 +112,20 @@ def review(request: Request, submission_id: int, image: int | None = None) -> HT
         # (AR-5: no model call). Drives the visible "LLM check unavailable" notice.
         llm_degraded = repo.llm_extraction_unavailable(conn, submission_id)
 
-    cards = review_view.field_cards(items, comparisons)
-    # The smart checklist drives the confirm-modal copy: a still-open REVIEW/FAIL row
-    # means "you're committing with items still flagged" — the action bar passes that
+    cards = review_view.field_cards(items, comparisons, decisions=decisions)
+    gov_warning = review_view.government_warning_card(items, decisions=decisions)
+    # Which checks have a card the reviewer decides ON (so the checklist row shows the
+    # read-only result + a jump to that card, never its own buttons). Field cards live at
+    # ``#field-<field_key>``; the Government Warning card lives in ``#group-gov-warning``.
+    # The remaining (carded-less) rows get the Pass/Fail control IN the checklist.
+    carded = {str(c["check_key"]): f"field-{c['field_key']}" for c in cards}
+    if gov_warning is not None:
+        carded["government_warning"] = "group-gov-warning"
+    # The smart checklist drives the confirm-modal copy: a still-undecided row means
+    # "you're committing with items you haven't called" — the action bar passes that
     # through (the engine never blocks; it just makes the choice honest).
     checklist = review_view.smart_checklist(
-        items, beverage_type=submission.beverage_type, ticked_keys=ticked_keys
+        items, beverage_type=submission.beverage_type, decisions=decisions, carded=carded
     )
     return templates.TemplateResponse(
         request,
@@ -126,19 +133,16 @@ def review(request: Request, submission_id: int, image: int | None = None) -> HT
         {
             "submission": submission,
             "banner": review_view.banner(submission.beverage_type),
-            "chevron": review_view.chevron(items),
             "alert": review_view.suggested_verdict(items),
-            # The label-image panel (Story 4.7) — the left column. Pure read-model over
-            # the already-read ``images``; the selected face follows ``?image=<pos>``.
-            "image_panel": review_view.image_panel(
-                images, submission_id=submission_id, current_position=image
-            ),
+            # The label-image panel — the left column. Pure read-model over the
+            # already-read ``images``; all faces are stacked + always visible.
+            "image_panel": review_view.image_panel(images, submission_id=submission_id),
             "field_cards_problems": [c for c in cards if c["is_problem"]],
             "field_cards_clean": [c for c in cards if not c["is_problem"]],
             # The Government Warning card (Story 4.5) — built from the SAME ``items``
             # already read (no new query); ``None`` when the submission has no
             # government_warning row (the template renders the honest empty state).
-            "gov_warning": review_view.government_warning_card(items),
+            "gov_warning": gov_warning,
             # The smart checklist (Story 4.6) — the per-type table-of-contents over the
             # SAME ``items``. ``ticked_keys`` is the manual set; the presenter unions in
             # the auto set so done-count = len(auto ∪ manual).
@@ -164,6 +168,7 @@ def set_progress(
     submission_id: int,
     check_key: str | None = Form(default=None),
     ticked: bool | None = Form(default=None),
+    decision: str | None = Form(default=None),
     draft_notes: str | None = Form(default=None),
 ) -> Response:
     """Persist a cheap web-layer review-progress beacon (Stories 4.6 tick + 4.8 notes).
@@ -189,6 +194,11 @@ def set_progress(
             raise HTTPException(status_code=404, detail="Submission not found")
         if check_key is not None and ticked is not None:
             repo.set_check_tick(conn, submission_id, check_key=check_key, ticked=ticked)
+        if check_key is not None and decision is not None:
+            # The per-card human Pass/Fail call: 'pass' / 'fail' set it, anything else
+            # ('clear') removes it. NEVER the disposition or the engine verdict (#4).
+            normalized = decision if decision in ("pass", "fail") else None
+            repo.set_check_decision(conn, submission_id, check_key=check_key, decision=normalized)
         if draft_notes is not None:
             repo.set_draft_notes(conn, submission_id, draft_notes=draft_notes)
     return Response(status_code=204)

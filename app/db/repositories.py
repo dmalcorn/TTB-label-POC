@@ -57,6 +57,7 @@ class Submission(BaseModel):
     alcohol_content: str | None = None
     net_contents: str | None = None
     grape_varietal: str | None = None
+    country_of_origin: str | None = None
     wine_appellation: str | None = None
     wine_vintage: str | None = None
     formula_id: str | None = None
@@ -160,6 +161,7 @@ class ReviewProgress(BaseModel):
 
     submission_id: int
     ticked_check_keys: list[str] = []
+    decisions: dict[str, str] = {}
     draft_notes: str | None = None
     updated_at: str
 
@@ -935,6 +937,7 @@ def get_review_progress(conn: sqlite3.Connection, submission_id: int) -> ReviewP
         return None
     data = dict(row)
     data["ticked_check_keys"] = json.loads(data["ticked_check_keys"])
+    data["decisions"] = json.loads(data.get("decisions") or "{}")
     return ReviewProgress.model_validate(data)
 
 
@@ -942,6 +945,41 @@ def get_ticked_check_keys(conn: sqlite3.Connection, submission_id: int) -> set[s
     """The set of manually-ticked ``check_key``s for a submission (empty if none)."""
     progress = get_review_progress(conn, submission_id)
     return set(progress.ticked_check_keys) if progress is not None else set()
+
+
+def get_decisions(conn: sqlite3.Connection, submission_id: int) -> dict[str, str]:
+    """The per-card human Pass/Fail decisions (``check_key -> 'pass'|'fail'``), empty if none."""
+    progress = get_review_progress(conn, submission_id)
+    return dict(progress.decisions) if progress is not None else {}
+
+
+def set_check_decision(
+    conn: sqlite3.Connection,
+    submission_id: int,
+    *,
+    check_key: str,
+    decision: str | None,
+) -> None:
+    """Record (or clear) the human's Pass/Fail call for ONE ``check_key`` (upsert).
+
+    ``decision`` is ``'pass'`` / ``'fail'`` to set, or ``None`` to clear it. Reads the
+    current map, applies the change, writes it back, bumping ``updated_at``. An
+    ``ON CONFLICT`` upsert creates the row on first use and preserves any existing
+    ``ticked_check_keys`` / ``draft_notes``. The caller commits. NEVER a disposition or a
+    change to the engine verdict (contract #4)."""
+    decisions = get_decisions(conn, submission_id)
+    if decision in ("pass", "fail"):
+        decisions[check_key] = decision
+    else:
+        decisions.pop(check_key, None)
+    encoded = json.dumps(decisions, sort_keys=True)
+    conn.execute(
+        "INSERT INTO review_progress (submission_id, decisions, updated_at) "
+        "VALUES (?, ?, CURRENT_TIMESTAMP) "
+        "ON CONFLICT(submission_id) DO UPDATE SET "
+        "decisions = excluded.decisions, updated_at = CURRENT_TIMESTAMP",
+        (submission_id, encoded),
+    )
 
 
 def set_check_tick(

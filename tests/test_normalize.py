@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from decimal import Decimal
 
-from app.normalize import NUMERIC_FIELD_KEYS, normalize, parse_numeric
+from app.normalize import NUMERIC_FIELD_KEYS, normalize, parse_all_numeric, parse_numeric
 
 # ── AC1: the SM-C2 zero-false-FAIL class ─────────────────────────────────────
 
@@ -142,9 +142,39 @@ def test_parse_numeric_proof_unit():
     assert parse_numeric("90 proof", "alcohol_content") == (Decimal("90"), "proof")
 
 
+def test_parse_numeric_fluid_ounces():
+    # US malt/beer net contents — "16 FL OZ", "16 fl oz", glued, and the period form.
+    assert parse_numeric("16 FL OZ", "net_contents") == (Decimal("16"), "fl oz")
+    assert parse_numeric("16 fl oz", "net_contents") == (Decimal("16"), "fl oz")
+    assert parse_numeric("16floz", "net_contents") == (Decimal("16"), "fl oz")
+    assert parse_numeric("16 fl. oz.", "net_contents") == (Decimal("16"), "fl oz")
+
+
+def test_parse_numeric_gallons():
+    # Keg net contents — "15.5 Gallons".
+    assert parse_numeric("15.5 Gallons", "net_contents") == (Decimal("15.5"), "gal")
+    assert parse_numeric("5 gal", "net_contents") == (Decimal("5"), "gal")
+
+
 def test_parse_numeric_unparseable_returns_none_none():
     assert parse_numeric("not a number", "alcohol_content") == (None, None)
     assert parse_numeric(None, "net_contents") == (None, None)
+
+
+def test_parse_all_numeric_returns_every_token_on_a_shared_line():
+    # The one-line "net | ABV" form: parse_numeric returns only the first token; the ABV
+    # must still be recoverable. parse_all_numeric yields BOTH, in document order.
+    assert parse_numeric("750ML | 12.5% ALC. /VOL.", "alcohol_content") == (Decimal("750"), "ml")
+    assert parse_all_numeric("750ML | 12.5% ALC. /VOL.", "alcohol_content") == [
+        (Decimal("750"), "ml"),
+        (Decimal("12.5"), "%"),
+    ]
+
+
+def test_parse_all_numeric_empty_for_no_token_or_non_numeric_field():
+    assert parse_all_numeric("no numbers here", "alcohol_content") == []
+    assert parse_all_numeric("750 mL", "brand_name") == []
+    assert parse_all_numeric(None, "net_contents") == []
     assert parse_numeric("", "alcohol_content") == (None, None)
 
 

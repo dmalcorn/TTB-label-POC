@@ -33,29 +33,6 @@
     <span class="beverage-banner__meta">Submission {{ submission.ttb_id }}</span>
   </div>
 
-  {# ── Chevron / step indicator ───────────────────────────────────────────────
-     A progress MAP, not a wizard (U4): clicking a step is a same-page anchor to that
-     field group. The Conditional step appears ONLY when the checklist contains a
-     conditional/flag-only check; absent, the steps renumber cleanly (Decide ⑤→④).
-     The current marker is conveyed as TEXT ("step N of M" + aria-current), not by
-     color alone. #}
-  <nav class="chevron" role="navigation" aria-label="Review progress">
-    <ol class="chevron__list">
-      {% for step in chevron %}
-      <li class="chevron__step{{ ' chevron__step--current' if step.is_current else '' }}"
-        {% if step.is_current %}aria-current="step"{% endif %}>
-        <a class="chevron__link" href="#{{ step.anchor }}">
-          <span class="chevron__num" aria-hidden="true">{{ step.number }}</span>
-          <span class="chevron__label">{{ step.label }}</span>
-          {% if step.is_current %}
-          <span class="chevron__current-text">step {{ step.number }} of {{ chevron|length }}</span>
-          {% endif %}
-        </a>
-      </li>
-      {% endfor %}
-    </ol>
-  </nav>
-
   {# ── Suggested-verdict alert ────────────────────────────────────────────────
      USWDS Alert in the matching verdict tint, labeled "Suggested:", carrying the
      verdict ICON + WORD (never tint alone). Advisory register only — NOT a button,
@@ -173,9 +150,9 @@
     {% include "_checklist.html" %}
   </section>
 
-  {% for step in chevron %}{% if step.label == 'Conditional' %}
+  {# Scroll target for conditional / flag-only checklist rows (the checklist links here
+     only when such a check is present; harmless when absent). #}
   <span id="group-conditional" class="review-anchor" aria-hidden="true"></span>
-  {% endif %}{% endfor %}
 
   {# The commit zone (Story 4.8): the Notes textarea + the three disposition controls.
      None pre-selected — the specialist records the decision, the engine never makes it
@@ -200,4 +177,8 @@
    Reject focuses the textarea instead of round-tripping), and the confirm modal on
    top of the plain POST form. The commit works fully without it. #}
 <script src="/static/js/disposition.js" defer></script>
+{# Label-image zoom + pan — same-origin, no build, no dependency. Click an image to
+   activate, mouse-wheel to zoom toward the cursor, drag to pan, double-click to reset.
+   The labels are fully visible/usable without it (a reading aid for fine print). #}
+<script src="/static/js/zoom.js" defer></script>
 {% endblock %}

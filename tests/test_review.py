@@ -131,10 +131,6 @@ def test_review_renders_shell_for_spirits(monkeypatch, tmp_path) -> None:
     # banner word + accent class
     assert "DISTILLED SPIRITS" in body
     assert "beverage-banner--spirits" in body
-    # chevron present
-    assert "Identity" in body
-    assert "Gov. Warning" in body
-    assert "Decide" in body
     # suggested-verdict alert (advisory register, "Suggested:" label)
     assert "Suggested:" in body
     assert "PASS" in body
@@ -190,35 +186,6 @@ def test_review_alert_empty_checklist_is_review(monkeypatch, tmp_path) -> None:
     assert resp.status_code == 200
     # empty ⇒ REVIEW per rollup empty-policy, never a silent PASS
     assert "REVIEW" in resp.text
-
-
-# ── AC3: conditional step appears only when triggered ────────────────────────
-
-
-def test_review_chevron_four_steps_without_conditional(monkeypatch, tmp_path) -> None:
-    client = _client(monkeypatch, tmp_path)
-    with connect(_db_path(tmp_path)) as conn:
-        sid = _insert_submission(conn)
-        _insert_check(conn, sid, check_key="brand_name", verdict="PASS")
-        _insert_check(
-            conn, sid, check_key="government_warning", check_type="DETERMINISTIC", verdict="PASS"
-        )
-    resp = client.get(f"/review/{sid}")
-    assert resp.status_code == 200
-    assert "Conditional" not in resp.text
-
-
-def test_review_chevron_includes_conditional_when_present(monkeypatch, tmp_path) -> None:
-    client = _client(monkeypatch, tmp_path)
-    with connect(_db_path(tmp_path)) as conn:
-        sid = _insert_submission(conn)
-        _insert_check(conn, sid, check_key="brand_name", verdict="PASS")
-        _insert_check(
-            conn, sid, check_key="same_field_of_vision", check_type="MANUAL", verdict="REVIEW"
-        )
-    resp = client.get(f"/review/{sid}")
-    assert resp.status_code == 200
-    assert "Conditional" in resp.text
 
 
 # ── AC5: calm 404 for a missing id ───────────────────────────────────────────
@@ -290,8 +257,11 @@ def test_review_renders_mismatch_card_with_red_diff(monkeypatch, tmp_path) -> No
     body = client.get(f"/review/{sid}").text
     assert "field-card--mismatch" in body
     assert "FAIL" in body
-    assert "diff-del" in body
-    assert "diff-ins" in body
+    # NO redline markup — the two plain values are shown for eyeball compare
+    assert "diff-del" not in body
+    assert "diff-ins" not in body
+    assert "45% Alc./Vol." in body
+    assert "40% Alc./Vol." in body
 
 
 def test_review_renders_soft_card_amber_no_red(monkeypatch, tmp_path) -> None:
@@ -313,7 +283,7 @@ def test_review_renders_soft_card_amber_no_red(monkeypatch, tmp_path) -> None:
     body = client.get(f"/review/{sid}").text
     assert "field-card--soft" in body
     assert "Capitalization differs; the text otherwise matches." in body
-    assert "diff-soft" in body
+    assert "diff-soft" not in body
 
 
 def test_review_renders_not_found_card(monkeypatch, tmp_path) -> None:
@@ -489,11 +459,10 @@ def test_review_why_accordion_carries_raw_extracted_value(monkeypatch, tmp_path)
     assert "40percentABV" in body
 
 
-def test_review_diff_card_emits_screen_reader_text_equivalent(monkeypatch, tmp_path) -> None:
-    """A11Y hard requirement: a char-diff card carries a visually-hidden text
-    equivalent (USWDS ``usa-sr-only``) naming WHICH value differs, so the diff is
-    never conveyed by a colored span alone (survives forced-colors / screen readers).
-    Regression for F2."""
+def test_review_mismatch_card_shows_both_plain_values(monkeypatch, tmp_path) -> None:
+    """With the redline removed, a differing field shows both raw values verbatim — the
+    reviewer (and a screen reader) reads the application value and the on-label value
+    directly, with no diff markup to decode."""
     client = _client(monkeypatch, tmp_path)
     with connect(_db_path(tmp_path)) as conn:
         sid = _insert_submission(conn)
@@ -507,14 +476,18 @@ def test_review_diff_card_emits_screen_reader_text_equivalent(monkeypatch, tmp_p
             },
             cmp_overrides={
                 "field_key": "brand_name",
-                "application_value": "Stone's Throw",
+                "application_value": "Iron Gate",
                 "extracted_value": "Stoned Throw",
                 "match_status": "MISMATCH",
                 "similarity": 0.7,
             },
         )
     body = client.get(f"/review/{sid}").text
-    assert "usa-sr-only" in body
+    # both raw values shown verbatim; no redline spans
+    assert "Iron Gate" in body
+    assert "Stoned Throw" in body
+    assert "diff-del" not in body
+    assert "diff-ins" not in body
 
 
 def test_review_field_comparison_section_header_is_verbatim(monkeypatch, tmp_path) -> None:
@@ -601,10 +574,12 @@ def test_review_gov_warning_reworded_renders_mono_stack_and_diff(monkeypatch, tm
     # the two-row mono stack labels
     assert "On label (OCR)" in body
     assert "Required (27 CFR" in body
-    # the FAIL chip word + the red diff spans
     assert "FAIL" in body
-    assert "diff-del" in body
-    assert "diff-ins" in body
+    # plain required + on-label text, NO redline spans
+    assert "diff-del" not in body
+    assert "diff-ins" not in body
+    assert "GOVERNMENT WARNING: text" in body
+    assert "Government Warning: text" in body
 
 
 def test_review_gov_warning_absent_plain_no_diff(monkeypatch, tmp_path) -> None:
@@ -714,7 +689,7 @@ def test_review_get_renders_checklist_header_and_counter(monkeypatch, tmp_path) 
 
 
 def test_review_get_checklist_states_render(monkeypatch, tmp_path) -> None:
-    """AC2: auto-PASS → done (muted); REVIEW → open (amber); FAIL → openfail (red)."""
+    """A Match pre-selects Pass (cli--pass, decided); an undecided REVIEW/FAIL is cli--open."""
     client = _client(monkeypatch, tmp_path)
     with connect(_db_path(tmp_path)) as conn:
         sid = _insert_submission(conn)
@@ -724,9 +699,8 @@ def test_review_get_checklist_states_render(monkeypatch, tmp_path) -> None:
             conn, sid, check_key="government_warning", check_type="DETERMINISTIC", verdict="FAIL"
         )
     body = client.get(f"/review/{sid}").text
-    assert "cli--done" in body
-    assert "cli--open" in body
-    assert "cli--openfail" in body
+    assert "cli--pass" in body  # the Match, pre-passed
+    assert "cli--open" in body  # the undecided REVIEW / FAIL rows
 
 
 def test_review_get_checklist_empty_state_is_calm(monkeypatch, tmp_path) -> None:
@@ -743,48 +717,50 @@ def test_review_get_checklist_empty_state_is_calm(monkeypatch, tmp_path) -> None
 
 
 def test_review_post_progress_persists_and_rehydrates(monkeypatch, tmp_path) -> None:
-    """AC5/AC6: POST a manual tick on a REVIEW row, then a FRESH GET ("reload") shows
-    the row in the `usercheck` state + the incremented counter (server-side rehydration)."""
+    """POST a Pass decision on a REVIEW row, then a FRESH GET ("reload") shows the row
+    decided (cli--pass) + the incremented counter (server-side rehydration)."""
     client = _client(monkeypatch, tmp_path)
     with connect(_db_path(tmp_path)) as conn:
         sid = _insert_submission(conn)
         _insert_check(conn, sid, check_key="brand_name", verdict="PASS")
         _insert_check(conn, sid, check_key="alcohol_content", verdict="REVIEW")
-    # before: 1 of 2 done, the REVIEW row is `open`
+    # before: 1 of 2 decided (the Match pre-passes), the REVIEW row is undecided (open)
     before = client.get(f"/review/{sid}").text
     assert "<span data-done-count>1</span>" in before
     assert "cli--open" in before
-    # POST the manual tick
+    # POST the human Pass decision
     resp = client.post(
-        f"/review/{sid}/progress", data={"check_key": "alcohol_content", "ticked": "true"}
+        f"/review/{sid}/progress", data={"check_key": "alcohol_content", "decision": "pass"}
     )
     assert resp.status_code == 204
-    # after a fresh GET: the REVIEW row is now `usercheck`, counter is 2 of 2
+    # after a fresh GET: the REVIEW row is now decided pass, counter is 2 of 2
     after = client.get(f"/review/{sid}").text
-    assert "cli--usercheck" in after
+    assert "cli--pass" in after
     assert "<span data-done-count>2</span>" in after
     assert "<span data-total-count>2</span>" in after
 
 
-def test_review_post_progress_untick_removes_key(monkeypatch, tmp_path) -> None:
-    """AC5: an untick (ticked=false) removes the key — the counter drops back."""
+def test_review_post_progress_clear_removes_decision(monkeypatch, tmp_path) -> None:
+    """Clearing a decision (decision=clear) removes it — the counter drops back."""
     client = _client(monkeypatch, tmp_path)
     with connect(_db_path(tmp_path)) as conn:
         sid = _insert_submission(conn)
         _insert_check(conn, sid, check_key="brand_name", verdict="PASS")
         _insert_check(conn, sid, check_key="alcohol_content", verdict="REVIEW")
-    client.post(f"/review/{sid}/progress", data={"check_key": "alcohol_content", "ticked": "true"})
+    client.post(
+        f"/review/{sid}/progress", data={"check_key": "alcohol_content", "decision": "pass"}
+    )
     assert "<span data-done-count>2</span>" in client.get(f"/review/{sid}").text
-    # untick
+    # clear
     resp = client.post(
-        f"/review/{sid}/progress", data={"check_key": "alcohol_content", "ticked": "false"}
+        f"/review/{sid}/progress", data={"check_key": "alcohol_content", "decision": "clear"}
     )
     assert resp.status_code == 204
     assert "<span data-done-count>1</span>" in client.get(f"/review/{sid}").text
 
 
 def test_review_post_progress_is_idempotent(monkeypatch, tmp_path) -> None:
-    """AC5: re-posting an already-ticked key is a no-op (the set is de-duplicated)."""
+    """Re-posting the same decision is a no-op (never double-counted)."""
     client = _client(monkeypatch, tmp_path)
     with connect(_db_path(tmp_path)) as conn:
         sid = _insert_submission(conn)
@@ -792,7 +768,7 @@ def test_review_post_progress_is_idempotent(monkeypatch, tmp_path) -> None:
         _insert_check(conn, sid, check_key="alcohol_content", verdict="REVIEW")
     for _ in range(3):
         resp = client.post(
-            f"/review/{sid}/progress", data={"check_key": "alcohol_content", "ticked": "true"}
+            f"/review/{sid}/progress", data={"check_key": "alcohol_content", "decision": "pass"}
         )
         assert resp.status_code == 204
     # still exactly 2 of 2 — never double-counted
@@ -859,11 +835,32 @@ def test_review_js_posts_to_progress_endpoint_no_egress() -> None:
         assert forbidden not in src, f"review.js must not reference {forbidden!r} (NFR-2 no egress)"
 
 
+def test_review_loads_zoom_js_same_origin(monkeypatch, tmp_path) -> None:
+    """The review screen references the label-zoom script via a same-origin /static path
+    (no CDN/build); the labels render fine without it."""
+    client = _client(monkeypatch, tmp_path)
+    with connect(_db_path(tmp_path)) as conn:
+        sid = _insert_submission(conn)
+        _insert_check(conn, sid, check_key="brand_name", verdict="PASS")
+    body = client.get(f"/review/{sid}").text
+    assert "/static/js/zoom.js" in body
+
+
+def test_zoom_js_is_self_contained_no_egress() -> None:
+    """zoom.js targets the label images, implements wheel-zoom + drag-pan, and makes no
+    cross-origin/CDN request (NFR-2 offline boundary)."""
+    src = (REPO_ROOT / "static/js/zoom.js").read_text(encoding="utf-8")
+    assert "image-panel__img" in src  # acts on the label images
+    assert "wheel" in src and "mousedown" in src  # zoom + pan
+    for forbidden in ("http://", "https://", "//cdn", "unpkg", "jsdelivr", "import "):
+        assert forbidden not in src, f"zoom.js must not reference {forbidden!r} (NFR-2 no egress)"
+
+
 def test_brand_css_has_checklist_states_on_spine_tokens() -> None:
     """AC2/AC9: the checklist state classes exist and resolve to the spine --verdict-*
     tokens — NOT the mockup's inline hex (#2E8540). Reuses the shared palette."""
     css = (REPO_ROOT / "static/css/brand.css").read_text(encoding="utf-8")
-    for cls in (".cli--done", ".cli--usercheck", ".cli--open", ".cli--openfail"):
+    for cls in (".cli--pass", ".cli--open", ".cli--fail"):
         assert cls in css, f"brand.css missing checklist state {cls}"
     assert "Smart checklist (Story 4.6)" in css
     # the verdict colors resolve to the spine tokens, never the mockup's raw hex
@@ -874,15 +871,14 @@ def test_brand_css_has_checklist_states_on_spine_tokens() -> None:
     assert "#2e8540" not in css.lower()
 
 
-def test_brand_css_usercheck_box_is_secondary_accent_not_verdict_pass() -> None:
-    """AC9 fidelity: a human-confirmed (usercheck) tick is an acknowledgement, NOT
-    the engine's PASS — so its box uses the secondary/civic accent (mockup
-    var(--secondary)), never the green --verdict-pass tint. This keeps "I looked"
-    visually distinct from "the engine passed it" (contract #3/#4)."""
+def test_brand_css_decision_tints_resolve_to_verdict_tokens() -> None:
+    """The reviewer's decision tints (checklist far-right + the card Fail control)
+    resolve to the spine --verdict-* tokens, never raw hex."""
     css = (REPO_ROOT / "static/css/brand.css").read_text(encoding="utf-8")
-    block = css.split(".cli--usercheck .cli__box", 1)[1].split("}", 1)[0]
-    assert "--brand-secondary" in block
-    assert "--verdict-pass" not in block
+    pass_block = css.split(".decide__btn--pass.is-active", 1)[1].split("}", 1)[0]
+    assert "--verdict-pass" in pass_block
+    fail_block = css.split(".decide__btn--fail.is-active", 1)[1].split("}", 1)[0]
+    assert "--verdict-fail" in fail_block
 
 
 def test_review_get_group_anchors_are_focusable_for_checklist_jump(monkeypatch, tmp_path) -> None:
@@ -922,8 +918,11 @@ def test_review_get_na_row_reads_not_applicable_not_review(monkeypatch, tmp_path
 # ── Story 4.7: label-image panel + Enhance toggle ────────────────────────────
 #
 # A real fixture file under fixtures/images/ — the original-serve test seeds a row
-# whose ``filename`` is this basename so FileResponse finds it on disk.
-_FIXTURE_IMAGE = "26150000000001_01_BRAND.jpg"
+# whose ``filename`` is this basename so FileResponse finds it on disk. Resolved from
+# whatever the committed corpus actually contains (robust to corpus regeneration).
+_FIXTURE_IMAGE = sorted(
+    p.name for p in (Path(__file__).resolve().parents[1] / "fixtures" / "images").glob("*.jpg")
+)[0]
 
 # A 1x1 PNG (the smallest valid PNG) — written into settings.generated_images_dir
 # for the enhanced-variant serve test.
@@ -957,7 +956,7 @@ def _insert_image(conn: sqlite3.Connection, submission_id: int, **overrides) -> 
 def test_review_renders_two_column_with_image_panel(monkeypatch, tmp_path) -> None:
     """AC1: the workspace is the mockup's two-column layout — a left-column image
     panel + the unchanged right-column field cards/gov-warning/checklist. The panel
-    header names the current image's role WORD + an "image N of M" counter."""
+    labels each face by its role WORD."""
     client = _client(monkeypatch, tmp_path)
     with connect(_db_path(tmp_path)) as conn:
         sid = _insert_submission(conn)
@@ -968,9 +967,8 @@ def test_review_renders_two_column_with_image_panel(monkeypatch, tmp_path) -> No
     assert 'class="work"' in body
     assert "review-col-left" in body
     assert "review-col-right" in body
-    # the role WORD is rendered (never role-by-color alone) + the N-of-M counter
+    # the role WORD is rendered (never role-by-color alone)
     assert "Brand (front)" in body
-    assert "image 1 of 1" in body
     # the right column still carries the existing 4.4-4.6 region anchors
     assert 'id="group-identity"' in body
     assert 'id="group-checklist"' in body
@@ -1055,63 +1053,54 @@ def test_image_route_is_token_gated(monkeypatch, tmp_path) -> None:
 # ── AC3: paging across faces (works without JS) ──────────────────────────────
 
 
-def test_review_multi_image_renders_pager(monkeypatch, tmp_path) -> None:
-    """AC3: a multi-image submission renders prev/next as real ?image= links so paging
-    works without JS; the server renders whichever ?image= selects."""
+def test_review_multi_image_stacks_all_faces(monkeypatch, tmp_path) -> None:
+    """A multi-image submission stacks ALL faces (front, then back) in the left column —
+    every face always visible at once, no prev/next paging."""
     client = _client(monkeypatch, tmp_path)
     with connect(_db_path(tmp_path)) as conn:
         sid = _insert_submission(conn)
-        _insert_image(conn, sid, image_role="BRAND", position=1)
-        _insert_image(conn, sid, image_role="BACK", position=2, filename="back.jpg")
+        img1 = _insert_image(conn, sid, image_role="BRAND", position=1)
+        img2 = _insert_image(conn, sid, image_role="BACK", position=2, filename="back.jpg")
     body = client.get(f"/review/{sid}").text
-    # default selects position 1; a next link to position 2 is a real same-origin link
-    assert "image 1 of 2" in body
-    assert "?image=2" in body
-    # selecting ?image=2 renders the Back face
-    body2 = client.get(f"/review/{sid}?image=2").text
-    assert "image 2 of 2" in body2
-    assert "Back" in body2
-    assert "?image=1" in body2
+    # both faces' role words + both image routes render together (stacked)
+    assert "Brand (front)" in body
+    assert "Back" in body
+    assert f"/review/{sid}/image/{img1}" in body
+    assert f"/review/{sid}/image/{img2}" in body
+    # no paging affordance at all
+    assert "?image=" not in body
+    assert "image-panel__pager" not in body
 
 
 def test_review_single_image_renders_no_pager(monkeypatch, tmp_path) -> None:
-    """AC3: a single-image submission renders no active pager link and never errors."""
+    """A single-image submission renders its one face, no paging, never errors."""
     client = _client(monkeypatch, tmp_path)
     with connect(_db_path(tmp_path)) as conn:
         sid = _insert_submission(conn)
-        _insert_image(conn, sid, position=1)
+        img = _insert_image(conn, sid, position=1)
     body = client.get(f"/review/{sid}").text
-    assert "image 1 of 1" in body
-    # no second-position paging link
-    assert "?image=2" not in body
+    assert f"/review/{sid}/image/{img}" in body
+    assert "?image=" not in body
+    assert "image-panel__pager" not in body
 
 
 # ── AC4: Enhance toggle — preprocessed ALONGSIDE original (omitted-not-inert) ──
 
 
-def test_review_enhance_toggle_present_when_preprocessed(monkeypatch, tmp_path) -> None:
-    """AC4: an image WITH enhanced_path offers the Enhance toggle + the honest
-    side-by-side caption naming the applied steps from preprocess_log."""
+def test_review_no_enhance_toggle_label_always_visible(monkeypatch, tmp_path) -> None:
+    """The label is ALWAYS shown: even when a preprocessed variant exists, there is no
+    Enhance toggle gating it — the original <img> renders directly."""
     client = _client(monkeypatch, tmp_path)
-    log = json.dumps(
-        [
-            {"step": "deskew", "applied": True, "ms": 3},
-            {"step": "normalize_illumination_glare", "applied": True, "ms": 2},
-            {"step": "clahe_contrast", "applied": True, "ms": 1},
-            {"step": "denoise", "applied": False, "ms": 0},
-        ]
-    )
+    log = json.dumps([{"step": "deskew", "applied": True, "ms": 3}])
     with connect(_db_path(tmp_path)) as conn:
         sid = _insert_submission(conn)
-        _insert_image(conn, sid, enhanced_path="front_enhanced.png", preprocess_log=log)
+        img = _insert_image(conn, sid, enhanced_path="front_enhanced.png", preprocess_log=log)
     body = client.get(f"/review/{sid}").text
-    assert "Enhance" in body
-    assert "?variant=enhanced" in body
-    # the honest caption names ONLY applied corrective steps
-    assert "deskew" in body
-    assert "glare" in body
-    assert "contrast" in body
-    assert "denoise" not in body.split("Enhance", 1)[1].split("</", 1)[0]
+    # no Enhance affordance, and the enhanced variant is not surfaced in the panel
+    assert "image-panel__enhance" not in body
+    assert "?variant=enhanced" not in body
+    # the original label image renders directly (always visible, no click)
+    assert f"/review/{sid}/image/{img}" in body
 
 
 def test_review_clean_image_omits_enhance_toggle(monkeypatch, tmp_path) -> None:
@@ -1176,30 +1165,22 @@ def test_brand_css_has_image_panel_on_spine_tokens() -> None:
 # ── Story 4.7 code-review regression patches ─────────────────────────────────
 
 
-def test_image_panel_pager_keeps_working_link_when_neighbor_position_is_null() -> None:
-    """CR-H1: ``position`` is nullable/sparse in the schema; a neighbor whose ``position``
-    is NULL is still a real face. The pager must emit a WORKING link for it — the 1-based
-    ordinal fallback — never a dead ``?image=None`` and never a silently-dropped control.
-    The selection loop resolves both the position and the ordinal selector forms."""
+def test_image_panel_returns_all_faces_in_order() -> None:
+    """The panel view-model returns EVERY face in list order so the template can stack
+    them — robust to NULL/sparse ``position`` values, no pager, no current-selection."""
     from app.web.review_view import image_panel
 
     images = [
         LabelImage(id=10, submission_id=1, position=None, filename="a.jpg", created_at="t"),
         LabelImage(id=11, submission_id=1, position=2, filename="b.jpg", created_at="t"),
     ]
-    # Standing on the second image, the previous neighbor has a NULL position → it must
-    # link via its ordinal (?image=1), a working anchor, not a dropped/dead control.
-    panel = image_panel(images, submission_id=1, current_position=2)
-    pager = cast("dict[str, object]", panel["pager"])
-    assert pager is not None
-    assert pager["prev_href"] == "/review/1?image=1"
-    # ?image=1 resolves back to that first (NULL-position) face via the ordinal fallback.
-    back = image_panel(images, submission_id=1, current_position=1)
-    assert back["counter"] == "image 1 of 2"
-    # Standing on the first (NULL-position) image, the next neighbor (position 2) links.
-    panel_first = image_panel(images, submission_id=1, current_position=None)
-    pager_first = cast("dict[str, object]", panel_first["pager"])
-    assert pager_first["next_href"] == "/review/1?image=2"
+    panel = image_panel(images, submission_id=1)
+    assert panel["is_empty"] is False
+    assert panel["total"] == 2
+    srcs = [im["src"] for im in cast("list[dict[str, str]]", panel["images"])]
+    assert srcs == ["/review/1/image/10", "/review/1/image/11"]
+    # no paging in the model at all
+    assert "pager" not in panel
 
 
 def test_enhance_caption_degrades_on_non_list_log_shape() -> None:

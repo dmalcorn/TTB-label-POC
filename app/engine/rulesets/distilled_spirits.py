@@ -134,12 +134,27 @@ DISTILLED_SPIRITS_RULESET: tuple[Check, ...] = (
         source_date=_SOURCE_DATE,
         strategy="government_warning",
     ),
+    # ── common element: country of origin (one of the seven elements the brief lists
+    # as common to EVERY beverage type — imported spirits only, doc §123/§5.69). CBP-
+    # governed (§5.69 + 19 CFR 102/134); the Part 5 anchor §5.69 is the truthful 27 CFR
+    # citation (mirrors malt's §7.69). Reuses the Story-3.7 ``positional`` strategy → an
+    # honest REVIEW deferred to the specialist (anchoring it to the application's import /
+    # source-of-product flag is tracked follow-up work; see tradeoffs-and-limitations.md).
     Check(
-        check_key="same_field_of_vision",
-        label="Same field of vision (brand, class/type, alcohol content)",
-        check_type="MANUAL",
-        cfr_citation="27 CFR 5.63",
+        # Required for IMPORTED products (CBP-governed; Part 5 anchor §5.69); a DOMESTIC
+        # product auto-passes. FIELD_MATCH so it renders as a comparison card; the
+        # ``country_of_origin`` evaluator trusts ``source_of_product`` to branch.
+        check_key="country_of_origin",
+        label="Country of origin",
+        check_type="FIELD_MATCH",
+        cfr_citation="27 CFR 5.69",
         source_date=_SOURCE_DATE,
-        strategy="positional",
+        strategy="country_of_origin",
+        field_key="country_of_origin",
     ),
+    # NOTE: the §5.63 same-field-of-vision flag-only check was REMOVED for the POC
+    # (docs/tradeoffs-and-limitations.md): co-location across faces cannot be confirmed
+    # from a flat photo, and the three elements it nominally checked (brand, class/type,
+    # alcohol content) are already verified by their own field-match cards — so it could
+    # only ever emit an un-actionable REVIEW.
 )

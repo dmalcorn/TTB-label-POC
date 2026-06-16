@@ -22,7 +22,6 @@ from pathlib import Path
 from app.db import repositories as repo
 from app.db.connection import connect, init_db
 from app.engine import checks
-from app.engine import run_checks as rc
 from app.engine.checks import flag_only as fo
 from app.engine.rulesets import Check
 from app.engine.rulesets import flag_only as fo_data
@@ -337,31 +336,15 @@ def test_flag_only_writes_no_field_comparison_row(tmp_path):
     assert count == 0
 
 
-def test_run_checks_integration_same_field_of_vision_is_review(tmp_path):
-    """Through the executor, the same_field_of_vision Check produces a real positional REVIEW."""
+def test_positional_seam_generic_fallback_is_review(tmp_path):
+    """The ``positional`` evaluator has no ruleset user now (country_of_origin became a
+    FIELD_MATCH card), but the seam is retained: an unhandled flag-only check_key still
+    degrades to an honest REVIEW rather than raising (finalize-don't-abort, FR-9)."""
     db_path = _make_db(tmp_path)
     with connect(db_path) as conn:
         sid = _insert_submission(conn)
         img = _insert_label_image(conn, sid)
-        _insert_ocr(
-            conn,
-            sid,
-            img,
-            "Stone's Throw\nKentucky Straight Bourbon Whiskey\n45% Alc./Vol.\n750 mL\n"
-            "GOVERNMENT WARNING: ...",
-        )
-        submission = repo.get_submission(conn, sid)
-        assert submission is not None
-        rc.run_checks(conn, submission)
-        row = conn.execute(
-            "SELECT verdict, detail, check_type, cfr_citation FROM checklist_items "
-            "WHERE submission_id = ? AND check_key = 'same_field_of_vision'",
-            (sid,),
-        ).fetchone()
-    assert row is not None
-    assert row["verdict"] == "REVIEW"
-    assert row["check_type"] == "MANUAL"
-    assert row["cfr_citation"] == "27 CFR 5.63"
-    payload = json.loads(row["detail"])
-    assert payload["outcome"] == "co_location_deferred"
-    assert payload["elements"]["brand_name"] is True
+        _insert_ocr(conn, sid, img, "Stone's Throw\n45% Alc./Vol.")
+        result = fo.flag_only(_check(check_key="some_future_flag_only_check"), _ctx(conn, sid))
+    assert result.verdict == "REVIEW"
+    assert "deferred to specialist" in result.detail

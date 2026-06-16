@@ -30,7 +30,6 @@
 
   var textarea = form.querySelector("[name='notes']");
   var progressUrl = form.getAttribute("data-progress-url");
-  var hasOpenReview = form.getAttribute("data-has-open-review") === "true";
   var modal = document.querySelector("[data-disposition-modal]");
   var buttons = Array.prototype.slice.call(
     form.querySelectorAll("button[name='disposition']")
@@ -97,6 +96,27 @@
     return !textarea || textarea.value.trim() === "";
   }
 
+  // Whether any checklist row is still undecided RIGHT NOW. The server seeds
+  // data-has-open-review at render, but review.js lets the reviewer Pass/Fail rows
+  // client-side WITHOUT a reload — so the static attribute goes stale the moment a
+  // decision is made. Read the live checklist DOM instead (the same cli--pass /
+  // cli--fail classes review.js maintains, and the SAME notion of "decided" the
+  // server's done_count uses): a row is open until it carries a pass or fail. No
+  // checklist ⇒ nothing open. This is the confirm-modal's only gate (advisory copy,
+  // never a hard block — the server still owns the commit).
+  function hasOpenReviewNow() {
+    var rows = document.querySelectorAll(".checklist .cli");
+    for (var i = 0; i < rows.length; i++) {
+      if (
+        !rows[i].classList.contains("cli--pass") &&
+        !rows[i].classList.contains("cli--fail")
+      ) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   function disableBar() {
     buttons.forEach(function (btn) {
       btn.disabled = true;
@@ -106,8 +126,22 @@
   // Submit the form FOR a specific disposition value (mirrors a native button submit,
   // which a programmatic form.submit() would NOT carry). A hidden field carries the
   // chosen disposition so the server sees the same payload a click would have sent.
+  // Guarded so a slow commit + a frantic double-click can't fire two POSTs (the second
+  // would hit the server's already-decided 409): the first call latches `submitting`
+  // and disables every commit control, so later calls are no-ops.
+  var submitting = false;
   function submitWith(value) {
+    if (submitting) {
+      return;
+    }
+    submitting = true;
     disableBar();
+    if (modalConfirm) {
+      modalConfirm.disabled = true;
+    }
+    if (modalCancel) {
+      modalCancel.disabled = true;
+    }
     var hidden = document.createElement("input");
     hidden.type = "hidden";
     hidden.name = "disposition";
@@ -219,8 +253,10 @@
         return;
       }
 
-      // (c) Committing while a REVIEW/FAIL item is still open ⇒ confirm first.
-      if (hasOpenReview) {
+      // (c) Committing while a checklist row is still undecided ⇒ confirm first.
+      // Live DOM, not the page-load attribute, so a reviewer who has since decided
+      // every row sails through with no modal (and one who hasn't still gets it).
+      if (hasOpenReviewNow()) {
         event.preventDefault();
         openModal(value);
         return;

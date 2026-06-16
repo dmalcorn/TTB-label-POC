@@ -1,61 +1,61 @@
 {#
-  Smart checklist (Story 4.6) — the per-type table-of-contents over the SAME
-  ``checklist_items`` rows. Rendered from the ``checklist`` view-model produced by
-  ``app/web/review_view.py:smart_checklist`` (fully pre-shaped — no presentation
-  logic leaks here). Reproduces mockups/review-workspace.html lines 539–551 with
-  the brand-prefixed BEM classes (``cli``/``cli__box``/…, NOT the mockup's bare
-  ``cli``/``box``), consistent with the field-card / gov-warning partials.
+  Smart checklist — the per-type list over the SAME ``checklist_items`` rows, and the
+  consolidated record of the reviewer's calls. Rendered from the ``checklist`` view-model
+  (review_view.py:smart_checklist). Each row is a fixed 3-COLUMN GRID — label | engine
+  verdict | decision — so the columns line up straight regardless of content. Two row
+  shapes, keyed by whether the check has a CARD:
 
-  Each row is a real ``<a href="#group-…">`` so the mouse path (scroll to the
-  field group) works WITHOUT JS; ``static/js/review.js`` adds smooth-scroll/focus
-  and, for an actionable (REVIEW/FAIL) row, the persisted tick POST. The
-  per-row verdict is the engine's stored value (chip ICON + WORD, never tint
-  alone); a manual tick is an acknowledgement, never a disposition.
+  - ``has_card`` → the decision is made ON the card. Column 1 is a jump LINK to that card,
+    column 3 is the READ-ONLY result ("You passed" / "You failed" / "needs your call"). No
+    buttons here — you can't change a decision away from its card.
+  - no card → the check has nowhere else to be decided, so column 3 carries the Pass/Fail
+    control itself.
 
-  "N of M done" sits in an ``aria-live="polite"`` region so a manual tick
-  announces the new count (UX-DR-15).
+  Decisions are keyed by ``check_key`` so a card and its checklist row stay in sync.
+  ``static/js/review.js`` persists a click + keeps the result/count live. The engine verdict
+  is the engine's stored value (icon + WORD, never tint alone); a call NEVER sets the overall
+  disposition (#4).
 #}
 <div class="checklist">
   <div class="checklist__head">
     <span class="checklist__title">Smart checklist &mdash; {{ checklist.type_word }}</span>
     <span class="checklist__count" aria-live="polite" data-checklist-count>
       <span data-done-count>{{ checklist.done_count }}</span> of
-      <span data-total-count>{{ checklist.total }}</span> done
+      <span data-total-count>{{ checklist.total }}</span> decided
     </span>
   </div>
 
   {% for row in checklist.rows %}
-  <a class="cli cli--{{ row.state }}"
-     href="#{{ row.anchor }}"
-     data-check-key="{{ row.check_key }}"
-     data-verdict="{{ row.verdict|lower }}"
-     data-ticked="{{ 'true' if row.ticked else 'false' }}"
-     {% if not row.machine_tag %}data-actionable="true"{% endif %}>
-    {# The box glyph: ✓ for ticked (done / usercheck), ✗ for an open FAIL,
-       empty for an open REVIEW. Always paired with the right-side WORD below
-       so state is never conveyed by the box color alone (A11Y). #}
-    <span class="cli__box" aria-hidden="true">
-      {%- if row.state == 'openfail' -%}&#10007;
-      {%- elif row.ticked -%}&#10003;
+  <div class="cli cli--{{ row.decision if row.decision else 'open' }}" data-check-key="{{ row.check_key }}">
+    {# Column 1: the label (a jump link when carded, plain text otherwise). #}
+    {% if row.has_card %}
+    <a class="cli__jump" href="#{{ row.card_anchor }}">{{ row.label }}</a>
+    {% else %}
+    <span class="cli__label">{{ row.label }}</span>
+    {% endif %}
+    {# Column 2: the engine's automated verdict — context only, muted (icon + WORD). #}
+    <span class="cli__engine cli__engine--{{ row.verdict|lower }}">
+      <span class="cli__icon" aria-hidden="true">{{ row.icon }}</span>{{ row.chip_word }}
+    </span>
+    {# Column 3: the reviewer's call — read-only result (carded) or the control (carded-less). #}
+    {% if row.has_card %}
+    <span class="cli__decision cli__decision--{{ row.decision if row.decision else 'open' }}"
+          data-checklist-decision>
+      {%- if row.decision == 'pass' -%}You passed
+      {%- elif row.decision == 'fail' -%}You failed
+      {%- else -%}needs your call
       {%- endif -%}
     </span>
-    <span class="cli__label">{{ row.label }}</span>
-    <span class="cli__right cli__right--{{ row.verdict|lower }}">
-      <span class="cli__icon" aria-hidden="true">{{ row.icon }}</span>
-      {#- The confirmation / machine phrase — verbatim from the mockup, keyed on
-          state so icon + WORD always travel together. -#}
-      {% if row.state == 'done' %}
-      <span class="cli__word">{{ row.chip_word }}</span>
-      <span class="cli__machine">{{ row.machine_tag }}</span>
-      {% elif row.state == 'usercheck' %}
-      <span class="cli__word">you confirmed</span>
-      {% elif row.state == 'openfail' %}
-      <span class="cli__word">{{ row.chip_word }} &mdash; needs your call</span>
-      {% else %}
-      <span class="cli__word">{{ row.chip_word }} &mdash; needs your eyes</span>
-      {% endif %}
-    </span>
-  </a>
+    {% else %}
+    <div class="decide" data-check-key="{{ row.check_key }}" role="group"
+         aria-label="Your call for {{ row.label }}">
+      <button type="button" class="decide__btn decide__btn--pass{% if row.decision_pass %} is-active{% endif %}"
+              data-decision="pass" aria-pressed="{{ 'true' if row.decision_pass else 'false' }}">Pass</button>
+      <button type="button" class="decide__btn decide__btn--fail{% if row.decision_fail %} is-active{% endif %}"
+              data-decision="fail" aria-pressed="{{ 'true' if row.decision_fail else 'false' }}">Fail</button>
+    </div>
+    {% endif %}
+  </div>
   {% endfor %}
 
   {% if not checklist.rows %}

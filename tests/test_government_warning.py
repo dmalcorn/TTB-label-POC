@@ -182,6 +182,25 @@ def test_fail_reworded_carries_char_diff(tmp_path):
     assert "expected" in payload and "found" in payload
 
 
+def test_reworded_found_is_clipped_to_the_warning(tmp_path):
+    """The displayed ``found`` is the GOVERNMENT WARNING section only — not the whole OCR
+    tail. ``ocr_text[match.start():]`` runs to the end of the blob, so a real label's
+    warning is followed by brand/importer/other-panel copy; the reviewer must see the
+    warning, not all of it (the ASKANELI brandy bug)."""
+    trailing = (
+        " CONTAINS SULFITES. Produced and bottled by Acme Distillers, Louisville, KY. "
+        "Imported by Foo Wines and Spirits LLC, Boca Raton, FL. PRODUCT OF GEORGIA."
+    )
+    reworded = _COMPLIANT.replace("birth defects", "birth problems")
+    result = _evaluate_with_ocr(tmp_path, reworded + trailing)
+    assert result.verdict == "FAIL"
+    found = _detail_payload(result.detail)["found"]
+    assert "CONTAINS SULFITES" not in found  # trailing label copy is trimmed away
+    assert "PRODUCT OF GEORGIA" not in found
+    assert found.rstrip().endswith("problems.")  # cut at the statutory end clause
+    assert len(found) < len(reworded + trailing)
+
+
 def test_fail_omitted_clause(tmp_path):
     """An omitted (2) clause ⇒ wording-deviation FAIL with a diff."""
     omitted = f"{gw_data.HEADER} (1) According to the Surgeon General, women should not "

@@ -59,6 +59,11 @@ _ADDED_COLUMNS: tuple[tuple[str, str, str], ...] = (
         "image_variant TEXT NOT NULL DEFAULT 'ORIGINAL' "
         "CHECK (image_variant IN ('ORIGINAL','ENHANCED','BINARIZED'))",
     ),
+    # Country-of-origin card — the filed origin (origin_code) on submissions (created 1.2);
+    # the country_of_origin check compares it for IMPORTED, auto-passes DOMESTIC. Added so a
+    # pre-existing Volume DB (e.g. Railway) gains the column on the next deploy WITHOUT a
+    # reseed — the seed-if-empty guard stays dormant on a non-empty DB.
+    ("submissions", "country_of_origin", "country_of_origin TEXT"),
 )
 
 

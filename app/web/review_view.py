@@ -307,31 +307,51 @@ def _isolate_ocr_snippet(field_key: str, application_value: str | None, blob: st
     located snippet — the matching ``<number><unit>`` line for a numeric field, or the
     best-matching word window for a text field — so the discovered side reads
     "OLD TOM DISTILLERY" / "750 mL", not the full dump. Deterministic string work over
-    already-stored text (no model; VLM-only purity is untouched). Returns the blob
-    unchanged if it cannot isolate (never empties a non-empty value)."""
+    already-stored text (no model; VLM-only purity is untouched). With an application
+    value it falls back to the blob only if isolation fails; with NO application value
+    (ABV / net contents / grape varietal — fields the public registry doesn't carry) it
+    returns an isolated numeric line or, for text fields, nothing — never the full dump."""
     text = (blob or "").strip()
-    if not text or application_value is None or not application_value.strip():
+    if not text:
         return blob
+    has_app = application_value is not None and bool(application_value.strip())
     if field_key in normalize.NUMERIC_FIELD_KEYS:
-        snippet = _isolate_numeric_line(field_key, application_value, text)
-    else:
-        snippet = _isolate_text_window(field_key, application_value, text)
-    return snippet or blob
+        # Numeric fields isolate their own unit-bearing line; never dump the blob.
+        return _isolate_numeric_line(field_key, application_value if has_app else None, text)
+    if has_app and application_value is not None:
+        return _isolate_text_window(field_key, application_value, text) or blob
+    # No application value to anchor a text field (e.g. grape varietal — the public
+    # registry doesn't carry it) — never dump the whole label; show nothing instead.
+    return None
 
 
-def _isolate_numeric_line(field_key: str, application_value: str, text: str) -> str | None:
-    """The blob line carrying this field's quantity — preferring the application's unit
-    (so net_contents shows the ``750 ml`` line, not a stray ``45 %`` ABV elsewhere)."""
-    _, app_unit = normalize.parse_numeric(application_value, field_key)
+# Unit classes per numeric field, used to isolate the right line when there is no
+# application value to anchor on (so net_contents won't grab a stray ABV "%").
+_FIELD_NUMERIC_UNITS = {
+    "alcohol_content": {"%", "proof"},
+    "net_contents": {"ml", "l"},
+}
+
+
+def _isolate_numeric_line(field_key: str, application_value: str | None, text: str) -> str | None:
+    """The blob line carrying this field's quantity, matched by UNIT so cross-field
+    numbers don't bleed in (net_contents shows ``750 ml``, never a stray ``45 %`` ABV).
+    Prefers the application's unit; with none, any unit valid for this field. Returns
+    None when no field-appropriate quantity is on the label (the card shows blank, never
+    the whole dump)."""
+    app_unit = (
+        normalize.parse_numeric(application_value, field_key)[1] if application_value else None
+    )
+    allowed = {app_unit} if app_unit else _FIELD_NUMERIC_UNITS.get(field_key, set())
     lines = text.splitlines() or [text]
-    for line in lines:  # prefer a same-unit number+unit token
-        num, unit = normalize.parse_numeric(line, field_key)
-        if num is not None and (app_unit is None or unit == app_unit):
-            return line.strip()
-    for line in lines:  # else any line bearing a number for this field
-        num, _ = normalize.parse_numeric(line, field_key)
-        if num is not None:
-            return line.strip()
+    for line in lines:
+        # parse_all_numeric (not parse_numeric) so a unit-bearing token is found even when
+        # it is NOT first on its line — a label routinely prints several quantities on one
+        # line ("750ml! / 151 Proof / Alc. 75.5% by Vol."), and the ABV card must locate
+        # the "%" token rather than show "(not found)" because "750ml" came first.
+        for num, unit in normalize.parse_all_numeric(line, field_key):
+            if num is not None and (not allowed or unit in allowed):
+                return line.strip()
     return None
 
 
@@ -459,8 +479,28 @@ def _error_card(item: ChecklistItem) -> dict[str, object]:
     }
 
 
+def _card_decision(vdt: str, check_key: str, decisions: dict[str, str]) -> dict[str, object]:
+    """The reviewer's per-card Pass/Fail state. An explicit decision wins; otherwise a
+    Match (engine PASS/NA) PRE-SELECTS Pass, while REVIEW/FAIL start with neither chosen
+    (the reviewer must make the call). ``decided`` drives the checklist's done count."""
+    explicit = decisions.get(check_key)
+    if explicit in ("pass", "fail"):
+        pass_active, fail_active = explicit == "pass", explicit == "fail"
+    else:
+        pass_active, fail_active = vdt in (verdict.PASS, verdict.NA), False
+    return {
+        "check_key": check_key,
+        "decision_pass": pass_active,
+        "decision_fail": fail_active,
+        "decided": pass_active or fail_active,
+    }
+
+
 def field_cards(
-    items: Iterable[ChecklistItem], comparisons: Iterable[FieldComparison]
+    items: Iterable[ChecklistItem],
+    comparisons: Iterable[FieldComparison],
+    *,
+    decisions: dict[str, str] | None = None,
 ) -> list[dict[str, object]]:
     """Build the stacked field comparison cards, sorted problems-first (Story 4.4).
 
@@ -477,6 +517,7 @@ def field_cards(
     verdict is the engine's already-stored ``checklist_items.verdict`` — never
     recomputed; citations come from the row (CFR-as-data). A pure read-model."""
     by_id = {c.id: c for c in comparisons}
+    decisions = decisions or {}
 
     cards: list[dict[str, object]] = []
     for item in items:
@@ -488,7 +529,9 @@ def field_cards(
             # not complete it. Surface a visible honest error card (Story 4.11 AC2)
             # in the advisory REVIEW register rather than silently dropping it; the
             # other checks still render.
-            cards.append(_error_card(item))
+            err = _error_card(item)
+            err.update(_card_decision(verdict.REVIEW, item.check_key, decisions))
+            cards.append(err)
             continue
 
         vdt = item.verdict or verdict.REVIEW
@@ -501,21 +544,13 @@ def field_cards(
         diff_application: list[dict[str, str]] | None = None
         diff_extracted: list[dict[str, str]] | None = None
         diff_text_equivalent: str | None = None
-        # A char-diff is drawn for the three "differs" states; its color follows the
-        # VERDICT (FAIL ⇒ red del/ins; REVIEW ⇒ amber soft) so a REVIEW never paints
-        # red. Whenever a diff is drawn we ALSO emit a screen-reader text equivalent
-        # naming the difference (A11Y hard requirement — the diff is never a colored
-        # span alone; this string survives forced-colors mode).
+        # The two "differs" states get a short plain note; the values themselves are shown
+        # verbatim (application above, OCR below) so the reviewer compares them by eye. We
+        # deliberately do NOT draw a character-level redline/track-changes diff — on noisy
+        # OCR text it produces a tangle of strike/underline marks that is harder to read
+        # than the two raw strings.
         if state in ("soft", "near_miss", "mismatch"):
             note = {"soft": _SOFT_NOTE, "near_miss": _NEAR_MISS_NOTE}.get(state)
-            diff_application, diff_extracted = _char_diff(
-                comparison.application_value or "",
-                display_extracted or "",
-                soft=(vdt != verdict.FAIL),
-            )
-            diff_text_equivalent = _diff_text_equivalent(
-                comparison.application_value, display_extracted
-            )
         elif state == "not_found":
             note = _NOT_FOUND_NOTE
         elif state == "unreadable":
@@ -543,6 +578,7 @@ def field_cards(
                 "note": note,
                 "is_problem": vdt != verdict.PASS,
                 "sort_rank": _SORT_RANK.get(vdt, 1),
+                **_card_decision(vdt, item.check_key, decisions),
             }
         )
 
@@ -673,7 +709,17 @@ def _gw_card(
     }
 
 
-def government_warning_card(items: Iterable[ChecklistItem]) -> dict[str, object] | None:
+def government_warning_card(
+    items: Iterable[ChecklistItem], *, decisions: dict[str, str] | None = None
+) -> dict[str, object] | None:
+    """The Government Warning card view-model + the reviewer's per-card Pass/Fail state."""
+    card = _government_warning_card_inner(items)
+    if card is not None:
+        card.update(_card_decision(cast(str, card["verdict"]), _GOV_WARNING_KEY, decisions or {}))
+    return card
+
+
+def _government_warning_card_inner(items: Iterable[ChecklistItem]) -> dict[str, object] | None:
     """Build the Government Warning comparison card from the engine's stored row.
 
     Locates the single ``government_warning`` ``checklist_items`` row and parses its
@@ -713,20 +759,15 @@ def government_warning_card(items: Iterable[ChecklistItem]) -> dict[str, object]
     outcome = payload.get("outcome")
 
     if outcome == _GW_OUTCOME_REWORDED:
-        required_text = payload.get("expected")
-        onlabel_text = payload.get("found")
-        diff_required, diff_onlabel = _gw_diff_spans(payload.get("diff"))
-        diff_text_equivalent = _gw_diff_text_equivalent(required_text or "", onlabel_text or "")
+        # Show the required §16.21 text and the OCR'd on-label text verbatim (stacked),
+        # NOT a character-level redline — on noisy OCR the diff is a tangle, not a help.
         return _gw_card(
             row,
             outcome=_GW_OUTCOME_REWORDED,
             vdt=vdt,
             cfr_citation=cfr_citation,
-            required_text=required_text,
-            onlabel_text=onlabel_text,
-            diff_required=diff_required or None,
-            diff_onlabel=diff_onlabel or None,
-            diff_text_equivalent=diff_text_equivalent,
+            required_text=payload.get("expected"),
+            onlabel_text=payload.get("found"),
             deviation=payload.get("deviation"),
         )
 
@@ -740,12 +781,19 @@ def government_warning_card(items: Iterable[ChecklistItem]) -> dict[str, object]
         )
 
     if outcome == _GW_OUTCOME_COULDNT_VERIFY:
+        # When the warning was detected via content anchors (header too OCR-garbled to
+        # locate), the payload carries the OCR'd warning region + a tailored message —
+        # show the on-label text so the reviewer can confirm wording/casing. The other
+        # couldn't-verify case (bold/visual styling) keeps the standard verify-by-eye note.
+        onlabel_text = payload.get("found")
+        note = payload.get("message") if onlabel_text else _GW_COULDNT_VERIFY_NOTE
         return _gw_card(
             row,
             outcome=_GW_OUTCOME_COULDNT_VERIFY,
             vdt=vdt,
             cfr_citation=cfr_citation,
-            note=_GW_COULDNT_VERIFY_NOTE,
+            onlabel_text=onlabel_text or None,
+            note=note or _GW_COULDNT_VERIFY_NOTE,
         )
 
     if outcome == _GW_OUTCOME_PASS:
@@ -833,50 +881,36 @@ def smart_checklist(
     items: Iterable[ChecklistItem],
     *,
     beverage_type: str | None,
-    ticked_keys: set[str],
+    decisions: dict[str, str] | None = None,
+    carded: dict[str, str] | None = None,
 ) -> dict[str, object]:
-    """Build the smart-checklist view-model (Story 4.6).
+    """Build the smart-checklist view-model — the tally of the reviewer's per-check calls.
 
-    One row per ``checklist_items`` row, in the order given (ruleset / ``id``
-    order — the checklist does NOT re-sort). ``ticked_keys`` is the MANUAL set
-    (``review_progress.ticked_check_keys``); the auto-tick set (verdict ``PASS``/
-    ``NA``) is unioned in here so ``done_count = len(auto ∪ manual)``.
+    One row per ``checklist_items`` row, in the order given (ruleset / ``id`` order —
+    the checklist does NOT re-sort). ``decisions`` is the human Pass/Fail map
+    (``review_progress.decisions``); each row's EFFECTIVE decision is the reviewer's
+    explicit call if present, else a Match (engine PASS/NA) defaults to ``pass``, while
+    REVIEW/FAIL default to undecided. ``done_count`` is the number of DECIDED rows.
 
-    Returns ``{"type_word", "rows", "done_count", "total"}``. Each row:
-    ``{"check_key", "label", "verdict", "chip_class", "icon", "chip_word",
-    "is_problem", "state", "ticked", "anchor", "machine_tag"}``. Empty input ⇒
-    ``rows=[]``, ``done_count=0``, ``total=0`` (AC8). The header ``type_word`` is
-    the title-cased beverage word ("Distilled Spirits", matching the mockup — NOT
-    the all-caps banner word); an unknown type degrades to the type title-cased,
-    never blank.
+    ``carded`` maps ``check_key → card anchor`` for checks that HAVE a card: those rows
+    are read-only here (the result text + a jump to the card — the decision is made ON
+    the card). Rows NOT in ``carded`` have no card, so they carry the Pass/Fail control
+    in the checklist itself (the only place to decide them).
 
-    Fail-safe: an unmapped / garbled verdict is treated as a problem (rendered
-    ``open``, never silently muted) — carrying the ambiguity⇒REVIEW instinct.
-    The per-row verdict is the engine's stored value — never recomputed
-    (contract #3). Emits NO disposition word."""
+    The per-row verdict is the engine's stored value — never recomputed (contract #3)."""
     item_list = list(items)
+    decisions = decisions or {}
+    carded = carded or {}
 
     rows: list[dict[str, object]] = []
     done_count = 0
     for item in item_list:
         vdt = item.verdict
-        auto = vdt in _AUTO_TICK_VERDICTS
-        manual = item.check_key in ticked_keys
-        ticked = auto or manual
-        if ticked:
+        dstate = _card_decision(vdt or "", item.check_key, decisions)
+        decision = "pass" if dstate["decision_pass"] else "fail" if dstate["decision_fail"] else ""
+        decided = bool(decision)
+        if decided:
             done_count += 1
-
-        if auto:
-            state = "done"
-        elif manual:
-            # A human-confirmed REVIEW/FAIL (or any non-auto row the human ticked).
-            state = "usercheck"
-        elif vdt == verdict.FAIL:
-            state = "openfail"
-        else:
-            # REVIEW, or any unmapped/garbled verdict ⇒ fail-safe to the amber
-            # "needs your eyes" state (never a silent muted done).
-            state = "open"
 
         rows.append(
             {
@@ -886,11 +920,16 @@ def smart_checklist(
                 "chip_class": _CHIP_CLASS.get(vdt or "", "chip--review"),
                 "icon": _CHECKLIST_ICON.get(vdt or "", "!"),
                 "chip_word": _CHECKLIST_CHIP_WORD.get(vdt or "", "REVIEW"),
-                "is_problem": not ticked,
-                "state": state,
-                "ticked": ticked,
+                "decision": decision,
+                "decision_pass": dstate["decision_pass"],
+                "decision_fail": dstate["decision_fail"],
+                "decided": decided,
+                "is_problem": not decided,
                 "anchor": _checklist_anchor(item),
-                "machine_tag": "auto" if auto else "",
+                # Carded checks are decided ON their card; the row links there + shows the
+                # read-only result. Carded-less checks carry the control in the row.
+                "has_card": item.check_key in carded,
+                "card_anchor": carded.get(item.check_key, _checklist_anchor(item)),
             }
         )
 
@@ -971,82 +1010,32 @@ def image_panel(
     images: list[LabelImage],
     *,
     submission_id: int,
-    current_position: int | None = None,
 ) -> dict[str, object]:
-    """The left-column label-image panel view-model (Stories 4.7 AC1/AC3/AC4/AC5).
+    """The left-column label-image panel view-model.
 
     Pure, AR-5-safe. ``images`` is ``repo.list_label_images`` output (already in
-    ``position`` order). Returns a view-model with:
+    ``position`` order — front, then back, then any others). Returns
+    ``{"is_empty": True}`` for a submission with no images (the calm empty state),
+    else ``{"is_empty": False, "images": [...], "total": N}`` where each entry carries
+    the role WORD + the same-origin original ``<img>`` src/alt.
 
-    - ``is_empty`` — ``True`` when the submission has no images (the calm empty state);
-    - ``role_word`` / ``counter`` — the current image's role WORD + "image N of M";
-    - ``src`` / ``alt`` — the original ``<img>`` source (same-origin route) + alt text;
-    - ``enhanced`` — the Enhance sub-model ONLY when ``enhanced_path`` is non-NULL (a
-      clean image ⇒ ``None`` ⇒ NO Enhance toggle, omitted-not-inert, AC4);
-    - ``pager`` — prev/next positions + their review-URL hrefs, or ``None`` when ≤1 image.
-
-    The selected image is the one whose ``position`` matches ``current_position``;
-    failing that (sparse / NULL positions) it falls back to the 1-based ORDINAL, so
-    ``?image=N`` always resolves to a real face. An out-of-range / unknown selector
-    degrades to the first image (never raises)."""
+    EVERY image is returned so the template stacks them all, always visible — no paging,
+    no Enhance toggle (the reviewer must never click to see a label). The OpenCV
+    preprocessed variants still exist for the OCR engines; they are simply not surfaced
+    in the UI."""
     if not images:
         return {"is_empty": True}
-
-    total = len(images)
-    # Select by DB position first (the natural ?image=<position> link); if no row carries
-    # that position — positions are nullable and may be sparse — fall back to the 1-based
-    # ordinal so every face stays reachable. Default to the first; degrade cleanly.
-    index = 0
-    if current_position is not None:
-        by_position = next(
-            (i for i, img in enumerate(images) if img.position == current_position), None
+    panel_images = []
+    for img in images:
+        role_word = IMAGE_ROLE_WORD.get(img.image_role or "", "Label image")
+        panel_images.append(
+            {
+                "role_word": role_word,
+                "src": _image_src(submission_id, img.id, "original"),
+                "alt": f"{role_word} label image",
+            }
         )
-        if by_position is not None:
-            index = by_position
-        elif 1 <= current_position <= total:
-            index = current_position - 1
-    current = images[index]
-
-    role_word = IMAGE_ROLE_WORD.get(current.image_role or "", "Label image")
-
-    enhanced: dict[str, str] | None = None
-    if current.enhanced_path:
-        enhanced = {
-            "src": _image_src(submission_id, current.id, "enhanced"),
-            "caption": _enhance_caption(current.preprocess_log),
-            "alt": f"{role_word} label image, preprocessed (reading aid)",
-        }
-
-    pager: dict[str, object] | None = None
-    if total > 1:
-        # The review-URL ?image=<selector> links — real same-origin anchors so paging
-        # works with JS disabled (AC3). prev/next wrap is intentionally NOT done; the
-        # first image has no prev, the last has no next (the template hides absent ends).
-        # Each neighbor's selector is its DB ``position`` when present, else its 1-based
-        # ORDINAL — because ``position`` is nullable/sparse in the schema (CHECK is 1-10
-        # OR NULL; SQLite does not coalesce multiple NULLs under UNIQUE), a raw NULL
-        # position would emit a dead ``?image=None`` link. Selecting on the ordinal
-        # fallback (mirrored in the selection loop above) keeps every face reachable.
-        prev_sel = _pager_selector(images, index - 1) if index > 0 else None
-        next_sel = _pager_selector(images, index + 1) if index < total - 1 else None
-        pager = {
-            "prev_href": f"/review/{submission_id}?image={prev_sel}"
-            if prev_sel is not None
-            else None,
-            "next_href": f"/review/{submission_id}?image={next_sel}"
-            if next_sel is not None
-            else None,
-        }
-
-    return {
-        "is_empty": False,
-        "role_word": role_word,
-        "counter": f"image {index + 1} of {total}",
-        "src": _image_src(submission_id, current.id, "original"),
-        "alt": f"{role_word} label image",
-        "enhanced": enhanced,
-        "pager": pager,
-    }
+    return {"is_empty": False, "images": panel_images, "total": len(panel_images)}
 
 
 # ── Disposition action bar (Story 4.8) ───────────────────────────────────────

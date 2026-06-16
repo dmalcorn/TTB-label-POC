@@ -7,8 +7,10 @@ authored as ``Check`` tuples (``app/engine/rulesets/wine.py`` /
 via ruleset data, never re-coded per type (AC3).
 
 Coverage:
-  - **AC1** the conditional checks (sulfites, coloring, country of origin, …) exist
-    as DATA rows with their real Part 4 (wine) / Part 7 (malt) CFR citations.
+  - **AC1** the conditional flag-only element retained for the POC (country of origin)
+    exists as a DATA row with its real CFR citation. The formula/ingredient-conditional
+    disclosures (sulfites, coloring, FD&C Yellow No. 5, …) were trimmed — see
+    docs/tradeoffs-and-limitations.md and the "trimmed" tests below.
   - **AC2** the checklist contents differ correctly by type, end-to-end through
     ``run_checks`` (no ABV demand on a ≤14% table wine; malt ABV conditional;
     spirits-only rows absent from wine/malt; type-specific fields present).
@@ -183,28 +185,32 @@ def _by_key(ruleset) -> dict[str, object]:
     return {c.check_key: c for c in ruleset}
 
 
-def test_wine_conditional_checks_present_as_data():
-    """AC1: wine §4 conditional flag-only checks authored from regulatory-rules-wine.md."""
+def test_wine_conditional_disclosures_trimmed_to_country_of_origin():
+    """POC scope (docs/tradeoffs-and-limitations.md): the formula/ingredient-conditional
+    wine disclosures and the §4.72 standards-of-fill flag were removed (no application
+    signal to anchor them — they could only emit an un-actionable REVIEW); only country
+    of origin, which keys off the import / source-of-product flag, is retained."""
     keys = {c.check_key for c in WINE_RULESET}
-    assert {
-        "sulfite_declaration",
-        "fdc_yellow_5",
-        "cochineal_carmine",
-        "country_of_origin",
-        "appellation_of_origin",
-    } <= keys
+    assert "country_of_origin" in keys
+    assert keys.isdisjoint(
+        {
+            "sulfite_declaration",
+            "fdc_yellow_5",
+            "cochineal_carmine",
+            "appellation_of_origin",
+            "standards_of_fill",
+        }
+    )
 
 
-def test_malt_conditional_checks_present_as_data():
-    """AC1: malt §7.63(b) conditional flag-only checks authored from regulatory-rules-beer.md."""
+def test_malt_conditional_disclosures_trimmed_to_country_of_origin():
+    """POC scope: malt's §7.63(b) formula/ingredient-conditional disclosures were removed;
+    only country of origin (import-anchored) is retained."""
     keys = {c.check_key for c in MALT_BEVERAGE_RULESET}
-    assert {
-        "fdc_yellow_5",
-        "cochineal_carmine",
-        "sulfite_declaration",
-        "aspartame_disclosure",
-        "country_of_origin",
-    } <= keys
+    assert "country_of_origin" in keys
+    assert keys.isdisjoint(
+        {"fdc_yellow_5", "cochineal_carmine", "sulfite_declaration", "aspartame_disclosure"}
+    )
 
 
 def test_wine_citations_are_part_4_or_part_16():
@@ -354,21 +360,22 @@ def test_government_warning_present_in_both_types():
 
 
 def test_conditional_flag_only_check_routes_to_review_with_citation(tmp_path):
-    """AC1+AC3: a conditional flag-only row produces a REVIEW (deferred), reusing positional."""
+    """AC1+AC3: the retained flag-only row (country of origin) produces a REVIEW (deferred),
+    reusing the positional strategy, with its citation carried as DATA."""
     db_path, sid = _run(
         tmp_path,
-        "SUNNY VALLEY\nCONTAINS SULFITES\n750 mL",
+        "SUNNY VALLEY\nPRODUCT OF FRANCE\n750 mL",
         beverage_type="WINE",
     )
     with connect(db_path) as conn:
         row = conn.execute(
             "SELECT verdict, cfr_citation FROM checklist_items "
-            "WHERE submission_id = ? AND check_key = 'sulfite_declaration'",
+            "WHERE submission_id = ? AND check_key = 'country_of_origin'",
             (sid,),
         ).fetchone()
     assert row is not None
     assert row["verdict"] == "REVIEW"
-    assert row["cfr_citation"].startswith("27 CFR 4")
+    assert row["cfr_citation"] == "19 CFR 134.11"
 
 
 def test_run_checks_writes_one_row_per_wine_check(tmp_path):

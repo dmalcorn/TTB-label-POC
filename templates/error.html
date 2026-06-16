@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+
+{% block title %}TTB Label Review — {{ error_title }}{% endblock %}
+
+{% block content %}
+{#
+  Friendly, branded error page (replaces FastAPI's default terse JSON/plain body).
+  Rendered by the StarletteHTTPException handler in app/main.py for any HTML-accepting
+  request that hits an HTTPException — most visibly the calm 409 a double-submitted
+  disposition raises ("Already recorded"). Same calm, no-blame voice as the queue's
+  gone-notice. `error_status` / `error_title` / `error_message` come from the handler;
+  `action_href` / `action_label` give the one obvious way forward (usually the Queue).
+#}
+<div class="error-page">
+  <div class="usa-alert usa-alert--{{ error_variant }}" role="alert">
+    <div class="usa-alert__body">
+      <p class="error-page__eyebrow">{{ error_status }}</p>
+      <h1 class="usa-alert__heading error-page__title">{{ error_title }}</h1>
+      <p class="usa-alert__text error-page__text">{{ error_message }}</p>
+    </div>
+  </div>
+
+  {% if action_href %}
+  <a class="usa-button error-page__action" href="{{ action_href }}">{{ action_label }}</a>
+  {% endif %}
+</div>
+{% endblock %}

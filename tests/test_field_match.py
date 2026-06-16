@@ -282,6 +282,68 @@ def test_abv_just_outside_tolerance_fails(tmp_path):
     assert result.verdict == "FAIL"
 
 
+def test_abv_and_net_share_one_line_both_resolve(tmp_path):
+    """A label routinely prints net contents and ABV on ONE line — the ABV must be found
+    even though the ml token comes first (the GALLIVANT bug: ``12.5%`` was shadowed behind
+    ``750ML`` and the card falsely read 'not found on label')."""
+    db_path = _make_db(tmp_path)
+    shared = "CONTAINS SULFITES\n750ML | 12.5% ALC. /VOL.\nJOIN OUR MOVEMENT."
+    with connect(db_path) as conn:
+        sid = _insert_submission(conn, alcohol_content="12.5% Alc./Vol.", net_contents="750 mL")
+        img = _insert_label_image(conn, sid)
+        _insert_ocr(conn, sid, img, shared)
+        abv = fm.field_match(_check("alcohol_content"), _ctx(conn, sid))
+        net = fm.field_match(_check("net_contents"), _ctx(conn, sid))
+        conn.commit()
+
+    assert abv.verdict == "PASS"  # the % token is no longer shadowed by the ml token
+    assert net.verdict == "PASS"
+
+
+def test_net_contents_fl_oz_on_abv_line_resolves(tmp_path):
+    """Malt net contents in fluid ounces, printed on the ABV line (the BARKABOOM bug:
+    ``6.8% ALC/VOL · 16 FL OZ`` read 'not found' because ``fl oz`` was an unknown unit
+    AND it shared a line with the ABV)."""
+    db_path = _make_db(tmp_path)
+    with connect(db_path) as conn:
+        sid = _insert_submission(conn, beverage_type="MALT_BEVERAGE", net_contents="16 fl oz")
+        img = _insert_label_image(conn, sid)
+        _insert_ocr(conn, sid, img, "6.8% ALC/VOL · 16 FL OZ")
+        result = fm.field_match(_check("net_contents"), _ctx(conn, sid))
+        conn.commit()
+
+    assert result.verdict == "PASS"
+
+
+def test_net_contents_gallons_keg_resolves(tmp_path):
+    """Keg net contents in gallons, with the sixtel size also present — the stated 15.5
+    gal is confirmed by the closest same-unit token (BURNING MONEY)."""
+    db_path = _make_db(tmp_path)
+    with connect(db_path) as conn:
+        sid = _insert_submission(conn, beverage_type="MALT_BEVERAGE", net_contents="15.5 Gallons")
+        img = _insert_label_image(conn, sid)
+        _insert_ocr(conn, sid, img, "15.5 Gallons\n5.16 Gallons")
+        result = fm.field_match(_check("net_contents"), _ctx(conn, sid))
+        conn.commit()
+
+    assert result.verdict == "PASS"
+
+
+def test_abv_confirmed_despite_noise_token(tmp_path):
+    """Several same-unit numbers (a stray OCR ``0%`` before the real ``40%``) ⇒ the stated
+    value is confirmed if it appears ANYWHERE; we must not false-FAIL on the first token
+    (the ASKANELI brandy case)."""
+    db_path = _make_db(tmp_path)
+    with connect(db_path) as conn:
+        sid = _insert_submission(conn, alcohol_content="40% Alc./Vol.")
+        img = _insert_label_image(conn, sid)
+        _insert_ocr(conn, sid, img, "0% SOMETHING\nBRANDY 40% ALC./VOL.")
+        result = fm.field_match(_check("alcohol_content"), _ctx(conn, sid))
+        conn.commit()
+
+    assert result.verdict == "PASS"
+
+
 def test_net_contents_unit_variant_passes_but_value_change_fails(tmp_path):
     """net_contents standards of fill are discrete: 750 mL vs 750 ml ⇒ PASS,
     750 mL vs 700 mL ⇒ FAIL (exact-after-normalize, tolerance 0)."""
