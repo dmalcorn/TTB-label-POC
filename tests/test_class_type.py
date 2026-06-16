@@ -194,7 +194,7 @@ def test_recognized_designation_passes_without_model_call(tmp_path, monkeypatch)
 
     assert result.verdict == verdict.PASS
     assert spy.calls == []  # the deterministic recognized path constructs/calls NO model
-    assert result.field_comparison_id is None
+    assert result.field_comparison_id is not None  # also writes a comparison row (the card)
 
 
 @pytest.mark.parametrize(
@@ -362,8 +362,9 @@ def test_deterministic_paths_unchanged_by_toggle(tmp_path, monkeypatch):
 # ── no field_comparisons row + run_checks integration + CFR-as-data guard ────
 
 
-def test_writes_no_field_comparisons_row(tmp_path, monkeypatch):
-    """The hybrid check writes NO field_comparisons row (like the Gov Warning / format checks)."""
+def test_writes_a_field_comparison_card(tmp_path, monkeypatch):
+    """The hybrid check ALSO writes a field_comparisons row (declared designation vs label
+    OCR) so it renders as a card — the verdict is still the HYBRID judgment."""
     db_path = _make_db(tmp_path)
     with connect(db_path) as conn:
         sid = _insert_submission(conn, class_type_designation="Straight Bourbon Whiskey")
@@ -378,12 +379,14 @@ def test_writes_no_field_comparisons_row(tmp_path, monkeypatch):
         assert submission is not None
         rc.run_checks(conn, submission)
         conn.commit()
-        n = conn.execute(
-            "SELECT COUNT(*) AS n FROM field_comparisons WHERE submission_id = ? "
-            "AND field_key = 'class_type_designation'",
+        row = conn.execute(
+            "SELECT application_value, match_status FROM field_comparisons "
+            "WHERE submission_id = ? AND field_key = 'class_type_designation'",
             (sid,),
-        ).fetchone()["n"]
-    assert n == 0
+        ).fetchone()
+    assert row is not None  # a comparison row → a card
+    assert row["application_value"] == "Straight Bourbon Whiskey"
+    assert row["match_status"] == "MATCH"  # recognized designation → PASS → MATCH
 
 
 def test_run_checks_class_type_row_is_pass_for_recognized(tmp_path, monkeypatch):

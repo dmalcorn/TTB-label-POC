@@ -14,10 +14,9 @@ own (FR-12, FR-21/FR-22).
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Any
 
-from app.adapters.llm._common import load_image_b64, run_extraction
+from app.adapters.llm._common import ImageArg, load_images_b64, run_extraction
 from app.contracts import LlmResult
 
 DEFAULT_TASK = "extract_fields"
@@ -60,9 +59,9 @@ class AnthropicAdapter:
         return self._client
 
     def _call(
-        self, prompt: str, image_path: str | Path | None
+        self, prompt: str, image_path: ImageArg | None
     ) -> tuple[str | None, int | None, int | None]:
-        b64, media_type = load_image_b64(image_path)  # raises (→ ERROR row) if absent
+        b64, media_type = load_images_b64(image_path)[0]  # first image; raises if none
         client = self._client_lazy()
         response = client.messages.create(
             model=self.model_id,
@@ -98,7 +97,7 @@ class AnthropicAdapter:
         completion_tokens = getattr(usage, "output_tokens", None) if usage else None
         return text, prompt_tokens, completion_tokens
 
-    def run(self, task: str, prompt: str, *, image_path: str | Path | None = None) -> LlmResult:
+    def run(self, task: str, prompt: str, *, image_path: ImageArg | None = None) -> LlmResult:
         """Run one VLM extraction over the label image → :class:`LlmResult`. Never
         raises (AC3); a missing/absent ``image_path`` degrades to an ``ERROR`` row."""
         return run_extraction(

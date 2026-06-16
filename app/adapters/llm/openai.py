@@ -22,10 +22,9 @@ in-firewall endpoint, the POC at ``api.openai.com`` — a config swap, no code c
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Any
 
-from app.adapters.llm._common import load_image_b64, run_extraction
+from app.adapters.llm._common import ImageArg, load_images_b64, run_extraction
 from app.contracts import LlmResult
 
 DEFAULT_TASK = "extract_fields"
@@ -71,25 +70,24 @@ class OpenAiAdapter:
         return self._client
 
     def _call(
-        self, prompt: str, image_path: str | Path | None
+        self, prompt: str, image_path: ImageArg | None
     ) -> tuple[str | None, int | None, int | None]:
-        b64, media_type = load_image_b64(image_path)  # raises (→ ERROR row) if absent
+        images = load_images_b64(image_path)  # raises (→ ERROR row) if none supplied
         client = self._client_lazy()
+        # One user turn: the instruction, then EVERY label image (front, back, neck, strip)
+        # so the model reads the whole product in a single call.
+        content: list[dict[str, Any]] = [{"type": "text", "text": prompt}]
+        content += [
+            {"type": "image_url", "image_url": {"url": f"data:{media_type};base64,{b64}"}}
+            for b64, media_type in images
+        ]
         response = client.chat.completions.create(
             model=self.model_id,
-            messages=[
-                {
-                    "role": "user",
-                    "content": [
-                        {"type": "text", "text": prompt},
-                        {
-                            "type": "image_url",
-                            "image_url": {"url": f"data:{media_type};base64,{b64}"},
-                        },
-                    ],
-                }
-            ],
+            messages=[{"role": "user", "content": content}],
             max_tokens=_MAX_TOKENS,
+            # JSON mode: the model must return a syntactically valid JSON object, so the
+            # per-field extraction parses deterministically (the prompt names the exact keys).
+            response_format={"type": "json_object"},
         )
         text = response.choices[0].message.content if response.choices else None
         usage = getattr(response, "usage", None)
@@ -97,8 +95,8 @@ class OpenAiAdapter:
         completion_tokens = getattr(usage, "completion_tokens", None) if usage else None
         return text, prompt_tokens, completion_tokens
 
-    def run(self, task: str, prompt: str, *, image_path: str | Path | None = None) -> LlmResult:
-        """Run one VLM extraction over the label image → :class:`LlmResult`. Never
+    def run(self, task: str, prompt: str, *, image_path: ImageArg | None = None) -> LlmResult:
+        """Run one VLM extraction over the label image(s) → :class:`LlmResult`. Never
         raises (AC3): timing and error capture live in :func:`run_extraction`. A
         missing/absent ``image_path`` degrades to an ``ERROR`` row, not an abort."""
         return run_extraction(

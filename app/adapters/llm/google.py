@@ -14,10 +14,9 @@ its own (FR-12, FR-21/FR-22).
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Any
 
-from app.adapters.llm._common import load_image, run_extraction
+from app.adapters.llm._common import ImageArg, as_image_list, load_image, run_extraction
 from app.contracts import LlmResult
 
 DEFAULT_TASK = "extract_fields"
@@ -58,11 +57,12 @@ class GoogleAdapter:
         return self._client
 
     def _call(
-        self, prompt: str, image_path: str | Path | None
+        self, prompt: str, image_path: ImageArg | None
     ) -> tuple[str | None, int | None, int | None]:
         from google.genai import types
 
-        data, media_type = load_image(image_path)  # raises (→ ERROR row) if absent
+        paths = as_image_list(image_path)
+        data, media_type = load_image(paths[0] if paths else None)  # first image; raises if none
         client = self._client_lazy()
         image_part = types.Part.from_bytes(data=data, mime_type=media_type)
         response = client.models.generate_content(
@@ -74,7 +74,7 @@ class GoogleAdapter:
         completion_tokens = getattr(usage, "candidates_token_count", None) if usage else None
         return text, prompt_tokens, completion_tokens
 
-    def run(self, task: str, prompt: str, *, image_path: str | Path | None = None) -> LlmResult:
+    def run(self, task: str, prompt: str, *, image_path: ImageArg | None = None) -> LlmResult:
         """Run one VLM extraction over the label image → :class:`LlmResult`. Never
         raises (AC3); a missing/absent ``image_path`` degrades to an ``ERROR`` row."""
         return run_extraction(

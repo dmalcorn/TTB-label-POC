@@ -32,7 +32,7 @@ from __future__ import annotations
 import base64
 import logging
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -42,6 +42,11 @@ logger = logging.getLogger(__name__)
 
 # What a provider adapter's SDK call returns: (result_text, prompt_tokens, completion_tokens).
 ProviderCall = Callable[[], "tuple[str | None, int | None, int | None]"]
+
+# A VLM call reads ONE label or ALL of a submission's labels — accept a single path or a
+# sequence so a multi-panel product (front + back + neck + strip) goes to the model in one
+# call (the warning/net/abv often live on a different panel than the brand).
+ImageArg = str | Path | Sequence[str | Path]
 
 # Cap on the error text we persist/return on the degrade path — keep the row honest
 # and queryable without letting an arbitrarily long SDK exception (which can echo
@@ -90,6 +95,26 @@ def load_image_b64(image_path: str | Path | None) -> tuple[str, str]:
     wire form). Same error posture as :func:`load_image`."""
     data, media_type = load_image(image_path)
     return base64.standard_b64encode(data).decode("ascii"), media_type
+
+
+def as_image_list(image_path: ImageArg | None) -> list[Path]:
+    """Normalize a single path or a sequence of paths to a ``list[Path]`` (``[]`` for
+    ``None``). The single-image callers and the multi-image VLM call share one shape."""
+    if image_path is None:
+        return []
+    if isinstance(image_path, (str, Path)):
+        return [Path(image_path)]
+    return [Path(p) for p in image_path]
+
+
+def load_images_b64(image_path: ImageArg | None) -> list[tuple[str, str]]:
+    """Read EVERY supplied label image as ``(base64_text, media_type)`` — the multi-image
+    VLM wire form. Raises ``ValueError`` when none is supplied (VLM-only extraction has
+    nothing to read; caught by :func:`run_extraction` → an honest ``ERROR`` row)."""
+    paths = as_image_list(image_path)
+    if not paths:
+        raise ValueError("VLM extraction requires at least one label image; none was provided")
+    return [load_image_b64(p) for p in paths]
 
 
 def _truncate(text: str) -> str:

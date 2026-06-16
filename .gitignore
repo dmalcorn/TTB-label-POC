@@ -6,6 +6,9 @@ _bmad/
 .claude/
 .agents/
 targetsetup/
+# auto-run/ is the overnight orchestrator harness (headless agent runner), walled off
+# from story work and NOT part of the deliverable (see CLAUDE.md "Don't edit auto-run/").
+auto-run/
 
 # --- Python ---
 .venv/

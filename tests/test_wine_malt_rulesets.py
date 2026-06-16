@@ -253,20 +253,27 @@ def test_each_check_carries_its_citation_as_data():
 # ── AC2: the checklist contents differ correctly by type ─────────────────────
 
 
-def test_wine_table_wine_without_abv_is_not_failed(tmp_path):
-    """AC2 (the trap): a ≤14% table wine with no ABV on the label is NOT failed."""
+# NOTE: the seven-only checklist dropped abv_format (Diane's call, 2026-06-16), so the old
+# abv_format ABV-trap tests are gone. The engine spine still holds for the common case — a
+# product that omits its ABV is never false-FAILED, because the alcohol_content field-match
+# defers a missing value to REVIEW. (A wine that omits its ABV yet prints only a marketing
+# "%" is the one case abv_format used to shield and now isn't — a documented limitation of
+# the seven-only scope, in docs/tradeoffs-and-limitations.md.)
+def test_wine_without_abv_on_label_not_failed(tmp_path):
+    """A ≤14% wine whose label omits the ABV is not false-FAILED — the alcohol_content
+    field-match defers a value it can't locate to REVIEW, never FAIL."""
     verdicts = _checklist(
         tmp_path,
         "SUNNY VALLEY TABLE WINE\n750 mL",
         beverage_type="WINE",
-        alcohol_content="12.5% Alc./Vol.",  # ≤14% application value
+        alcohol_content="12.5% Alc./Vol.",
     )
-    assert "abv_format" in verdicts
-    assert verdicts["abv_format"] != "FAIL"
+    assert verdicts["alcohol_content"] != "FAIL"
 
 
-def test_malt_beverage_without_abv_is_not_failed(tmp_path):
-    """AC2: malt-beverage ABV is conditional — absent ⇒ never FAIL (REVIEW)."""
+def test_malt_without_abv_not_failed(tmp_path):
+    """Malt ABV is optional: with no application ABV, the field-match defers to REVIEW (the
+    blank-application branch), never FAIL."""
     verdicts = _checklist(
         tmp_path,
         "HOPPY LAGER\n12 FL OZ",
@@ -275,43 +282,7 @@ def test_malt_beverage_without_abv_is_not_failed(tmp_path):
         net_contents="12 FL OZ",
         class_type_designation="Lager",
     )
-    assert "abv_format" in verdicts
-    assert verdicts["abv_format"] != "FAIL"
-    assert verdicts["abv_format"] == "REVIEW"
-
-
-def test_wine_with_incidental_marketing_percent_is_not_failed(tmp_path):
-    """AC2 (the trap, closing the incidental-% hole): a ≤14% table wine that omits its
-    ABV but prints unrelated marketing copy carrying a ``%`` ("100% Estate Grown") must
-    NOT be read as an ABV statement and FAILed for a missing abbreviation. The stray %
-    is uncued and the label has no ABV abbreviation word, so ABV is treated as absent
-    and the ≤14% wine policy applies ⇒ PASS, never FAIL."""
-    verdicts = _checklist(
-        tmp_path,
-        "SUNNY VALLEY TABLE WINE\n100% ESTATE GROWN\n750 mL",
-        beverage_type="WINE",
-        alcohol_content="12.5% Alc./Vol.",  # ≤14% application value
-    )
-    assert "abv_format" in verdicts
-    assert verdicts["abv_format"] != "FAIL"
-    assert verdicts["abv_format"] == "PASS"
-
-
-def test_malt_with_incidental_marketing_percent_is_not_failed(tmp_path):
-    """AC2 (the trap): a malt beverage that omits its ABV but prints a marketing ``%``
-    ("100% Natural") must surface the conditional ABV as REVIEW (optional-unless-trigger),
-    never a false missing-abbreviation FAIL from the incidental percentage."""
-    verdicts = _checklist(
-        tmp_path,
-        "HOPPY LAGER\n100% NATURAL\n12 FL OZ",
-        beverage_type="MALT_BEVERAGE",
-        alcohol_content=None,
-        net_contents="12 FL OZ",
-        class_type_designation="Lager",
-    )
-    assert "abv_format" in verdicts
-    assert verdicts["abv_format"] != "FAIL"
-    assert verdicts["abv_format"] == "REVIEW"
+    assert verdicts["alcohol_content"] != "FAIL"
 
 
 def test_wine_checklist_omits_spirits_only_checks(tmp_path):
@@ -339,15 +310,18 @@ def test_malt_checklist_omits_spirits_and_wine_only_checks(tmp_path):
     assert "same_field_of_vision" not in verdicts
 
 
-def test_wine_has_grape_varietal_field_check():
-    """AC2: wine carries a grape_varietal field check; malt + spirits do not."""
-    assert "grape_varietal" in {c.check_key for c in WINE_RULESET}
-    assert "grape_varietal" not in {c.check_key for c in MALT_BEVERAGE_RULESET}
+def test_no_grape_varietal_card_on_any_type():
+    """Grape varietal was dropped as a card (optional element; the registry omits it for the
+    dessert/table wines harvested for real net/ABV). No ruleset carries the check."""
+    for ruleset in (WINE_RULESET, MALT_BEVERAGE_RULESET):
+        assert "grape_varietal" not in {c.check_key for c in ruleset}
 
 
-def test_malt_has_fanciful_name_field_check():
-    """AC2: malt carries a fanciful_name field check; wine references it differently."""
-    assert "fanciful_name" in {c.check_key for c in MALT_BEVERAGE_RULESET}
+def test_no_fanciful_name_card_on_any_type():
+    """Fanciful name was dropped as a card (optional element, §7.63 "when used"). No ruleset
+    carries the check."""
+    for ruleset in (WINE_RULESET, MALT_BEVERAGE_RULESET):
+        assert "fanciful_name" not in {c.check_key for c in ruleset}
 
 
 def test_government_warning_present_in_both_types():

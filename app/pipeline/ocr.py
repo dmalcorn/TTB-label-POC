@@ -43,16 +43,19 @@ from app.pipeline import status
 from app.pipeline.preprocess import SOURCE_IMAGES_DIR
 
 if TYPE_CHECKING:  # avoid a run.py ↔ ocr.py import cycle (run imports this stage)
+    from app.config import Settings
     from app.pipeline.run import StageContext
 
 logger = logging.getLogger(__name__)
 
 
-def build_engines() -> list[OcrEngine]:
-    """The configured OCR engines, in order (AR-4 registry). Constructing these does
-    NOT import the native libs (the adapters import lazily), so this is safe to call
-    even where Tesseract/Paddle are absent. Adding PP-OCRv5 is one more line here."""
-    return [TesseractEngine(), PaddleOcrEngine()]
+def build_engines(settings: Settings | None = None) -> list[OcrEngine]:
+    """The configured OCR engines, in order (AR-4 registry), filtered by the perf toggle
+    ``settings.ocr_engines``. Constructing these does NOT import the native libs (the adapters
+    import lazily), so this is safe even where Tesseract/Paddle are absent. Default config
+    (or no settings) → both engines. Adding PP-OCRv5 is one more line here."""
+    enabled = (settings or get_settings()).ocr_engines
+    return [e for e in (TesseractEngine(), PaddleOcrEngine()) if e.name in enabled]
 
 
 # Engine-aware preference: which Story-2.3 variant each engine OCRs IN ADDITION to the
@@ -83,18 +86,23 @@ def _variant_info(
     return info
 
 
-def _tasks_for_engine(engine: OcrEngine, info: dict[str, str | None]) -> list[tuple[str, str]]:
-    """The ``(image_variant, relative_path)`` list one engine OCRs for one image:
-    always ORIGINAL, plus the engine's preferred variant when 2.3 produced it (AC3)."""
+def _tasks_for_engine(
+    engine: OcrEngine, info: dict[str, str | None], run_variants: bool = True
+) -> list[tuple[str, str]]:
+    """The ``(image_variant, relative_path)`` list one engine OCRs for one image: always
+    ORIGINAL, plus the engine's preferred variant when 2.3 produced it (AC3) AND the
+    ``ocr_preprocess_variants`` toggle is on. With the toggle off, ORIGINAL only — halving the
+    OCR passes (the preprocessed-variant accuracy bake-off is skipped to save time)."""
     tasks: list[tuple[str, str]] = []
     original = info["original"]
     if original:  # skip rather than OCR an empty path (which resolves to a directory)
         tasks.append(("ORIGINAL", original))
-    preferred = ENGINE_PREFERRED_VARIANT.get(engine.name)
-    if preferred is not None:
-        rel = info.get(_VARIANT_SCRATCH_KEY[preferred])
-        if rel:  # only when the variant file actually exists (clean image ⇒ skip)
-            tasks.append((preferred, rel))
+    if run_variants:
+        preferred = ENGINE_PREFERRED_VARIANT.get(engine.name)
+        if preferred is not None:
+            rel = info.get(_VARIANT_SCRATCH_KEY[preferred])
+            if rel:  # only when the variant file actually exists (clean image ⇒ skip)
+                tasks.append((preferred, rel))
     return tasks
 
 
@@ -204,13 +212,25 @@ def ocr_stage(ctx: StageContext) -> None:
     sid = ctx.submission.id
     status.record_event(ctx.conn, sid, event_type="OCR_STARTED")
 
-    engines = build_engines()
-    generated_root = Path(get_settings().generated_images_dir)
+    settings = get_settings()
+    if not settings.ocr_enabled:
+        # OCR feature off (OCR_ENABLED=false) — write no ocr_results rows. The review
+        # shows the AI reading only (when LLM_ENABLED). Keep the OCR_STARTED/OCR_COMPLETED
+        # timeline markers intact so the lifecycle/status machinery is unchanged.
+        logger.info("OCR disabled (OCR_ENABLED=false); skipping OCR for submission %s", sid)
+        ctx.conn.commit()
+        status.record_event(ctx.conn, sid, event_type="OCR_COMPLETED")
+        return
+
+    engines = build_engines(settings)
+    generated_root = Path(settings.generated_images_dir)
 
     for image in ctx.label_images:
         info = _variant_info(ctx, image.id, image.filename)
         for engine in engines:
-            for image_variant, relative in _tasks_for_engine(engine, info):
+            for image_variant, relative in _tasks_for_engine(
+                engine, info, settings.ocr_preprocess_variants
+            ):
                 full_path = _resolve_path(image_variant, relative, generated_root)
                 _run_and_persist(
                     ctx,

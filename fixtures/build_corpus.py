@@ -37,6 +37,7 @@ from __future__ import annotations
 
 import collections
 import csv
+import html
 import json
 import re
 from pathlib import Path
@@ -133,6 +134,22 @@ def _iso_date(mdy: str) -> str:
 def _permit_from_applicant(applicant: str) -> str:
     m = _PERMIT_RE.match((applicant or "").strip())
     return m.group(1) if m else ""
+
+
+# Leading TTB permit/registry code: dash-joined upper/digit tokens ("BR-MA-BUZ-1",
+# "NY-I-2017", "FL-I-15514"), then a space before the legal name. Requires ≥1 dash so a
+# plain company word ("WINEBOW") is never mistaken for a code.
+_APPLICANT_PERMIT_PREFIX = re.compile(r"^[A-Z0-9]+(?:-[A-Z0-9]+)+\s+")
+
+
+def _clean_applicant(applicant: str) -> str:
+    """The registry applicant line as a label-faithful name/address: HTML-unescape
+    ("C &amp; P WINES" → "C & P WINES") and drop the leading TTB permit/registry code
+    ("BR-MA-BUZ-1 JUST BEER, …" → "JUST BEER, …"). The reviewer reconciles it against the
+    label's bottler line (name/address is REVIEW-only, never a false FAIL)."""
+    raw = html.unescape(applicant or "").strip()
+    raw = _APPLICANT_PERMIT_PREFIX.sub("", raw, count=1)
+    return re.sub(r"\s+", " ", raw).strip()
 
 
 def _clean_origin(raw: str) -> str:
@@ -355,9 +372,11 @@ def _build_real_rows() -> tuple[list[dict], set[str]]:
             brand_name=(r.get("brand_name") or "").strip(),
             fanciful_name=(r.get("fanciful_name") or "").strip(),
             class_type_designation=cls,
-            # name/address blank ⇒ REVIEW: the registry's permit+legal-entity+street line
-            # never matches the short bottler line on the label (a formatting artifact).
-            applicant_name_address="",
+            # Populate the real applicant from the registry (permit code stripped, HTML
+            # unescaped). It won't match the label's short bottler line verbatim, so the
+            # field-match lands on REVIEW (name/address is REVIEW-only) — the reviewer
+            # confirms by eye, which is the intent.
+            applicant_name_address=_clean_applicant(r.get("applicant_principal", "")),
             plant_registry_no=_permit_from_applicant(r.get("applicant_principal", "")),
             alcohol_content=abv,
             net_contents=net,

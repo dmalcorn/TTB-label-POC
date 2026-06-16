@@ -95,37 +95,11 @@ DISTILLED_SPIRITS_RULESET: tuple[Check, ...] = (
         strategy="field_match",
         field_key="applicant_name_address",
     ),
-    # ── Story 3.5: per-type DETERMINISTIC format checks ──────────────────────
-    # These AUGMENT the field_match VALUE checks above — they answer a different
-    # question: is the label statement's FORMAT/POLICY correct, regardless of the
-    # application value (is ABV present for this type; is the size an approved
-    # standard; is proof internally consistent). All dispatch to the single
-    # ``format_checks`` evaluator, keyed on check_key. Deterministic, NO LLM.
-    # Citations are DATA (post-2022 Part 5 renumbering).
-    Check(
-        check_key="abv_format",
-        label="Alcohol content statement format",
-        check_type="DETERMINISTIC",
-        cfr_citation="27 CFR 5.65",
-        source_date=_SOURCE_DATE,
-        strategy="format_checks",
-    ),
-    Check(
-        check_key="standards_of_fill",
-        label="Net contents standard of fill",
-        check_type="DETERMINISTIC",
-        cfr_citation="27 CFR 5.203",
-        source_date=_SOURCE_DATE,
-        strategy="format_checks",
-    ),
-    Check(
-        check_key="proof_abv_consistency",
-        label="Proof / alcohol content consistency",
-        check_type="DETERMINISTIC",
-        cfr_citation="27 CFR 5.65",
-        source_date=_SOURCE_DATE,
-        strategy="format_checks",
-    ),
+    # NOTE: the per-type DETERMINISTIC format checks (abv_format, standards_of_fill,
+    # proof_abv_consistency) were REMOVED (Diane's call, 2026-06-16) to keep the checklist
+    # strictly to the seven common elements. They were format/policy facets (ABV-statement
+    # format, approved bottle size, proof=2×ABV) beyond those seven; the ``format_checks``
+    # evaluator remains registered/unit-tested for a future story.
     Check(
         check_key="government_warning",
         label="Government Warning",

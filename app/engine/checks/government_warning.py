@@ -20,11 +20,14 @@ review finding.
 **The three outcomes never conflate (AC3).** The verdict + a JSON ``detail``
 payload carry a structural ``outcome`` discriminator so Story 4.5 renders the
 right one and never diffs against empty:
-  - ``reworded``       — present but reworded/mis-cased/mis-punctuated → **FAIL**
-                         with a char-diff (expected vs found).
+  - ``reworded``       — a §16.21 clause is genuinely missing/gross-garbled (NOT a mere
+                         OCR near-miss) → **FAIL** with a char-diff (expected vs found).
   - ``absent``         — not present on ANY label → **FAIL** with plain copy, NO diff.
-  - ``couldnt_verify`` — a visual-styling attribute (bold) OCR cannot recover →
-                         **REVIEW**, never a silent PASS.
+  - ``couldnt_verify`` — present but not byte-exact for OCR-plausible reasons (a dropped
+                         comma, a line-wrap hyphen, a digit lost from a "(2)" marker), OR a
+                         visual-styling attribute (bold) OCR cannot recover → **REVIEW**,
+                         never a silent PASS/FAIL. A near-miss on a plainly-present warning
+                         is deferred to a human, not hard-failed.
   - ``pass``           — exact wording + correct header/Surgeon-General casing → PASS.
 
 **Whitespace-only normalization (deliberate exception).** This check does NOT route
@@ -42,6 +45,7 @@ from difflib import SequenceMatcher
 from typing import TYPE_CHECKING
 
 from app import verdict
+from app.db import repositories as repo
 from app.engine.checks import CheckContext, CheckResult
 from app.engine.rulesets import government_warning as data
 
@@ -85,41 +89,83 @@ _ANCHOR_PRESENCE_MIN = 2
 def government_warning(check: Check, ctx: CheckContext) -> CheckResult:
     """Verify the Government Warning deterministically against §16.21 (AC1–AC3).
 
-    Reads the submission's joined OCR text (``ctx.ocr_text`` — never a model). Locates
-    the warning by its header token; produces one of the four structurally-distinct
-    outcomes. Writes NO ``field_comparisons`` row (the "expected" side is the statute,
-    not an application field — Task 3): provenance travels in the returned result and
-    ``run_checks`` writes the single ``checklist_items`` row.
+    Evaluates the warning against EACH available source — the AI's verbatim transcription
+    (the VLM read the IMAGE; preferred, it is far cleaner than OCR on a small back-label)
+    AND the joined OCR text — running the same §16.21 §logic on each. PASSes if ANY source
+    is compliant (the warning IS correct on the label, however it was read); otherwise
+    prefers a REVIEW (present-but-unverifiable) over a FAIL, and only reports absent when
+    no source found it. Still NO model call here and NO ``field_comparisons`` row — the AI
+    transcription was produced upstream (Story 2.5) and is read from the pipeline seam.
     """
-    ocr_text = ctx.ocr_text or ""
+    sources: list[str] = []
+    ai_text = _ai_warning_text(ctx)
+    if ai_text:
+        sources.append(ai_text)  # AI first — a clean image read beats garbled OCR
+    ocr_text = (ctx.ocr_text or "").strip()
+    if ocr_text:
+        sources.append(ocr_text)
 
-    # (1) Locate by the header token (case-insensitive). The warning may appear on more
-    # than one label image (the joined OCR text concatenates all of them), and an early
-    # occurrence (a stylized front-label tagline, or a reworded draft) must NOT condemn
-    # a later compliant one: §16.21 is satisfied if the warning IS present and correct
-    # ANYWHERE. So we evaluate EVERY header occurrence and PASS if any is compliant;
-    # only when none pass do we report the FIRST occurrence's deviation (the most
-    # prominent one). Absent from ALL images ⇒ AC3(b): plain FAIL, NO diff against empty.
-    matches = list(_HEADER_LOCATE.finditer(ocr_text))
+    if not sources:
+        return _fail_absent()
+
+    results = [_evaluate_text(ctx, text) for text in sources]
+    # PASS if ANY source is compliant (the warning is correct on the label).
+    for result in results:
+        if result.verdict == verdict.PASS:
+            return result
+    # None compliant: prefer a REVIEW (present-but-unverifiable — defer to a human) over a
+    # FAIL/absent, so a clean-but-unconfirmable reading is never hard-failed.
+    for result in results:
+        if result.verdict == verdict.REVIEW:
+            return result
+    return results[0]
+
+
+def _evaluate_text(ctx: CheckContext, text: str) -> CheckResult:
+    """Run the §16.21 verification over ONE text blob (an AI transcription or the OCR text).
+
+    Locates the warning by its header token. The warning may appear more than once (joined
+    OCR concatenates every image; a stylized front tagline must not condemn a compliant back
+    label): evaluate EVERY occurrence and PASS if any is compliant; only when none pass do we
+    report the FIRST occurrence's deviation. No header locatable but distinctive §16.21
+    phrases present ⇒ REVIEW (present-but-unverifiable); none ⇒ absent FAIL."""
+    matches = list(_HEADER_LOCATE.finditer(text))
     if not matches:
-        # Header not locatable — but if distinctive §16.21 phrases are present, the
-        # warning IS on the label (OCR just garbled the header). Don't false-FAIL as
-        # absent; defer to the human with the OCR'd region shown.
-        if _anchor_hits(ocr_text) >= _ANCHOR_PRESENCE_MIN:
-            return _review_detected_unverified(_warning_region(ocr_text))
+        if _anchor_hits(text) >= _ANCHOR_PRESENCE_MIN:
+            return _review_detected_unverified(_warning_region(text))
         return _fail_absent()
 
     first_non_pass: CheckResult | None = None
     for match in matches:
-        result = _evaluate_occurrence(ctx, ocr_text, match)
+        result = _evaluate_occurrence(ctx, text, match)
         if result.verdict == verdict.PASS:
             return result
         if first_non_pass is None:
             first_non_pass = result
-    # No occurrence was compliant — report the first one's deviation (reworded/casing,
-    # or a couldn't-verify REVIEW). ``first_non_pass`` is non-None (matches non-empty).
-    assert first_non_pass is not None
+    assert first_non_pass is not None  # matches non-empty
     return first_non_pass
+
+
+def _ai_warning_text(ctx: CheckContext) -> str | None:
+    """The AI's verbatim Government Warning transcription, from the VLM extraction JSON
+    (the ``government_warning`` key) — read from the pipeline forward-seam
+    (``ctx.scratch["llm_extraction"]``) or the persisted ``OK`` ``llm_results`` row. ``None``
+    when the model layer is off, the extraction is unparseable, or the field is absent/empty.
+    This is the model's own reading of the IMAGE (VLM-only) — not OCR text fed to a model."""
+    raw = ctx.scratch.get("llm_extraction") if isinstance(ctx.scratch, dict) else None
+    if not raw:
+        persisted = repo.get_latest_llm_extraction(ctx.conn, ctx.submission.id)
+        raw = persisted[1] if persisted else None
+    if not raw:
+        return None
+    try:
+        payload = json.loads(raw)
+    except (ValueError, TypeError):
+        return None
+    if not isinstance(payload, dict):
+        return None
+    value = payload.get("government_warning")
+    return value.strip() if isinstance(value, str) and value.strip() else None
 
 
 def _evaluate_occurrence(ctx: CheckContext, ocr_text: str, match: re.Match[str]) -> CheckResult:
@@ -135,23 +181,26 @@ def _evaluate_occurrence(ctx: CheckContext, ocr_text: str, match: re.Match[str])
 
     # (2) Header caps check — the located header must be ALL-CAPS. Compare after
     # whitespace-collapse so incidental OCR spacing inside the token is ignored while
-    # CASING is enforced exactly: a title-case ``Government Warning:`` is present-but-
-    # deviant ⇒ reworded FAIL (header casing).
+    # CASING is enforced exactly. Casing is a REAL, OCR-robust requirement (the user
+    # affirmed "GOVERNMENT WARNING" must be uppercase, and an all-caps header OCRs
+    # reliably), so a title-case ``Government Warning:`` is a genuine deviation ⇒ FAIL
+    # (header casing) — NOT a near-miss to defer.
     collapsed_header = _collapse_ws(header_found)
     if collapsed_header != data.HEADER:
-        return _reworded_or_review(
+        return _fail_reworded(
             located,
             deviation=f"header casing: expected {data.HEADER!r}, found {collapsed_header!r}",
         )
 
-    # (3) Body wording check — collapse whitespace, compare case-INSENSITIVELY against
-    # the §16.21 expected body, requiring exact wording + punctuation (incl. (1)/(2)).
-    # The located region may carry trailing label copy AFTER the warning, so the body
-    # is compliant when the expected body is an exact case-insensitive PREFIX of it.
-    found_body = _collapse_ws(located[len(header_found) :])
+    # (3) Body wording check — collapse whitespace, de-hyphenate line wraps, and compare
+    # case-INSENSITIVELY against the §16.21 expected body, requiring exact wording +
+    # punctuation (incl. (1)/(2)). The located region may carry trailing label copy AFTER
+    # the warning, so the body is compliant when the expected body is an exact
+    # case-insensitive PREFIX of it.
+    found_body = _dehyphenate(_collapse_ws(located[len(header_found) :]))
     expected_body = _collapse_ws(data.BODY)
     if not _body_matches(found_body, expected_body):
-        return _reworded_or_review(located, deviation="body wording / punctuation deviates")
+        return _body_deviation(located, deviation="body wording / punctuation deviates")
 
     # The matched warning body span (excludes any trailing label copy) — the window the
     # casing check inspects.
@@ -167,9 +216,9 @@ def _evaluate_occurrence(ctx: CheckContext, ocr_text: str, match: re.Match[str])
     if not _is_all_caps(matched_body):
         for word in data.RULES.mixed_case_capitals:
             if not _initial_is_capital(matched_body, word):
-                return _reworded_or_review(
-                    located, deviation=f"casing: {word!r} must be capitalized"
-                )
+                # A lowercase S/G in a mixed-case body is a genuine §5.2 casing defect
+                # (not an OCR near-miss) ⇒ FAIL, attributing the offending word.
+                return _fail_reworded(located, deviation=f"casing: {word!r} must be capitalized")
 
     # (5) Bold/visual styling undeterminable ⇒ AC3(c): REVIEW, never a silent PASS.
     # Bold cannot be recovered from OCR text; when a caller signals it could not be
@@ -243,33 +292,35 @@ def _review_detected_unverified(region: str) -> CheckResult:
     return CheckResult(verdict=verdict.REVIEW, detail=json.dumps(payload))
 
 
-# Distinguish OCR noise from a genuine deviation on a located-but-deviant warning, using
-# TWO signals together:
-#   1. Case-insensitive character match to §16.21. A clean text with a real deviation
-#      (wrong casing, a changed comma, interleaved text) still matches the LETTERS closely
-#      (high ratio) ⇒ a genuine deviation ⇒ FAIL. Heavy OCR garble mangles the letters
-#      themselves (low ratio).
-#   2. Both §16.21 clauses substantially PRESENT. OCR garble keeps all the content; a real
-#      OMISSION drops whole phrases. So a low-ratio text still FAILs if a clause is missing.
-# Only LOW char-match AND both clauses present ⇒ a complete-but-OCR-garbled warning on a
-# real label ⇒ REVIEW (defer, show the OCR text). Everything else stays FAIL.
-_OCR_LEGIBLE_FLOOR = 0.90
-_CLAUSE1_ANCHORS = ("surgeon general", "during pregnancy", "birth defects")
-_CLAUSE2_ANCHORS = ("operate machinery", "health problems", "impairs your ability")
+# A located warning whose BODY isn't an exact §16.21 match is judged on one signal: do the
+# LETTERS still match the statute? "Letters" = a–z only, case-folded — which discards
+# exactly what OCR drops or mangles on a fully-compliant label: punctuation (a comma after
+# "Surgeon General" that the printing runs into the artwork), the digits of a "(1)"/"(2)"
+# marker, spacing, line-wrap hyphens, and case (an all-caps body). If the letters match,
+# every WORD of §16.21 is present and correct and only those incidental marks differ ⇒ this
+# is an OCR near-miss on a compliant label, NOT a rewording ⇒ REVIEW (defer to a human, show
+# the OCR'd text), never a false FAIL. If the letters DON'T match, a word was actually
+# changed/added/dropped (a real rewording, an interleaved phrase, an omitted clause) ⇒ FAIL
+# with a char-diff. Casing deviations are handled at their own steps (2)/(4) as genuine
+# FAILs and never reach here — so widening this gate does NOT weaken the casing rules.
+_LETTERS_ONLY = re.compile(r"[^a-z]")
+_EXPECTED_LETTERS = _LETTERS_ONLY.sub("", data.FULL_TEXT.lower())
 
 
-def _clauses_substantially_present(located: str) -> bool:
-    low = _collapse_ws(located).lower()
-    c1 = sum(1 for a in _CLAUSE1_ANCHORS if a in low)
-    c2 = sum(1 for a in _CLAUSE2_ANCHORS if a in low)
-    return c1 >= 2 and c2 >= 2
+def _letters_only(text: str) -> str:
+    """The a–z, case-folded projection of ``text`` (de-hyphenated first). Ignores case,
+    whitespace, punctuation, and marker digits — the incidental marks OCR routinely alters
+    on an otherwise-compliant warning."""
+    return _LETTERS_ONLY.sub("", _dehyphenate(_collapse_ws(text)).lower())
 
 
-def _reworded_or_review(located: str, *, deviation: str) -> CheckResult:
-    found = _collapse_ws(located)
-    expected = _collapse_ws(data.FULL_TEXT)
-    ratio = SequenceMatcher(None, expected.lower(), found[: len(expected)].lower()).ratio()
-    if ratio < _OCR_LEGIBLE_FLOOR and _clauses_substantially_present(located):
+def _body_deviation(located: str, *, deviation: str) -> CheckResult:
+    """The body deviates from §16.21 verbatim. REVIEW when the deviation is letters-clean
+    (only punctuation / markers / spacing / case differ — an OCR near-miss on a compliant
+    label, e.g. a comma OCR couldn't read); FAIL when a word actually changed/was inserted/
+    dropped (a genuine rewording or omission)."""
+    found_letters = _letters_only(located)
+    if found_letters[: len(_EXPECTED_LETTERS)] == _EXPECTED_LETTERS:
         return _review_detected_unverified(located)
     return _fail_reworded(located, deviation=deviation)
 
@@ -283,6 +334,14 @@ def _collapse_ws(text: str) -> str:
     Whitespace-ONLY — punctuation and case are preserved (the deliberate exception to
     ``app/normalize.py``; see the module docstring)."""
     return re.sub(r"\s+", " ", text).strip()
+
+
+def _dehyphenate(text: str) -> str:
+    """Undo line-wrap hyphenation so a label that split a word across a line ('PREG- NANCY')
+    matches the canonical wording ('PREGNANCY'). Removes a soft hyphen (U+00AD) anywhere and
+    a hyphen left at a line break ('PREG- NANCY' -> 'PREGNANCY'). Display- and comparison-safe
+    (the statute has no hyphens, so this never masks a real wording change)."""
+    return re.sub(r"-\s+", "", text.replace(chr(0xAD), ""))
 
 
 def _is_all_caps(text: str) -> bool:

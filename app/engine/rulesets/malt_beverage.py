@@ -69,17 +69,10 @@ MALT_BEVERAGE_RULESET: tuple[Check, ...] = (
         strategy="field_match",
         field_key="class_type_designation",
     ),
-    Check(
-        # A fanciful name, when used, must match the application "Fanciful Name"
-        # field (doc §3, §7.63). Wine has no equivalent mandatory element.
-        check_key="fanciful_name",
-        label="Fanciful name",
-        check_type="FIELD_MATCH",
-        cfr_citation="27 CFR 7.63",
-        source_date=_SOURCE_DATE,
-        strategy="field_match",
-        field_key="fanciful_name",
-    ),
+    # NOTE: fanciful-name was REMOVED as a checklist card (Diane's call, 2026-06-16). A
+    # fanciful name is OPTIONAL (§7.63 — "when used"), so it's not a required common element;
+    # the card is dropped. The fanciful_name column remains on submissions, just not surfaced
+    # as a check. (Wine/spirits never had a fanciful-name check.)
     Check(
         # Value match; the per-type ABV POLICY (optional-unless-trigger) lives in
         # the ``abv_format`` DETERMINISTIC row that routes to ``format_checks``.
@@ -110,17 +103,9 @@ MALT_BEVERAGE_RULESET: tuple[Check, ...] = (
         strategy="field_match",
         field_key="applicant_name_address",
     ),
-    # ── per-type DETERMINISTIC format check: the ABV trap (doc §5, §7.65) ─────
-    # Same ``format_checks`` evaluator as spirits/wine; ABV_POLICY[MALT_BEVERAGE]
-    # = optional-unless-trigger, so absence ⇒ REVIEW (not FAIL). Policy is DATA.
-    Check(
-        check_key="abv_format",
-        label="Alcohol content statement format",
-        check_type="DETERMINISTIC",
-        cfr_citation="27 CFR 7.65",
-        source_date=_SOURCE_DATE,
-        strategy="format_checks",
-    ),
+    # NOTE: the abv_format DETERMINISTIC check was REMOVED (Diane's call, 2026-06-16) — the
+    # checklist is kept strictly to the seven common elements, and ABV-statement format is a
+    # facet of the alcohol-content element already covered by its field-match card.
     # ── Government Warning (Part 16; applies to all types ≥0.5% ABV) ──────────
     Check(
         check_key="government_warning",

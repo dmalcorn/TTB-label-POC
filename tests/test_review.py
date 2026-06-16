@@ -395,70 +395,6 @@ def test_review_sorts_problems_before_clean(monkeypatch, tmp_path) -> None:
     assert "Verified automatically" in body
 
 
-def test_review_why_accordion_carries_citation_source_detail(monkeypatch, tmp_path) -> None:
-    client = _client(monkeypatch, tmp_path)
-    with connect(_db_path(tmp_path)) as conn:
-        sid = _insert_submission(conn)
-        # an OCR-sourced row so the view derives `ocr:tesseract`
-        img = conn.execute(
-            "INSERT INTO label_images (submission_id, filename) VALUES (?, 'front.jpg')", (sid,)
-        ).lastrowid
-        ocr_id = conn.execute(
-            "INSERT INTO ocr_results (label_image_id, submission_id, engine_name, status) "
-            "VALUES (?, ?, 'tesseract', 'OK')",
-            (img, sid),
-        ).lastrowid
-        conn.commit()
-        _field(
-            conn,
-            sid,
-            check_overrides={
-                "check_key": "brand_name",
-                "label": "Brand Name",
-                "verdict": "PASS",
-                "cfr_citation": "27 CFR 5.63",
-                "detail": "Application matches label.",
-            },
-            cmp_overrides={"field_key": "brand_name", "source_ocr_result_id": ocr_id},
-        )
-    body = client.get(f"/review/{sid}").text
-    assert "<details" in body
-    assert "Why?" in body
-    assert "27 CFR 5.63" in body
-    assert "ocr:tesseract" in body
-    assert "Application matches label." in body
-
-
-def test_review_why_accordion_carries_raw_extracted_value(monkeypatch, tmp_path) -> None:
-    """AC5: the Why? accordion surfaces the raw OCR/LLM value verbatim (one of its four
-    items). For a diff card the kv slot shows the segmented diff, so the clean raw value
-    must still appear in the Why? body. Regression for F4 (raw value omitted)."""
-    client = _client(monkeypatch, tmp_path)
-    with connect(_db_path(tmp_path)) as conn:
-        sid = _insert_submission(conn)
-        _field(
-            conn,
-            sid,
-            check_overrides={
-                "check_key": "alcohol_content",
-                "label": "Alcohol Content",
-                "verdict": "FAIL",
-            },
-            cmp_overrides={
-                "field_key": "alcohol_content",
-                "application_value": "45% Alc./Vol.",
-                "extracted_value": "40percentABV",
-                "match_status": "MISMATCH",
-                "similarity": 0.6,
-            },
-        )
-    body = client.get(f"/review/{sid}").text
-    # the raw read value appears (the Why? "Raw value read:" line), distinct from the
-    # diffed kv slot which segments the string into spans
-    assert "Raw value read:" in body
-    assert "40percentABV" in body
-
-
 def test_review_mismatch_card_shows_both_plain_values(monkeypatch, tmp_path) -> None:
     """With the redline removed, a differing field shows both raw values verbatim — the
     reviewer (and a screen reader) reads the application value and the on-label value
@@ -578,7 +514,9 @@ def test_review_gov_warning_reworded_renders_mono_stack_and_diff(monkeypatch, tm
     # plain required + on-label text, NO redline spans
     assert "diff-del" not in body
     assert "diff-ins" not in body
-    assert "GOVERNMENT WARNING: text" in body
+    # the required §16.21 example renders UPPERCASED (matches how real labels are printed)
+    assert "GOVERNMENT WARNING: TEXT" in body
+    # the OCR'd on-label text is shown verbatim (as read)
     assert "Government Warning: text" in body
 
 
@@ -630,14 +568,16 @@ def test_review_gov_warning_empty_state_when_no_row(monkeypatch, tmp_path) -> No
     assert "has not run for this submission" in resp.text
 
 
-def test_review_gov_warning_why_carries_cfr_citation(monkeypatch, tmp_path) -> None:
+def test_review_gov_warning_card_carries_cfr_citation(monkeypatch, tmp_path) -> None:
+    """The CFR citation is rendered on the card header (CFR-as-data). The "Why?"
+    disclosure was removed to keep the card short, so the citation must surface on the
+    card itself, not in a collapsed note."""
     client = _client(monkeypatch, tmp_path)
     detail = json.dumps({"outcome": "pass", "cfr_citation": "27 CFR 16.21"})
     with connect(_db_path(tmp_path)) as conn:
         sid = _insert_submission(conn)
         _gov_warning_check(conn, sid, verdict_="PASS", detail=detail)
     body = client.get(f"/review/{sid}").text
-    assert "Why?" in body
     assert "27 CFR 16.21" in body
 
 

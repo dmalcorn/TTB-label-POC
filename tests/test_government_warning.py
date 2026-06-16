@@ -210,20 +210,43 @@ def test_fail_omitted_clause(tmp_path):
     assert _detail_payload(result.detail)["outcome"] == "reworded"
 
 
-def test_fail_missing_segment_marker(tmp_path):
-    """A missing (1)/(2) marker ⇒ wording-deviation FAIL."""
+def test_missing_segment_marker_is_review_not_fail(tmp_path):
+    """A dropped (1)/(2) marker is an OCR-plausible near-miss (every WORD is still present
+    and correct — only the marker punctuation/digits differ) ⇒ REVIEW, not a hard FAIL.
+    The reviewer confirms the markers against the label."""
     no_markers = _COMPLIANT.replace("(1) ", "").replace("(2) ", "")
     result = _evaluate_with_ocr(tmp_path, no_markers)
-    assert result.verdict == "FAIL"
-    assert _detail_payload(result.detail)["outcome"] == "reworded"
+    assert result.verdict == "REVIEW"
+    assert _detail_payload(result.detail)["outcome"] == "couldnt_verify"
 
 
-def test_fail_mispunctuation(tmp_path):
-    """Mis-punctuation (a missing period) ⇒ wording-deviation FAIL."""
+def test_mispunctuation_is_review_not_fail(tmp_path):
+    """Mis-punctuation (a missing period) is an OCR-plausible near-miss — the wording is
+    intact, only a punctuation mark differs ⇒ REVIEW, not FAIL (the comma-on-the-label /
+    OCR-can't-read-it case the reviewer flagged)."""
     mis = _COMPLIANT.replace("birth defects.", "birth defects")
     result = _evaluate_with_ocr(tmp_path, mis)
-    assert result.verdict == "FAIL"
-    assert _detail_payload(result.detail)["outcome"] == "reworded"
+    assert result.verdict == "REVIEW"
+    assert _detail_payload(result.detail)["outcome"] == "couldnt_verify"
+
+
+def test_missing_comma_after_surgeon_general_is_review(tmp_path):
+    """The reviewer's real case: an all-caps warning whose comma after 'SURGEON GENERAL' is
+    physically on the label but too faint for OCR. The words are all correct ⇒ REVIEW (a
+    human confirms the comma), NEVER a false FAIL and NEVER a silent PASS (the comma is part
+    of §16.21 — a true exact match is still required to PASS)."""
+    no_comma = _COMPLIANT.upper().replace("SURGEON GENERAL,", "SURGEON GENERAL")
+    result = _evaluate_with_ocr(tmp_path, no_comma)
+    assert result.verdict == "REVIEW"
+    assert _detail_payload(result.detail)["outcome"] == "couldnt_verify"
+
+
+def test_line_wrap_hyphen_passes(tmp_path):
+    """A word split across a line ('PREG- NANCY') is standard typography on a compliant
+    label — de-hyphenated before comparison ⇒ exact match ⇒ PASS (not a REVIEW or FAIL)."""
+    wrapped = _COMPLIANT.upper().replace("PREGNANCY", "PREG- NANCY")
+    result = _evaluate_with_ocr(tmp_path, wrapped)
+    assert result.verdict == "PASS"
 
 
 # ── FAIL — header / Surgeon-General casing (AC1/AC2) ─────────────────────────
@@ -336,6 +359,44 @@ def test_fail_when_all_occurrences_deviate(tmp_path):
     result = _evaluate_with_ocr(tmp_path, f"{a}\n{b}")
     assert result.verdict == "FAIL"
     assert _detail_payload(result.detail)["outcome"] == "reworded"
+
+
+# ── AI transcription source (Story: gov-warning reads the VLM reading too) ────
+
+
+def test_ai_transcription_compliant_passes_even_when_ocr_garbled(tmp_path):
+    """When the VLM transcribed a compliant warning, the check PASSes even if OCR garbled
+    the back-label header — a clean image read beats noisy OCR (the smoke-test gap)."""
+    db_path = _make_db(tmp_path)
+    with connect(db_path) as conn:
+        sid = _insert_submission(conn)
+        scratch = {"llm_extraction": json.dumps({"government_warning": _COMPLIANT})}
+        ctx = _ctx(conn, sid, ocr_text="veANMET WARMING blah unreadable smudge", scratch=scratch)
+        result = gw.government_warning(_gw_check(), ctx)
+    assert result.verdict == "PASS"
+    assert _detail_payload(result.detail)["outcome"] == "pass"
+
+
+def test_ai_transcription_passes_when_ocr_absent(tmp_path):
+    """The warning is on the label (AI read it) but OCR found nothing ⇒ PASS, not absent."""
+    db_path = _make_db(tmp_path)
+    with connect(db_path) as conn:
+        sid = _insert_submission(conn)
+        scratch = {"llm_extraction": json.dumps({"government_warning": _COMPLIANT})}
+        ctx = _ctx(conn, sid, ocr_text="STONE'S THROW BOURBON 750 mL", scratch=scratch)
+        result = gw.government_warning(_gw_check(), ctx)
+    assert result.verdict == "PASS"
+
+
+def test_ai_null_warning_falls_back_to_ocr(tmp_path):
+    """A null/absent AI warning field ⇒ evaluate OCR only (unchanged single-source path)."""
+    db_path = _make_db(tmp_path)
+    with connect(db_path) as conn:
+        sid = _insert_submission(conn)
+        scratch = {"llm_extraction": json.dumps({"government_warning": None})}
+        ctx = _ctx(conn, sid, ocr_text=_COMPLIANT, scratch=scratch)
+        result = gw.government_warning(_gw_check(), ctx)
+    assert result.verdict == "PASS"  # OCR carried the compliant warning
 
 
 # ── FAIL — absent → plain, NO diff (AC3(b)) ──────────────────────────────────
@@ -478,11 +539,14 @@ def test_check_never_imports_a_model_adapter():
 
 
 def test_check_constructs_no_model_client():
-    """AC1: belt-and-braces — no model adapter is constructed/called by the check.
+    """AC1: belt-and-braces — no model adapter is constructed/CALLED by the check.
 
-    The check builds NO LLM adapter (``get_llm_adapter`` / ``build_extractor`` / etc.).
-    A coarse source scan for adapter-construction call names; prose is excluded by
-    targeting call-like tokens only."""
+    The check builds NO LLM adapter (``get_llm_adapter`` / ``build_extractor`` / etc.) and
+    opens no socket. It MAY read the AI's already-persisted transcription (the model ran
+    upstream in the VLM stage — reading stored extraction is not a model call, the same as
+    field_match), so reading ``llm_results`` is allowed; constructing/calling a model is not.
+    A coarse source scan for adapter-construction call names; prose excluded by targeting
+    call-like tokens only."""
     logic = Path("app/engine/checks/government_warning.py").read_text(encoding="utf-8")
-    for token in ("get_llm_adapter(", "build_extractor(", "llm_results", "get_latest_llm"):
-        assert token not in logic, f"check logic references a model code path: {token!r}"
+    for token in ("get_llm_adapter(", "build_extractor("):
+        assert token not in logic, f"check logic constructs/calls a model: {token!r}"

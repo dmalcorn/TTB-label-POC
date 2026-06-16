@@ -46,6 +46,16 @@ def _env_int(name: str, default: int, *, min_value: int | None = None) -> int:
     return value
 
 
+def _env_csv(name: str, default: tuple[str, ...]) -> tuple[str, ...]:
+    """Parse a comma-separated env var into a lower-cased tuple (order preserved); fall
+    back to ``default`` when absent/empty so a blank value never disables everything."""
+    raw = os.getenv(name)
+    if raw is None or not raw.strip():
+        return default
+    items = tuple(part.strip().lower() for part in raw.split(",") if part.strip())
+    return items or default
+
+
 class Settings(BaseModel):
     """Environment-driven configuration.
 
@@ -83,6 +93,18 @@ class Settings(BaseModel):
     # and baked into the image; ONLY derived variants are written here. Demo reset
     # (Epic 6, POST /reset) purges this root — see the TODO hook in pipeline/preprocess.
     generated_images_dir: str = "data/generated"
+    # OCR feature toggle. When false, the OCR stage is skipped entirely (no engines run)
+    # and the review cards show only the AI reading (provided LLM_ENABLED). OCR defaults
+    # ON — it is the zero-egress baseline. Pairs with LLM_ENABLED: with BOTH on, each
+    # comparison card shows an OCR row AND an AI row (the head-to-head display).
+    ocr_enabled: bool = True
+    # OCR pass selection (perf toggle). The pipeline OCRs each image with every engine in
+    # ``ocr_engines``, on the ORIGINAL and — when ``ocr_preprocess_variants`` is true — that
+    # engine's preprocessed variant. Fewer engines / no variants ⇒ fewer (slow) OCR passes.
+    # Defaults run the full matrix (both engines + variants) so tests + the benchmark
+    # bake-off are unchanged; deployments dial it down via OCR_ENGINES / OCR_PREPROCESS_VARIANTS.
+    ocr_engines: tuple[str, ...] = ("tesseract", "paddleocr")
+    ocr_preprocess_variants: bool = True
 
     @classmethod
     def from_env(cls) -> Settings:
@@ -106,6 +128,9 @@ class Settings(BaseModel):
             # `or` so a set-but-empty GENERATED_IMAGES_DIR="" falls back to the default
             # rather than writing variants into the process CWD.
             generated_images_dir=os.getenv("GENERATED_IMAGES_DIR") or "data/generated",
+            ocr_enabled=_env_bool("OCR_ENABLED", default=True),
+            ocr_engines=_env_csv("OCR_ENGINES", default=("tesseract", "paddleocr")),
+            ocr_preprocess_variants=_env_bool("OCR_PREPROCESS_VARIANTS", default=True),
         )
 
 

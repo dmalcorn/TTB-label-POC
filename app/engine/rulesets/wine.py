@@ -78,17 +78,11 @@ WINE_RULESET: tuple[Check, ...] = (
         strategy="field_match",
         field_key="class_type_designation",
     ),
-    Check(
-        # A grape varietal on the brand label IS the class/type designation
-        # (doc §3, §4.23); matched against the application's "Grape Varietal" field.
-        check_key="grape_varietal",
-        label="Grape varietal designation",
-        check_type="FIELD_MATCH",
-        cfr_citation="27 CFR 4.23",
-        source_date=_SOURCE_DATE,
-        strategy="field_match",
-        field_key="grape_varietal",
-    ),
+    # NOTE: grape varietal was REMOVED as a checklist card (Diane's call, 2026-06-16). It is
+    # an OPTIONAL element, and the registry omits it for the dessert/table wines we harvested
+    # for real net/ABV (it would only ever show a blank "needs your call"), so the card is
+    # dropped. The grape_varietal column remains on submissions for a future varietal-wine
+    # set; it simply isn't surfaced as a check today.
     Check(
         # Value match against the application field; the per-type ABV POLICY
         # (required-only-above-14%) lives in the ``abv_format`` DETERMINISTIC row.
@@ -121,19 +115,9 @@ WINE_RULESET: tuple[Check, ...] = (
         strategy="field_match",
         field_key="applicant_name_address",
     ),
-    # ── per-type DETERMINISTIC format check: the ABV trap (doc §6, §4.36) ─────
-    # Routes to the SAME ``format_checks`` evaluator as spirits; that evaluator
-    # reads ABV_POLICY[beverage_type] — wine = required-only-above-14% with the
-    # band-dependent (±1.0 / ±1.5) tolerance — so a ≤14% table wine without ABV
-    # is NOT failed. No per-type code here; the policy is DATA the evaluator owns.
-    Check(
-        check_key="abv_format",
-        label="Alcohol content statement format",
-        check_type="DETERMINISTIC",
-        cfr_citation="27 CFR 4.36",
-        source_date=_SOURCE_DATE,
-        strategy="format_checks",
-    ),
+    # NOTE: the abv_format DETERMINISTIC check was REMOVED (Diane's call, 2026-06-16) — the
+    # checklist is kept strictly to the seven common elements, and ABV-statement format is a
+    # facet of the alcohol-content element already covered by its field-match card.
     # ── Government Warning (Part 16; applies to all types ≥0.5% ABV) ──────────
     Check(
         check_key="government_warning",

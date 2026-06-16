@@ -200,7 +200,7 @@ over-claim.*
   is available, the engine reports **"cannot verify type size — physical dimensions
   unknown"** rather than guessing.
 
-## B2. Checklist scoped to checks the engine can anchor (conditional disclosures deferred)
+## B2. Checklist scoped to the seven common elements
 
 - **Decision:** a checklist item earns its place only if the engine can hand the reviewer
   something to act on — an expected value to compare, or a deterministic rule it can apply.
@@ -221,14 +221,19 @@ over-claim.*
     elements are already verified individually by their own field-match cards.
   - **Wine §4.72 standards of fill** — the wine size table is not implemented (the spirits
     §5.203 table is); without it the row could only defer.
-- **What was kept:** every check the engine genuinely evaluates — the application↔OCR field
-  matches (brand, class/type, grape/fanciful, ABV, net contents, name/address), the
-  Government Warning, the ABV-statement format check, and (spirits) the §5.203
-  standards-of-fill table lookup + proof/ABV consistency. **Country of origin** is now a real
-  comparison **card** (no longer a flag-only REVIEW): it keys off the application's **import /
-  source-of-product** flag — `IMPORTED` ⇒ field-match the filed country (e.g. "Scotland")
-  against the label; `DOMESTIC` ⇒ auto-PASS with "Not imported" (no country statement required,
-  and we trust the flag rather than recognizing US states).
+  - **Format / consistency / optional-element checks** (final trim) — `abv_format`
+    (ABV-statement format), spirits `standards_of_fill` (§5.203 approved size) +
+    `proof_abv_consistency` (proof = 2×ABV), plus the **grape varietal** and **fanciful name**
+    cards. These are real checks, but they fall OUTSIDE the seven common elements; the
+    checklist is deliberately scoped to exactly those seven so the reviewer sees only the core
+    elements, not adjacent format/optional rows. (The `format_checks` evaluator stays
+    registered + unit-tested for a future story.)
+- **What was kept — exactly the seven common elements, on every type:** the application↔OCR
+  field matches for **brand name, class/type, alcohol content, net contents, name & address**,
+  plus the **Government Warning** and **country of origin**. **Country of origin** is a real
+  comparison **card**: it keys off the application's **import / source-of-product** flag —
+  `IMPORTED` ⇒ field-match the filed country (e.g. "Scotland") against the label; `DOMESTIC` ⇒
+  auto-PASS with "Not imported" (we trust the flag, not US-state recognition).
 - **Why this honors the brief:** the take-home scopes the core review to *matching* the
   listed common elements + the Government Warning, and explicitly prefers "a working core
   application … over ambitious but incomplete features." Trimming to the anchorable checks is
@@ -237,7 +242,12 @@ over-claim.*
   could not read).
 - **What would re-enable the removed checks:** surfacing the application's **formula /
   ingredients** fields (for the conditional disclosures) and layout/region analysis plus
-  per-image brand/neck/back tags (for same-field-of-vision).
+  per-image brand/neck/back tags (for same-field-of-vision); the format/consistency checks
+  can simply be re-added to the rulesets (the evaluator is still registered).
+- **One limitation from the seven-only trim:** dropping `abv_format` removed its cue-aware
+  ABV detection, so a wine that omits its ABV yet prints only a marketing "%" ("100% Estate
+  Grown") could be mis-read by the value match. It does not affect the shipped corpus (those
+  labels carry a real ABV the OCR locates), and a wrong ABV is a REVIEW-worthy finding anyway.
 
 ## B3. The Government Warning is checked against the regulation, not a maker value (by design)
 

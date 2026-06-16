@@ -10,9 +10,9 @@ off-host calls in the whole app originate in the concrete provider adapters
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Protocol, runtime_checkable
 
+from app.adapters.llm._common import ImageArg
 from app.contracts import LlmResult
 
 
@@ -21,8 +21,9 @@ class ModelAdapter(Protocol):
     """Uniform interface every model adapter implements.
 
     The identity attributes populate ``LlmResult``'s model-identification fields.
-    ``run`` performs one model call (optionally image-scoped) and returns the
-    centralized :class:`LlmResult` shape.
+    ``run`` performs one model call over one OR many label images (``image_path``
+    accepts a single path or a sequence) and returns the centralized
+    :class:`LlmResult` shape.
     """
 
     model_name: str
@@ -30,4 +31,4 @@ class ModelAdapter(Protocol):
     model_full_id: str
     provider: str
 
-    def run(self, task: str, prompt: str, *, image_path: str | Path | None = None) -> LlmResult: ...
+    def run(self, task: str, prompt: str, *, image_path: ImageArg | None = None) -> LlmResult: ...

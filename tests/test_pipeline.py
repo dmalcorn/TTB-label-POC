@@ -429,6 +429,36 @@ def test_scheduler_disabled_env_is_respected(monkeypatch):
     assert Settings.from_env().scheduler_enabled is False
 
 
+def test_ocr_enabled_defaults_true_and_env_toggles_it(monkeypatch):
+    from app.config import Settings
+
+    monkeypatch.delenv("OCR_ENABLED", raising=False)
+    assert Settings.from_env().ocr_enabled is True
+    monkeypatch.setenv("OCR_ENABLED", "false")
+    assert Settings.from_env().ocr_enabled is False
+
+
+def test_ocr_stage_disabled_writes_no_rows_but_keeps_timeline(tmp_path, monkeypatch):
+    """OCR_ENABLED=false ⇒ the stage writes NO ocr_results rows but still emits the
+    OCR_STARTED/OCR_COMPLETED timeline markers (lifecycle unchanged)."""
+    from app.pipeline import ocr as ocrmod
+
+    monkeypatch.setenv("OCR_ENABLED", "false")
+    db_path = _make_db(tmp_path)
+    with connect(db_path) as conn:
+        sid = _insert_received(conn, status="PROCESSING")
+        _insert_image(conn, sid, filename="front.jpg")
+    with connect(db_path) as conn:
+        ocrmod.ocr_stage(_stage_ctx(conn, sid, {"variants": {}}))
+    with connect(db_path) as conn:
+        rows = conn.execute(
+            "SELECT COUNT(*) AS n FROM ocr_results WHERE submission_id = ?", (sid,)
+        ).fetchone()
+        events = [e["event_type"] for e in _events(conn, sid)]
+    assert rows["n"] == 0
+    assert "OCR_STARTED" in events and "OCR_COMPLETED" in events
+
+
 # ── Live wiring: the scheduler actually FIRES through the lifespan ────────────
 
 
@@ -513,13 +543,18 @@ def test_ocr_stage_routes_original_plus_preferred_variant_per_engine(tmp_path, m
     BINARIZED, PaddleOCR↔ENHANCED), each row tagged with the variant it consumed."""
     from app.pipeline import ocr as ocrmod
 
+    # Pin the full OCR matrix regardless of ambient env (a deployment / local .env may set
+    # the perf toggle OCR_PREPROCESS_VARIANTS=false — this test asserts the variant routing).
+    monkeypatch.setenv("OCR_PREPROCESS_VARIANTS", "true")
+    monkeypatch.setenv("OCR_ENGINES", "tesseract,paddleocr")
+
     db_path = _make_db(tmp_path)
     with connect(db_path) as conn:
         sid = _insert_received(conn, status="PROCESSING")
         img_id = _insert_image(conn, sid, filename="front.jpg")
 
     monkeypatch.setattr(
-        ocrmod, "build_engines", lambda: [_StubOcr("tesseract"), _StubOcr("paddleocr")]
+        ocrmod, "build_engines", lambda *a, **k: [_StubOcr("tesseract"), _StubOcr("paddleocr")]
     )
     scratch = {
         "variants": {
@@ -558,7 +593,7 @@ def test_ocr_stage_clean_image_runs_original_only(tmp_path, monkeypatch):
         img_id = _insert_image(conn, sid, filename="clean.jpg")
 
     monkeypatch.setattr(
-        ocrmod, "build_engines", lambda: [_StubOcr("tesseract"), _StubOcr("paddleocr")]
+        ocrmod, "build_engines", lambda *a, **k: [_StubOcr("tesseract"), _StubOcr("paddleocr")]
     )
     scratch = {"variants": {img_id: {"original": "clean.jpg", "enhanced": None, "binarized": None}}}
     with connect(db_path) as conn:
@@ -576,6 +611,34 @@ def test_ocr_stage_clean_image_runs_original_only(tmp_path, monkeypatch):
     ]
 
 
+def test_build_engines_filters_by_settings_ocr_engines():
+    """The perf toggle: build_engines returns ONLY the engines named in
+    ``settings.ocr_engines`` (default = both; option A = paddleocr only)."""
+    from app.config import Settings
+    from app.pipeline import ocr as ocrmod
+
+    both = ocrmod.build_engines(Settings(ocr_engines=("tesseract", "paddleocr")))
+    assert sorted(e.name for e in both) == ["paddleocr", "tesseract"]
+
+    paddle_only = ocrmod.build_engines(Settings(ocr_engines=("paddleocr",)))
+    assert [e.name for e in paddle_only] == ["paddleocr"]
+
+
+def test_tasks_for_engine_skips_variant_when_toggle_off():
+    """``run_variants=False`` (OCR_PREPROCESS_VARIANTS=false) → ORIGINAL only, even when
+    the engine's preferred variant file exists — halving the OCR passes."""
+    from app.pipeline import ocr as ocrmod
+
+    info = {"original": "front.jpg", "enhanced": "front__enhanced.png", "binarized": None}
+    paddle = _StubOcr("paddleocr")
+
+    with_variants = ocrmod._tasks_for_engine(paddle, info, run_variants=True)
+    assert with_variants == [("ORIGINAL", "front.jpg"), ("ENHANCED", "front__enhanced.png")]
+
+    original_only = ocrmod._tasks_for_engine(paddle, info, run_variants=False)
+    assert original_only == [("ORIGINAL", "front.jpg")]
+
+
 def test_ocr_stage_engine_failure_writes_error_row_sibling_survives(tmp_path, monkeypatch):
     """AC5: a raising engine → an ERROR ocr_results row WITH error_text; the sibling
     engine's row is still written and the submission still finalizes (not stuck)."""
@@ -589,7 +652,7 @@ def test_ocr_stage_engine_failure_writes_error_row_sibling_survives(tmp_path, mo
     monkeypatch.setattr(
         ocrmod,
         "build_engines",
-        lambda: [_StubOcr("tesseract", raises=True), _StubOcr("paddleocr")],
+        lambda *a, **k: [_StubOcr("tesseract", raises=True), _StubOcr("paddleocr")],
     )
 
     run.process_submission(str(db_path), sid)
@@ -728,7 +791,9 @@ def test_llm_stage_sends_the_image_not_ocr_text(tmp_path, monkeypatch):
 
     assert len(fake.calls) == 1
     call = fake.calls[0]
-    assert call["image_path"] is not None and call["image_path"].endswith("front.jpg")
+    # The stage now sends ALL label images as a list of paths (one VLM call, every panel).
+    paths = call["image_path"]
+    assert isinstance(paths, list) and any(p.endswith("front.jpg") for p in paths)
     assert "SECRET-OCR-LEAK-TOKEN" not in call["prompt"]  # OCR text never reaches the model
     assert "OCR" not in call["prompt"]  # the prompt instructs reading the image, not OCR text
 
@@ -838,7 +903,7 @@ def test_pipeline_llm_disabled_reaches_ready_ocr_only_constructs_nothing(tmp_pat
     constructed: list = []
     monkeypatch.setattr(cfg, "_construct_adapter", lambda *a, **k: constructed.append(1))
     monkeypatch.setattr(
-        ocrmod, "build_engines", lambda: [_StubOcr("tesseract"), _StubOcr("paddleocr")]
+        ocrmod, "build_engines", lambda *a, **k: [_StubOcr("tesseract"), _StubOcr("paddleocr")]
     )
 
     db_path = _make_db(tmp_path)
@@ -866,7 +931,7 @@ def test_pipeline_llm_enabled_persists_row_and_still_finalizes(tmp_path, monkeyp
     from app.pipeline import ocr as ocrmod
 
     monkeypatch.setattr(
-        ocrmod, "build_engines", lambda: [_StubOcr("tesseract"), _StubOcr("paddleocr")]
+        ocrmod, "build_engines", lambda *a, **k: [_StubOcr("tesseract"), _StubOcr("paddleocr")]
     )
     monkeypatch.setattr(llmmod, "get_llm_adapter", lambda settings: _FakeModel())
 
@@ -991,7 +1056,7 @@ def test_pipeline_spirits_reaches_ready_with_checklist_and_engine_verdict(tmp_pa
     from app.pipeline import ocr as ocrmod
 
     monkeypatch.setattr(
-        ocrmod, "build_engines", lambda: [_StubOcr("tesseract"), _StubOcr("paddleocr")]
+        ocrmod, "build_engines", lambda *a, **k: [_StubOcr("tesseract"), _StubOcr("paddleocr")]
     )
 
     db_path = _make_db(tmp_path)
@@ -1052,7 +1117,9 @@ def test_concurrent_workers_do_not_lock_the_db(tmp_path, monkeypatch):
     # Two engines × the ORIGINAL image ⇒ two writes per submission, with a slow extract
     # between them — exactly the interleave that used to hold the lock.
     monkeypatch.setattr(
-        ocr_mod, "build_engines", lambda: [_SlowEngine("tesseract"), _SlowEngine("paddleocr")]
+        ocr_mod,
+        "build_engines",
+        lambda *a, **k: [_SlowEngine("tesseract"), _SlowEngine("paddleocr")],
     )
     monkeypatch.setattr(run, "STAGES", [ocr_mod.ocr_stage])
 

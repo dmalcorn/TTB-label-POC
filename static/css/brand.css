@@ -698,6 +698,29 @@ a {
   font-style: italic;
 }
 
+/* Per-source match indicator on the multi-source (OCR vs AI) card rows — a small inline
+ * word after the on-label value. Color echoes the verdict palette, but the WORD carries
+ * the meaning (never color alone — A11Y). Sans + small so the mono value stays primary. */
+.reading-flag {
+  display: inline-block;
+  margin-left: 10px;
+  font-family: var(--brand-font-sans);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  vertical-align: middle;
+}
+.reading--match {
+  color: var(--verdict-pass);
+}
+.reading--differs {
+  color: var(--verdict-fail);
+}
+.reading--missing {
+  color: var(--brand-ink-muted);
+}
+
 /* char-diff spans: soft = amber (capitalization only, never alarming red);
  * del/ins = red, with underline/strike so the diff survives without color. */
 .diff-equal {

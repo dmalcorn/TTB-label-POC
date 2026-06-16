@@ -48,6 +48,7 @@ from app import normalize, verdict
 from app.config import get_llm_adapter, get_settings
 from app.db import repositories as repo
 from app.engine.checks import CheckContext, CheckResult
+from app.engine.checks.field_match import _extracted_from_llm
 from app.engine.rulesets import class_type as data
 
 if TYPE_CHECKING:
@@ -56,6 +57,11 @@ if TYPE_CHECKING:
     from app.engine.rulesets import Check
 
 logger = logging.getLogger(__name__)
+
+# Card display only: map the HYBRID verdict to a field_comparisons match_status so the
+# class/type card reads like the other comparison cards (PASS→MATCH, FAIL→MISMATCH, else
+# UNVERIFIABLE). Typed dict[str, str] so the full verdict domain (incl. NA) is a valid key.
+_CARD_STATUS_FOR_VERDICT: dict[str, str] = {verdict.PASS: "MATCH", verdict.FAIL: "MISMATCH"}
 
 # The VLM escalation instruction. The model reads the IMAGE and returns its own
 # reading — there is NO OCR text in this prompt (VLM-only). The check never promotes
@@ -70,13 +76,60 @@ _PROMPT = (
 
 
 def class_type(check: Check, ctx: CheckContext) -> CheckResult:
-    """Evaluate the class/type designation: conflict→FAIL, recognized→PASS, else escalate.
+    """Evaluate the class/type designation (HYBRID) AND write a comparison row so it renders
+    as a card like the other fields.
 
-    Deterministic FIRST (AC1/AC3), the VLM LAST and capped at REVIEW (AC2/AC4). Reads
-    ``ctx.ocr_text`` for the deterministic logic ONLY — never forwards it to a model.
+    The validity JUDGMENT is unchanged (:func:`_judge` — conflict→FAIL, recognized→PASS,
+    else VLM-escalate capped at REVIEW; OCR feeds the deterministic logic only, never a
+    model). On top of that we persist one ``field_comparisons`` row — declared designation
+    vs the label OCR — so the Story-4.4 card renders (``field_cards`` keys on
+    ``field_comparison_id``, NOT on check_type), giving spirits a class/type card while
+    keeping the HYBRID/VLM path intact. The card's ``match_status`` mirrors the verdict.
     """
     ocr_text = ctx.ocr_text or ""
     designation = ctx.submission.class_type_designation or ""
+    result = _judge(ctx, designation, ocr_text)
+    field_key = check.field_key or "class_type_designation"
+    # The HYBRID verdict is holistic (catalog recognition + cross-label conflict), so the
+    # card's match_status mirrors it for every source row. We write one row per source so
+    # the card shows what OCR read AND what the AI read for the class/type (the AI row was
+    # missing before). The OCR row carries the whole label blob (the card isolates the
+    # snippet); the AI row carries the model's structured class/type reading.
+    status = _CARD_STATUS_FOR_VERDICT.get(result.verdict, "UNVERIFIABLE")
+    ocr_comparison_id = repo.insert_field_comparison(
+        ctx.conn,
+        ctx.submission.id,
+        field_key=field_key,
+        application_value=designation or None,
+        extracted_value=ocr_text or None,
+        match_status=status,
+        source_ocr_result_id=repo.get_best_ocr_result_id(ctx.conn, ctx.submission.id),
+    )
+    primary_id = ocr_comparison_id
+    ai = _extracted_from_llm(ctx, field_key)
+    if ai is not None:
+        ai_value, llm_id = ai
+        primary_id = repo.insert_field_comparison(
+            ctx.conn,
+            ctx.submission.id,
+            field_key=field_key,
+            application_value=designation or None,
+            extracted_value=ai_value,
+            match_status=status,
+            source_llm_result_id=llm_id,
+        )  # AI-preferred for the checklist FK; the card gathers both rows by field_key
+    return CheckResult(
+        verdict=result.verdict,
+        detail=result.detail,
+        field_comparison_id=primary_id,
+        model_id=getattr(result, "model_id", None),
+    )
+
+
+def _judge(ctx: CheckContext, designation: str, ocr_text: str) -> CheckResult:
+    """The class/type validity verdict (no persistence): conflict→FAIL, recognized→PASS,
+    else VLM-escalate/REVIEW. Deterministic FIRST (AC1/AC3); the VLM LAST + capped at REVIEW
+    (AC2/AC4). Reads ``ctx.ocr_text`` for the deterministic logic ONLY — never to a model."""
 
     # (1) Cross-label conflict (AC3) — deterministic FAIL FIRST. The label OCR carries a
     # mutually-exclusive base class (e.g. vodka) that contradicts the DECLARED

@@ -73,6 +73,44 @@ def _cmp(
     )
 
 
+def test_field_card_shows_both_ocr_and_ai_readings():
+    """With an OCR row AND an AI row for the same field, the card carries two readings —
+    OCR first, AI second — each with its value + per-row match indicator (the head-to-head
+    display). The OCR misread 'differs'; the AI 'matches'."""
+    item = _item("brand_name", "REVIEW", field_comparison_id=2)
+    ocr = _cmp(
+        "brand_name",
+        cmp_id=1,
+        extracted_value="STONE'5 THROW",
+        match_status="MISMATCH",
+        extracted_source="ocr:tesseract",
+    )
+    ai = _cmp(
+        "brand_name",
+        cmp_id=2,
+        extracted_value="Stone's Throw",
+        match_status="MATCH",
+        extracted_source="llm:gpt-4o-mini",
+    )
+    cards = review_view.field_cards([item], [ocr, ai])
+    assert len(cards) == 1
+    readings = cards[0]["readings"]
+    assert [r["source_label"] for r in readings] == ["OCR", "AI"]
+    assert readings[0]["value"] == "STONE'5 THROW"
+    assert readings[0]["indicator"] == "differs"
+    assert readings[1]["value"] == "Stone's Throw"
+    assert readings[1]["indicator"] == "matches"
+
+
+def test_field_card_single_source_has_one_reading():
+    """A field read by only one source (OCR-only or AI-only) yields a single reading — the
+    classic one-row card."""
+    item = _item("brand_name", "PASS", field_comparison_id=1)
+    cards = review_view.field_cards([item], [_cmp("brand_name", cmp_id=1)])
+    assert len(cards[0]["readings"]) == 1
+    assert cards[0]["readings"][0]["source_label"] == "OCR"
+
+
 # ── Banner ───────────────────────────────────────────────────────────────────
 
 
@@ -911,8 +949,10 @@ def test_gov_warning_card_reworded_fail_shows_plain_required_and_onlabel():
     assert card["chip_class"] == "chip--fail"
     assert card["chip_word"] == "FAIL"
     assert card["outcome"] == "reworded"
-    # The required §16.21 text and the OCR'd on-label text are carried verbatim — NO redline.
-    assert card["required_text"] == "GOVERNMENT WARNING: text"
+    # The required §16.21 example is shown UPPERCASED (real labels are all-caps, and the
+    # canonical mixed-case text beside an all-caps label misreads as "lowercase required").
+    # The OCR'd on-label text is carried verbatim — NO redline.
+    assert card["required_text"] == "GOVERNMENT WARNING: TEXT"
     assert card["onlabel_text"] == "Government Warning: text"
     assert card["diff_required"] is None
     assert card["diff_onlabel"] is None

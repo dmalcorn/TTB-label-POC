@@ -243,8 +243,20 @@ def test_near_miss_text_goes_to_review(tmp_path):
     assert 0.0 < row["similarity"] < 1.0
 
 
-def test_substantive_text_mismatch_fails(tmp_path):
-    """AC2: a genuinely different brand name (low similarity) ⇒ FAIL."""
+def test_substantive_brand_mismatch_defers_to_review(tmp_path):
+    """A genuinely different brand value is a MISMATCH band — but brand_name DEFERS to
+    REVIEW (soften: the label's prominent text is often the fanciful name, not the formal
+    brand). The underlying comparison band is still FAIL; the field-level policy defers it."""
+    # The comparison band itself is the FAIL register for a low-similarity text mismatch...
+    _, _, band, _ = fm._compare(
+        field_key="brand_name",
+        application_value="Stone's Throw",
+        extracted_value="Mountain Peak Vodka XYZ",
+        ocr_confidence=None,
+        is_llm_sourced=True,
+    )
+    assert band == "FAIL"
+    # ...but the brand_name CHECK defers a mismatch to REVIEW, never a hard FAIL.
     db_path = _make_db(tmp_path)
     with connect(db_path) as conn:
         sid = _insert_submission(conn, brand_name="Stone's Throw")
@@ -253,7 +265,7 @@ def test_substantive_text_mismatch_fails(tmp_path):
         result = fm.field_match(_check("brand_name"), _ctx(conn, sid))
         conn.commit()
 
-    assert result.verdict == "FAIL"
+    assert result.verdict == "REVIEW"
 
 
 def test_abv_within_tolerance_passes(tmp_path):
@@ -402,29 +414,31 @@ def test_numeric_wrong_unit_only_stray_is_unverifiable_not_fail(tmp_path):
 
 
 def test_low_ocr_confidence_softens_fail_to_review(tmp_path):
-    """Regression: a substantive text MISMATCH from a LOW-confidence OCR read is
-    softened FAIL→REVIEW (the low-confidence valve applies symmetrically, not only
-    to PASS) — a shaky read must not drive a false reject."""
+    """Regression: a substantive MISMATCH from a LOW-confidence OCR read is softened
+    FAIL→REVIEW (the low-confidence valve applies symmetrically, not only to PASS) — a
+    shaky read must not drive a false reject. Uses a numeric field (alcohol_content), which
+    is NOT review-only, so the valve — not a field-level defer — is what softens it."""
     db_path = _make_db(tmp_path)
     with connect(db_path) as conn:
-        sid = _insert_submission(conn, brand_name="Stone's Throw")
+        sid = _insert_submission(conn, alcohol_content="45%")
         img = _insert_label_image(conn, sid)
-        _insert_ocr(conn, sid, img, "MOUNTAIN PEAK VODKA XYZ", confidence=0.10)
-        result = fm.field_match(_check("brand_name"), _ctx(conn, sid))
+        _insert_ocr(conn, sid, img, "40% Alc./Vol.", confidence=0.10)
+        result = fm.field_match(_check("alcohol_content"), _ctx(conn, sid))
         conn.commit()
 
     assert result.verdict == "REVIEW"
 
 
 def test_substantive_fail_survives_when_ocr_confidence_is_high(tmp_path):
-    """Guard for the valve above: the SAME substantive MISMATCH at HIGH confidence
-    still FAILs — the valve keys off confidence, it does not blanket-soften FAILs."""
+    """Guard for the valve above: the SAME substantive MISMATCH at HIGH confidence still
+    FAILs — the valve keys off confidence, it does not blanket-soften FAILs. Numeric field
+    (not review-only) so the FAIL is a real one, not deferred."""
     db_path = _make_db(tmp_path)
     with connect(db_path) as conn:
-        sid = _insert_submission(conn, brand_name="Stone's Throw")
+        sid = _insert_submission(conn, alcohol_content="45%")
         img = _insert_label_image(conn, sid)
-        _insert_ocr(conn, sid, img, "MOUNTAIN PEAK VODKA XYZ", confidence=0.95)
-        result = fm.field_match(_check("brand_name"), _ctx(conn, sid))
+        _insert_ocr(conn, sid, img, "40% Alc./Vol.", confidence=0.95)
+        result = fm.field_match(_check("alcohol_content"), _ctx(conn, sid))
         conn.commit()
 
     assert result.verdict == "FAIL"
@@ -540,22 +554,65 @@ def test_ocr_path_sets_exactly_one_source_fk_and_raw_values(tmp_path):
     assert row["similarity"] is not None
 
 
+def _comparisons(conn, submission_id) -> list[sqlite3.Row]:
+    return conn.execute(
+        "SELECT * FROM v_field_comparisons WHERE submission_id = ? ORDER BY id",
+        (submission_id,),
+    ).fetchall()
+
+
 def test_llm_extraction_path_sets_llm_source_fk(tmp_path):
-    """AC4 / Task 2: when a structured LLM extraction exists, the evaluator parses it
-    per field_key and sets source_llm_result_id (preferred over OCR)."""
+    """AC4 / Task 2: when a structured LLM extraction exists, the evaluator parses it per
+    field_key and writes an LLM-sourced comparison row. (With OCR also reading the brand,
+    both sources agree ⇒ PASS, and BOTH rows are written — the dual-source display.)"""
     db_path = _make_db(tmp_path)
     with connect(db_path) as conn:
         sid = _insert_submission(conn, brand_name="Stone's Throw")
         img = _insert_label_image(conn, sid)
-        _insert_ocr(conn, sid, img, "totally different ocr text")
+        _insert_ocr(conn, sid, img, "STONE'S THROW BOURBON 750 mL")
         llm_id = _insert_llm_extraction(conn, sid, {"brand_name": "Stone's Throw"})
         result = fm.field_match(_check("brand_name"), _ctx(conn, sid))
         conn.commit()
-        row = _comparison(conn, sid)
+        rows = _comparisons(conn, sid)
+
+    assert result.verdict == "PASS"  # both sources agree
+    # An LLM-sourced row AND an OCR-sourced row exist (both shown on the card).
+    assert any(r["source_llm_result_id"] == llm_id for r in rows)
+    assert any(r["source_ocr_result_id"] is not None for r in rows)
+
+
+def test_dual_source_disagreement_is_review(tmp_path):
+    """Agreement matrix: OCR mismatches but the AI matches the application ⇒ the sources
+    DISAGREE ⇒ REVIEW, with one row per source. Uses a numeric field (not review-only) so a
+    real per-source FAIL-vs-PASS conflict is exercised (a brand conflict would be deferred)."""
+    db_path = _make_db(tmp_path)
+    with connect(db_path) as conn:
+        sid = _insert_submission(conn, alcohol_content="45%")
+        img = _insert_label_image(conn, sid)
+        _insert_ocr(conn, sid, img, "40% Alc./Vol.")  # OCR reads a different ABV ⇒ FAIL
+        _insert_llm_extraction(conn, sid, {"alcohol_content": "45% ALC/VOL"})  # AI matches ⇒ PASS
+        result = fm.field_match(_check("alcohol_content"), _ctx(conn, sid))
+        conn.commit()
+        rows = _comparisons(conn, sid)
+
+    assert result.verdict == "REVIEW"
+    assert {r["extracted_source"].split(":")[0] for r in rows} == {"ocr", "llm"}
+
+
+def test_dual_source_both_match_is_pass(tmp_path):
+    """Both OCR and the AI match the application ⇒ PASS (strong agreement)."""
+    db_path = _make_db(tmp_path)
+    with connect(db_path) as conn:
+        sid = _insert_submission(conn, brand_name="Stone's Throw")
+        img = _insert_label_image(conn, sid)
+        _insert_ocr(conn, sid, img, "STONE'S THROW")
+        _insert_llm_extraction(conn, sid, {"brand_name": "Stone's Throw"})
+        result = fm.field_match(_check("brand_name"), _ctx(conn, sid))
+        conn.commit()
+        rows = _comparisons(conn, sid)
 
     assert result.verdict == "PASS"
-    assert row["source_llm_result_id"] == llm_id
-    assert row["source_ocr_result_id"] is None
+    assert len(rows) == 2  # one OCR row, one AI row
 
 
 def test_llm_extraction_from_scratch_is_used(tmp_path):

@@ -1,5 +1,0 @@
-# Runtime artifacts — never commit these.
-logs/
-STOP
-state.json
-.run.lock

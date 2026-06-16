@@ -368,8 +368,11 @@ def test_no_field_comparison_row_written(tmp_path):
 # ── integration through run_checks (3.2 seam) ────────────────────────────────
 
 
-def test_run_checks_writes_format_check_rows(tmp_path):
-    """End-to-end: the spirits ruleset now carries the new DETERMINISTIC format rows."""
+def test_format_checks_removed_from_rulesets(tmp_path):
+    """Seven-only checklist (Diane's call, 2026-06-16): the DETERMINISTIC format checks were
+    dropped from the rulesets, so run_checks emits NO abv_format / standards_of_fill /
+    proof_abv_consistency rows. The ``format_checks`` evaluator stays registered + is
+    unit-tested directly elsewhere in this file, for a future story."""
     db_path = _make_db(tmp_path)
     with connect(db_path) as conn:
         sid = _insert_submission(conn)
@@ -379,14 +382,12 @@ def test_run_checks_writes_format_check_rows(tmp_path):
         assert submission is not None
         rc.run_checks(conn, submission)
         rows = conn.execute(
-            "SELECT check_key, check_type FROM checklist_items "
-            "WHERE submission_id = ? AND check_key IN "
+            "SELECT check_key FROM checklist_items WHERE submission_id = ? AND check_key IN "
             "('abv_format','standards_of_fill','proof_abv_consistency')",
             (sid,),
         ).fetchall()
-    keys = {r["check_key"] for r in rows}
-    assert {"abv_format", "standards_of_fill", "proof_abv_consistency"} <= keys
-    assert all(r["check_type"] == "DETERMINISTIC" for r in rows)
+    assert rows == []  # none of the format checks are emitted anymore
+    assert checks.get_evaluator("format_checks") is not None  # evaluator still registered
 
 
 # ── AC1: NO-LLM guard (mirrors test_government_warning.py) ────────────────────

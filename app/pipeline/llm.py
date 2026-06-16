@@ -56,19 +56,32 @@ logger = logging.getLogger(__name__)
 
 EXTRACT_FIELDS_TASK = "extract_fields"
 
-# The extraction instruction. The model reads the IMAGE and returns fields — there is
-# no OCR text in this prompt (VLM-only). Per-field parsing/use of the result is Epic 3;
-# 2.5 only produces and stores the raw extraction.
+# The extraction instruction. The model reads the IMAGE(s) and returns fields — there is
+# no OCR text in this prompt (VLM-only). The keys are the exact ``submissions`` field_keys
+# the deterministic comparator (Story 3.3) looks up, so the JSON parses per field with no
+# remapping. JSON mode (set by the adapter) guarantees a valid object; we still tell the
+# model to return ONLY JSON. Transcribe verbatim; never guess — a missing field is null.
 _PROMPT = (
-    "You are extracting label fields from a US TTB alcohol-beverage label. "
-    "Read the attached label image and return the fields you can see "
-    "(brand name, fanciful name, class/type, alcohol content, net contents, "
-    "name/address, appellation, varietal, vintage where present) as JSON. "
-    "Use only what the image shows; do not invent values."
+    "You are reading a US TTB alcohol-beverage label from the attached image(s) "
+    "(there may be several panels: front/brand, back, neck, strip). Transcribe ONLY what "
+    "is visibly printed — never guess, infer, or complete a value. Return a single JSON "
+    "object with EXACTLY these keys; the value is the text AS PRINTED, or null when the "
+    "field is not visible on any image:\n"
+    '  "brand_name": the primary commercial/brand name;\n'
+    '  "class_type_designation": what the product is (e.g. "Kentucky Straight Bourbon '
+    'Whiskey", "Cabernet Sauvignon", "India Pale Ale");\n'
+    '  "alcohol_content": the alcohol statement as printed (e.g. "45% ALC/VOL", "90 PROOF");\n'
+    '  "net_contents": the fill statement as printed (e.g. "750 ML", "12 FL OZ", "1 PINT");\n'
+    '  "applicant_name_address": the bottler/producer/importer name with city and state;\n'
+    '  "country_of_origin": an origin statement if present (e.g. "PRODUCT OF FRANCE"), '
+    "else null;\n"
+    '  "government_warning": the full Surgeon General GOVERNMENT WARNING statement, '
+    "transcribed verbatim, else null.\n"
+    "Return JSON only — no commentary, no markdown."
 )
 
 
-def _primary_image_path(image: LabelImage) -> Path:
+def _image_path(image: LabelImage) -> Path:
     """The on-disk path of a label image's ORIGINAL file (the seeded fixtures root).
 
     The VLM reads the original image — no OCR text and no OpenCV-preprocessed variant
@@ -76,9 +89,9 @@ def _primary_image_path(image: LabelImage) -> Path:
     return SOURCE_IMAGES_DIR / image.filename
 
 
-def _run_adapter(adapter: ModelAdapter, image_path: Path) -> LlmResult:
-    """Run the adapter over the label image, downgrading any escaping exception to an
-    ``ERROR`` result.
+def _run_adapter(adapter: ModelAdapter, image_paths: list[Path]) -> LlmResult:
+    """Run the adapter over ALL of the submission's label images in ONE call, downgrading
+    any escaping exception to an ``ERROR`` result.
 
     Adapters already self-guard, so this is defensive depth: it guarantees the stage
     has an honest ``LlmResult`` (with provider identity + timing) to persist as the
@@ -87,7 +100,7 @@ def _run_adapter(adapter: ModelAdapter, image_path: Path) -> LlmResult:
 
     requested_at = utc_now_iso()
     try:
-        return adapter.run(EXTRACT_FIELDS_TASK, _PROMPT, image_path=str(image_path))
+        return adapter.run(EXTRACT_FIELDS_TASK, _PROMPT, image_path=[str(p) for p in image_paths])
     except Exception as exc:  # noqa: BLE001 — degrade to an ERROR row, never abort
         logger.error("LLM adapter raised in stage; degrading to OCR-only: %s", type(exc).__name__)
         return LlmResult(
@@ -116,17 +129,19 @@ def llm_stage(ctx: StageContext) -> None:
         return
 
     sid = ctx.submission.id
-    # The displayed extraction reads the primary (display-order first) image, and the
-    # row is bound to it. The Epic-5 benchmark runs every model over every image.
+    # Send EVERY label image (front/back/neck/strip) in one call — net contents, ABV, the
+    # name/address line, and the warning often live on a different panel than the brand. The
+    # llm_results row is bound to the primary (display-order first) image for provenance.
     primary = ctx.label_images[0] if ctx.label_images else None
-    if primary is None or not (primary.filename or "").strip():
+    image_paths = [_image_path(img) for img in ctx.label_images if (img.filename or "").strip()]
+    if primary is None or not image_paths:
         # VLM-only extraction has nothing to read without a real image path — skip
         # cleanly (the submission still finalizes OCR-only) rather than constructing a
         # client and calling the provider with a doomed (directory/blank) path.
         logger.warning("Submission %s has no readable label image; skipping VLM extraction", sid)
         return
 
-    result = _run_adapter(adapter, _primary_image_path(primary))
+    result = _run_adapter(adapter, image_paths)
 
     # Local-only, toggleable tracing (Story 5.1, FR-24). Gated on
     # LANGCHAIN_TRACING_ENABLED: when off (the default) this is a no-op that

@@ -496,6 +496,49 @@ def _card_decision(vdt: str, check_key: str, decisions: dict[str, str]) -> dict[
     }
 
 
+# The stored source label is ``ocr:<engine>`` / ``llm:<model_id>`` (derived by
+# v_field_comparisons); the card shows the short, human "OCR" / "AI".
+def _source_label(extracted_source: str | None) -> str:
+    if (extracted_source or "").startswith("llm:"):
+        return "AI"
+    if (extracted_source or "").startswith("ocr:"):
+        return "OCR"
+    return "On label"
+
+
+# match_status → (indicator text, css modifier) for the per-source reading row.
+_READING_INDICATOR: dict[str, tuple[str, str]] = {
+    "MATCH": ("matches", "reading--match"),
+    "MISMATCH": ("differs", "reading--differs"),
+    "MISSING": ("not found", "reading--missing"),
+    "UNVERIFIABLE": ("can’t verify", "reading--missing"),
+}
+
+
+def _field_readings(comparisons: list[FieldComparison]) -> list[dict[str, object]]:
+    """One display reading per source for a field — OCR first, then AI. Each carries the
+    short source label, the displayed value, and a per-row match indicator (text + css), so
+    the card can show what OCR read and what the AI read side by side."""
+    ordered = sorted(
+        comparisons, key=lambda c: 0 if (c.extracted_source or "").startswith("ocr:") else 1
+    )
+    readings: list[dict[str, object]] = []
+    for c in ordered:
+        indicator, indicator_class = _READING_INDICATOR.get(
+            c.match_status or "", ("", "reading--missing")
+        )
+        readings.append(
+            {
+                "source_label": _source_label(c.extracted_source),
+                "value": _displayed_extracted(c),
+                "match_status": c.match_status,
+                "indicator": indicator,
+                "indicator_class": indicator_class,
+            }
+        )
+    return readings
+
+
 def field_cards(
     items: Iterable[ChecklistItem],
     comparisons: Iterable[FieldComparison],
@@ -516,7 +559,13 @@ def field_cards(
     PASS) with a STABLE tie-break on the original id (ruleset) order. The per-card
     verdict is the engine's already-stored ``checklist_items.verdict`` — never
     recomputed; citations come from the row (CFR-as-data). A pure read-model."""
-    by_id = {c.id: c for c in comparisons}
+    comparison_list = list(comparisons)
+    by_id = {c.id: c for c in comparison_list}
+    # All comparisons for a field, grouped — a field may have a reading from OCR AND from
+    # the VLM (the schema is source-aware). The card renders one "On label" row per source.
+    by_field_key: dict[str, list[FieldComparison]] = {}
+    for c in comparison_list:
+        by_field_key.setdefault(c.field_key, []).append(c)
     decisions = decisions or {}
 
     cards: list[dict[str, object]] = []
@@ -571,6 +620,10 @@ def field_cards(
                 "application_value": comparison.application_value,
                 "extracted_value": display_extracted,
                 "extracted_source": comparison.extracted_source,
+                # One reading per source (OCR / AI), OCR first. When the list has >1 entry
+                # the template renders a labeled row per source (the head-to-head display);
+                # a single reading falls back to the classic one-row card (with its diff).
+                "readings": _field_readings(by_field_key.get(comparison.field_key, [comparison])),
                 "detail": item.detail,
                 "diff_application": diff_application,
                 "diff_extracted": diff_extracted,
@@ -709,6 +762,15 @@ def _gw_card(
     }
 
 
+def _gw_required_display(expected: object) -> str | None:
+    """The §16.21 example shown on the card, UPPERCASED. Real labels render the warning in
+    all-caps almost without exception, and all-caps is fully compliant — so the canonical
+    mixed-case statute text, sitting beside an all-caps label, misreads as "lowercase
+    required". Showing the example in caps removes that false impression. Returns ``None``
+    when the payload carries no expected text (nothing to show)."""
+    return expected.upper() if isinstance(expected, str) and expected else None
+
+
 def government_warning_card(
     items: Iterable[ChecklistItem], *, decisions: dict[str, str] | None = None
 ) -> dict[str, object] | None:
@@ -766,7 +828,7 @@ def _government_warning_card_inner(items: Iterable[ChecklistItem]) -> dict[str, 
             outcome=_GW_OUTCOME_REWORDED,
             vdt=vdt,
             cfr_citation=cfr_citation,
-            required_text=payload.get("expected"),
+            required_text=_gw_required_display(payload.get("expected")),
             onlabel_text=payload.get("found"),
             deviation=payload.get("deviation"),
         )

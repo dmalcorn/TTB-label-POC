@@ -36,6 +36,7 @@ from __future__ import annotations
 
 import json
 import logging
+from dataclasses import dataclass
 from decimal import Decimal
 from difflib import SequenceMatcher
 from typing import TYPE_CHECKING
@@ -64,11 +65,21 @@ NET_CONTENTS_TOLERANCE = Decimal("0")
 # near-miss ⇒ REVIEW (the false-reject safety valve); below ⇒ substantive ⇒ FAIL.
 REVIEW_FLOOR = 0.85
 
-# Fields read from a label's free-form fine print where an OCR mismatch is inherently
-# untrustworthy (the bottler name/address is abbreviated, reflowed, multi-line, and rarely
-# OCRs to the filed string). A mismatch here NEVER advises FAIL — it defers to the human
-# (REVIEW), never a false reject. The reviewer can still mark it failed on the card.
-_REVIEW_ONLY_FIELDS = frozenset({"applicant_name_address"})
+# Fields where a mismatch is inherently untrustworthy as an auto-FAIL signal, so it NEVER
+# advises FAIL — it defers to the human (REVIEW), never a false reject (the reviewer can
+# still mark it failed on the card):
+#   - applicant_name_address: abbreviated, reflowed, multi-line fine print that rarely
+#     OCRs to the filed string;
+#   - brand_name: the label's most prominent text is often the FANCIFUL name while the
+#     application's brand is the formal one (or vice versa), so brand vs label legitimately
+#     differs — a mismatch is a "look at it", not a defect.
+_REVIEW_ONLY_FIELDS = frozenset({"applicant_name_address", "brand_name"})
+
+# Per-field note appended when a FAIL is deferred to REVIEW (explains WHY to the reviewer).
+_REVIEW_ONLY_NOTE: dict[str, str] = {
+    "applicant_name_address": " — name/address is unreliable; deferring to human review",
+    "brand_name": " — brand vs fanciful name often differ; deferring to human review",
+}
 
 # OCR-confidence floor: an apparent match read from an OCR row below this confidence
 # is forced to REVIEW — the extraction cannot be trusted (the cross-type-trap valve).
@@ -89,81 +100,179 @@ _MISSING = "MISSING"
 _UNVERIFIABLE = "UNVERIFIABLE"
 
 
-def field_match(check: Check, ctx: CheckContext) -> CheckResult:
-    """Evaluate one matchable field: compare APPLICATION vs EXTRACTED, three-band.
+@dataclass(frozen=True)
+class _Reading:
+    """One source's reading of a field: its extracted value + provenance. ``ocr_id`` and
+    ``llm_id`` are mutually exclusive (the schema's at-most-one-source rule)."""
 
-    Resolves the application value (``getattr(ctx.submission, check.field_key)``) and
-    the extracted value (LLM extraction preferred, OCR text fallback), normalizes
-    BOTH via ``app/normalize.py`` (never inline), computes the band, writes one
-    ``field_comparisons`` row, and returns the verdict + that row's id.
-    """
+    value: str
+    ocr_id: int | None = None
+    llm_id: int | None = None
+    ocr_confidence: float | None = None
+
+    @property
+    def is_llm(self) -> bool:
+        return self.llm_id is not None
+
+
+def field_match(check: Check, ctx: CheckContext) -> CheckResult:
+    """Evaluate one matchable field against EVERY available source (OCR and/or the VLM).
+
+    Thin wrapper over :func:`compare_all_sources`. Name/address defers a mismatch to
+    REVIEW (its fine print can't be matched reliably), so it never hard-FAILs."""
     field_key = check.field_key
     if not field_key:
         # A field_match Check with no field_key cannot compare anything — honest REVIEW.
         return CheckResult(verdict=verdict.REVIEW, detail="field_match check has no field_key")
 
-    submission_id = ctx.submission.id
     application_value = getattr(ctx.submission, field_key, None)
-
-    # Resolve the extracted value + its provenance (LLM extraction first, OCR fallback).
-    extracted_value, source_ocr_id, source_llm_id, ocr_confidence = _resolve_extracted(
-        ctx, field_key
+    defer = field_key in _REVIEW_ONLY_FIELDS
+    note = _REVIEW_ONLY_NOTE.get(field_key, " — deferring to human review") if defer else ""
+    return compare_all_sources(
+        ctx, field_key, application_value, defer_fail_to_review=defer, defer_note=note
     )
 
-    match_status, similarity, vdict, detail = _compare(
-        field_key=field_key,
-        application_value=application_value,
-        extracted_value=extracted_value,
-        ocr_confidence=ocr_confidence,
-        is_llm_sourced=source_llm_id is not None,
+
+def compare_all_sources(
+    ctx: CheckContext,
+    field_key: str,
+    application_value: str | None,
+    *,
+    defer_fail_to_review: bool = False,
+    defer_note: str = "",
+) -> CheckResult:
+    """Compare ``application_value`` against EVERY source reading (OCR and/or the VLM),
+    writing ONE ``field_comparisons`` row PER source (the schema is source-aware) so the
+    card shows OCR and AI side by side. The verdict is the AGREEMENT of the per-source bands
+    (:func:`_combine_verdicts`): agree ⇒ that verdict; conflict or none-confident ⇒ REVIEW.
+    ``defer_fail_to_review`` downgrades a per-source FAIL to REVIEW (the name/address &
+    country-of-origin policy — those reads are unreliable, never a false reject). The
+    checklist FK points at the primary (AI-preferred) row. Shared by field_match and
+    country_of_origin."""
+    submission_id = ctx.submission.id
+    readings = _gather_readings(ctx, field_key)
+
+    if not readings:
+        # No source produced a value (neither OCR nor AI ran, or neither could read it) —
+        # one honest MISSING comparison, advisory REVIEW (never a false FAIL on absence).
+        match_status, similarity, vdict, detail = _compare(
+            field_key=field_key,
+            application_value=application_value,
+            extracted_value=None,
+            ocr_confidence=None,
+            is_llm_sourced=False,
+        )
+        comparison_id = repo.insert_field_comparison(
+            ctx.conn,
+            submission_id,
+            field_key=field_key,
+            application_value=application_value,
+            extracted_value=None,
+            match_status=match_status,
+            similarity=similarity,
+            source_ocr_result_id=None,
+            source_llm_result_id=None,
+        )
+        return CheckResult(verdict=vdict, detail=detail, field_comparison_id=comparison_id)
+
+    verdicts: list[CheckVerdict] = []
+    detail_parts: list[str] = []
+    primary_id: int | None = None
+    ocr_id_written: int | None = None
+    for reading in readings:
+        match_status, similarity, vdict, detail = _compare(
+            field_key=field_key,
+            application_value=application_value,
+            extracted_value=reading.value,
+            ocr_confidence=reading.ocr_confidence,
+            is_llm_sourced=reading.is_llm,
+        )
+        if defer_fail_to_review and vdict == verdict.FAIL:
+            vdict = verdict.REVIEW
+            detail = f"{detail}{defer_note}"
+
+        comparison_id = repo.insert_field_comparison(
+            ctx.conn,
+            submission_id,
+            field_key=field_key,
+            application_value=application_value,
+            extracted_value=reading.value,
+            match_status=match_status,
+            similarity=similarity,
+            source_ocr_result_id=reading.ocr_id,
+            source_llm_result_id=reading.llm_id,
+        )
+        verdicts.append(vdict)
+        detail_parts.append(f"{'AI' if reading.is_llm else 'OCR'}: {detail}")
+        if reading.is_llm:
+            primary_id = comparison_id  # AI-preferred for the checklist FK
+        else:
+            ocr_id_written = comparison_id
+
+    combined = _combine_verdicts(verdicts)
+    # The checklist row links ONE comparison; prefer the AI row, else the OCR row. The card
+    # gathers ALL of this field's comparisons by field_key, so both still render.
+    field_comparison_id = primary_id if primary_id is not None else ocr_id_written
+    return CheckResult(
+        verdict=combined, detail=" | ".join(detail_parts), field_comparison_id=field_comparison_id
     )
 
-    # Name/address never hard-FAILs on an OCR mismatch — its fine print can't be matched
-    # reliably, so defer to the human (REVIEW) instead of a false reject.
-    if field_key in _REVIEW_ONLY_FIELDS and vdict == verdict.FAIL:
-        vdict = verdict.REVIEW
-        detail = f"{detail} — name/address OCR is unreliable; deferring to human review"
 
-    comparison_id = repo.insert_field_comparison(
-        ctx.conn,
-        submission_id,
-        field_key=field_key,
-        application_value=application_value,
-        extracted_value=extracted_value,
-        match_status=match_status,
-        similarity=similarity,
-        source_ocr_result_id=source_ocr_id,
-        source_llm_result_id=source_llm_id,
-    )
-    return CheckResult(verdict=vdict, detail=detail, field_comparison_id=comparison_id)
+def _combine_verdicts(verdicts: list[CheckVerdict]) -> CheckVerdict:
+    """Agreement of the per-source bands. Only PASS/FAIL are confident "opinions"; REVIEW
+    is "no opinion". No opinion at all ⇒ REVIEW. All opinions PASS ⇒ PASS (e.g. AI matched
+    even if OCR was garbled/REVIEW). All opinions FAIL ⇒ FAIL. A PASS-vs-FAIL conflict ⇒
+    REVIEW (the sources disagree; a human decides) — the engine spine: when unsure, REVIEW."""
+    opinions = [v for v in verdicts if v in (verdict.PASS, verdict.FAIL)]
+    if not opinions:
+        return verdict.REVIEW
+    if all(v == verdict.PASS for v in opinions):
+        return verdict.PASS
+    if all(v == verdict.FAIL for v in opinions):
+        return verdict.FAIL
+    return verdict.REVIEW
 
 
-# ── extracted-value resolution (LLM extraction first, OCR text fallback) ──────
+# ── per-source reading resolution (OCR text and/or the structured VLM extraction) ──
+
+
+def _gather_readings(ctx: CheckContext, field_key: str) -> list[_Reading]:
+    """A ``_Reading`` for EACH source that produced a value — OCR first, AI second (the
+    card's row order). OCR is present when the stage ran and a value can be isolated from
+    the joined OCR text; AI is present when an ``OK`` VLM extraction carries this field.
+    Either may be absent (its stage was disabled or it could not read the field)."""
+    readings: list[_Reading] = []
+
+    ocr_value = _extracted_from_ocr_text(ctx.ocr_text, field_key)
+    if ocr_value is not None and ocr_value.strip():
+        readings.append(
+            _Reading(
+                value=ocr_value,
+                ocr_id=repo.get_best_ocr_result_id(ctx.conn, ctx.submission.id),
+                ocr_confidence=repo.get_best_ocr_confidence(ctx.conn, ctx.submission.id),
+            )
+        )
+
+    llm = _extracted_from_llm(ctx, field_key)
+    if llm is not None:
+        value, llm_id = llm
+        readings.append(_Reading(value=value, llm_id=llm_id))
+
+    return readings
 
 
 def _resolve_extracted(
     ctx: CheckContext, field_key: str
 ) -> tuple[str | None, int | None, int | None, float | None]:
-    """Resolve ``(extracted_value, source_ocr_id, source_llm_id, ocr_confidence)``.
-
-    Preference order (Task 2): a structured LLM extraction (scratch or the persisted
-    ``OK`` ``llm_results`` row) parsed per ``field_key`` — provenance is the LLM row;
-    else the OCR text fuzzy-locate — provenance is the most-confident OCR row. At most
-    one source FK is ever set.
-    """
-    llm = _extracted_from_llm(ctx, field_key)
-    if llm is not None:
-        value, llm_id = llm
-        return (value, None, llm_id, None)
-
-    # OCR-only fallback. The contributing row's id + confidence travel with the value.
-    source_ocr_id = repo.get_best_ocr_result_id(ctx.conn, ctx.submission.id)
-    ocr_confidence = repo.get_best_ocr_confidence(ctx.conn, ctx.submission.id)
-    extracted_value = _extracted_from_ocr_text(ctx.ocr_text, field_key)
-    if extracted_value is None:
-        # Could not isolate a value in the OCR text — honest MISSING, no fabricated FK.
-        return (None, None, None, ocr_confidence)
-    return (extracted_value, source_ocr_id, None, ocr_confidence)
+    """Single-source resolution (LLM preferred, OCR fallback) → ``(value, ocr_id, llm_id,
+    ocr_confidence)``. Used by evaluators that consume ONE reading (country_of_origin) — the
+    dual-source display path is :func:`_gather_readings`; this preserves the original
+    one-source contract for those callers."""
+    readings = _gather_readings(ctx, field_key)
+    if not readings:
+        return (None, None, None, repo.get_best_ocr_confidence(ctx.conn, ctx.submission.id))
+    chosen = next((r for r in readings if r.is_llm), readings[0])
+    return (chosen.value, chosen.ocr_id, chosen.llm_id, chosen.ocr_confidence)
 
 
 def _extracted_from_llm(ctx: CheckContext, field_key: str) -> tuple[str, int] | None:

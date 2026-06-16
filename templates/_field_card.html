@@ -50,41 +50,37 @@
       {%- endif -%}
     </dd>
 
+    {# One "On label" row per source (OCR / AI). With both OCR and AI on, the reviewer sees
+       each method's reading side by side, with a per-row match indicator. A single source
+       (or the legacy fallback) renders exactly one row. #}
+    {% if card.readings %}
+      {% for reading in card.readings %}
+    <dt class="field-card__kv-term">On label ({{ reading.source_label }})</dt>
+    <dd class="field-card__kv-val field-card__kv-val--extracted mono">
+      {%- if reading.value -%}
+        {{ reading.value }}
+      {%- else -%}
+        <span class="field-card__empty-val">(not found)</span>
+      {%- endif -%}
+      {% if reading.indicator %}<span class="reading-flag {{ reading.indicator_class }}">{{ reading.indicator }}</span>{% endif %}
+    </dd>
+      {% endfor %}
+    {% else %}
     <dt class="field-card__kv-term">On label (OCR)</dt>
     <dd class="field-card__kv-val field-card__kv-val--extracted mono">
-      {%- if card.diff_extracted -%}
-        {%- for seg in card.diff_extracted -%}<span class="diff-{{ seg.kind }}">{{ seg.text }}</span>{%- endfor -%}
-      {%- elif card.extracted_value -%}
+      {%- if card.extracted_value -%}
         {{ card.extracted_value }}
       {%- else -%}
         <span class="field-card__empty-val">(not found)</span>
       {%- endif -%}
     </dd>
+    {% endif %}
   </dl>
 
   {% if card.note %}
   <p class="field-card__note">{{ card.note }}</p>
   {% endif %}
-
-  <details class="field-card__why">
-    <summary class="field-card__why-summary">Why?</summary>
-    <div class="field-card__why-body">
-      {% if card.cfr_citation %}
-      <p class="field-card__why-cite">{{ card.cfr_citation }}</p>
-      {% endif %}
-      {% if card.detail %}
-      <p class="field-card__why-detail">{{ card.detail }}</p>
-      {% endif %}
-      {# The RAW (un-diffed) extracted value, per AC5 "the raw OCR/LLM value" — for a
-         mismatch/soft card the kv slot shows the segmented diff, so the clean raw value
-         is surfaced here. #}
-      {% if card.extracted_value %}
-      <p class="field-card__why-raw">Raw value read:
-        <code class="mono">{{ card.extracted_value }}</code></p>
-      {% endif %}
-      {% if card.extracted_source %}
-      <p class="field-card__why-source">Read from: <code>{{ card.extracted_source }}</code></p>
-      {% endif %}
-    </div>
-  </details>
+  {# The "Why?" disclosure (CFR citation + engine detail + raw value + source) was removed
+     to keep the cards short (reviewer preference) — the values + verdict above carry the
+     decision; the provenance lives in the data if ever needed. #}
 </article>

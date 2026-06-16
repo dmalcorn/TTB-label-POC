@@ -23,7 +23,7 @@ from typing import TYPE_CHECKING
 from app import verdict
 from app.db import repositories as repo
 from app.engine.checks import CheckContext, CheckResult
-from app.engine.checks.field_match import _compare, _resolve_extracted
+from app.engine.checks.field_match import compare_all_sources
 
 if TYPE_CHECKING:
     from app.engine.rulesets import Check
@@ -54,32 +54,14 @@ def country_of_origin(check: Check, ctx: CheckContext) -> CheckResult:
             field_comparison_id=comparison_id,
         )
 
-    # IMPORTED (or an unknown/blank source): field-match the country against the label.
-    extracted_value, source_ocr_id, source_llm_id, ocr_confidence = _resolve_extracted(
-        ctx, field_key
+    # IMPORTED (or an unknown/blank source): field-match the country against EVERY source
+    # (OCR and the AI reading), writing one comparison row per source so the card shows both.
+    # A missing/garbled country statement defers to the human (REVIEW) rather than a false
+    # reject — OCR/AI on imported artwork is unreliable (mirrors the name/address policy).
+    return compare_all_sources(
+        ctx,
+        field_key,
+        application_value,
+        defer_fail_to_review=True,
+        defer_note=" — country-of-origin reads are unreliable; deferring to human review",
     )
-    match_status, similarity, vdict, detail = _compare(
-        field_key=field_key,
-        application_value=application_value,
-        extracted_value=extracted_value,
-        ocr_confidence=ocr_confidence,
-        is_llm_sourced=source_llm_id is not None,
-    )
-    # OCR on imported labels is unreliable; a missing/garbled country statement defers to
-    # the human (REVIEW) rather than a false reject (mirrors the name/address policy).
-    if vdict == verdict.FAIL:
-        vdict = verdict.REVIEW
-        detail = f"{detail} — country-of-origin OCR is unreliable; deferring to human review"
-
-    comparison_id = repo.insert_field_comparison(
-        ctx.conn,
-        ctx.submission.id,
-        field_key=field_key,
-        application_value=application_value,
-        extracted_value=extracted_value,
-        match_status=match_status,
-        similarity=similarity,
-        source_ocr_result_id=source_ocr_id,
-        source_llm_result_id=source_llm_id,
-    )
-    return CheckResult(verdict=vdict, detail=detail, field_comparison_id=comparison_id)
