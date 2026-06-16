@@ -10,6 +10,11 @@ so they can review and decide faster.
 > findings and records the official disposition (**Approved / Needs Correction / Rejected**).
 > The goal is to make the job faster and easier — never to make the decision.
 
+> **Try it live:** **<https://ttb-label-poc-production.up.railway.app>** (no login — the demo's
+> token gate is open). Every review screen reads each label element **two ways — by OCR and by an
+> AI vision model — side by side**, so the specialist sees exactly what each method found and where
+> they agree. The review page loads in ~0.15 s (the brief's 5-second contract, with a 25× margin).
+
 ## What this is (and isn't)
 
 - **Is:** the **federal reviewer's** side of COLA review — a workspace that doesn't publicly
@@ -36,18 +41,29 @@ above-and-beyond breakdown.
 
 ## Key design decisions
 
-- **Firewall-safe / local-first.** OCR (Tesseract + PaddleOCR), image enhancement (OpenCV), the
-  rules engine, and tracing run **locally, with no telemetry egress**. The LLM layer models a
-  **government-internal endpoint**: the deployed app *may* call cloud LLM APIs (OpenAI / Gemini /
-  Anthropic) as a stand-in for in-firewall services, and is **toggleable off** (`LLM_ENABLED=false`)
-  to a provable **zero-egress, OCR-only** configuration. Every call is classified
+- **Two readings of every label — OCR and AI, side by side.** Each label image is read
+  independently by the **OCR engines** (Tesseract + PaddleOCR) **and** by an **AI vision model**
+  (OpenAI `gpt-4o-mini`). Every comparison card shows an *On label (OCR)* row **and** an
+  *On label (AI)* row, and the per-element verdict is **agreement-based**: both sources agree with
+  the application ⇒ **PASS**; they conflict (or only one is confident) ⇒ **REVIEW**; both disagree
+  ⇒ **FAIL**. The AI reads the **image only** — OCR text is never fed to the model — so the two are
+  a genuine cross-check, and either source can be toggled off. At ~**$0.01 per label**
+  (`gpt-4o-mini`), the AI reading is essentially free at TTB's volume.
+- **Firewall-safe / local-first.** OCR, image enhancement (OpenCV), the rules engine, and tracing
+  run **locally, with no telemetry egress**. The AI reading is an **optional enhancement**: with
+  `LLM_ENABLED=false` the model layer is never constructed — a provable **zero-egress, OCR-only**
+  configuration that runs entirely behind the TTB firewall. In production `LLM_BASE_URL` points the
+  model layer at an **in-firewall endpoint** (no code change); the deployed demo uses OpenAI's cloud
+  as a stand-in to showcase the feature. Every call is classified
   `none` / `local` / `models-internal-endpoint` in
   [`docs/outbound-calls-inventory.md`](docs/outbound-calls-inventory.md).
 - **Speed via pre-compute.** OCR and analysis run in **background jobs on submission**, so the
-  "Next Submission" screen loads instantly — addressing the abandoned 5–10-minute pilot the
-  brief describes. See [`docs/approach.md`](docs/approach.md).
-- **Deterministic where the law is exact.** The Government Warning is verified by exact text +
-  formatting match (no LLM). See
+  review screen loads instantly (~0.15 s measured on the deployed demo) — addressing the abandoned
+  5–10-minute pilot the brief describes. See [`docs/approach.md`](docs/approach.md).
+- **Deterministic where the law is exact.** The Government Warning is verified by exact §16.21 text
+  + formatting match — no model opinion drives that verdict. The AI's role here is only to *read*
+  the warning verbatim (a clean second pair of eyes where OCR garbles small back-label print); the
+  match itself stays deterministic. See
   [`docs/regulatory-rules-distilled-spirits.md`](docs/regulatory-rules-distilled-spirits.md).
 - **Font/dimension size is not checked** — it can't be measured reliably from a photo, and
   this matches TTB's own COLAs Online disclaimer.
@@ -113,8 +129,10 @@ the same value at `/access` to reach the app. With `ACCESS_TOKEN` empty/unset th
 disabled (clone-and-run convenience).
 
 **Seeding is automatic.** On startup the app creates the SQLite schema and, *only if the
-database is empty*, loads the seeded mock-COLA corpus from the baked-in `fixtures/` (~30–50
-submissions). A populated database is never re-seeded. To (re)seed manually:
+database is empty*, loads the seeded mock-COLA corpus from the baked-in `fixtures/` — **15 real
+records harvested from the public COLA registry** (5 each across wine, malt, and spirits) with
+their real label images, including one record with an intentionally engineered ABV mismatch to
+demonstrate a `FAIL`. A populated database is never re-seeded. To (re)seed manually:
 
 ```bash
 docker compose run --rm web python -m app.db.seed
@@ -150,14 +168,18 @@ it and the seed-if-empty startup fills a fresh Volume. `railway.toml` pins the b
 contract; the operational playbook — service identity, env vars, Volume creation, CLI quirks —
 is in **[`docs/railway-deployment.md`](docs/railway-deployment.md)**.
 
+The live demo is at **<https://ttb-label-poc-production.up.railway.app>** and **runs with the AI
+reading ON** (`LLM_ENABLED=true`, `gpt-4o-mini`) so evaluators see the OCR-vs-AI cards — the cloud
+API standing in for an in-firewall endpoint.
+
 Runtime configuration is entirely env-driven (`.env.example` documents every variable):
 `ACCESS_TOKEN`, `LLM_ENABLED`, `LLM_PROVIDER`, `LLM_BASE_URL`, `LLM_MODEL_ID`,
 `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` / `GOOGLE_API_KEY` (only the selected provider's is
-needed), `LANGCHAIN_TRACING_ENABLED`, `DATABASE_PATH`. Absent keys leave features off — the
-OCR-only path stays fully functional. The deployed demo *may* reach cloud LLM APIs (the
-`models-internal-endpoint` stand-in) when `LLM_ENABLED=true`; `LLM_ENABLED=false` is the
-provable zero-egress configuration. Production swaps the cloud API for an in-firewall endpoint
-via `LLM_BASE_URL` with no code change.
+needed), `LANGCHAIN_TRACING_ENABLED`, `DATABASE_PATH`, and the read-source toggles
+`OCR_ENABLED` / `OCR_ENGINES` / `OCR_PREPROCESS_VARIANTS`. Absent keys leave features off — the
+OCR-only path stays fully functional, and with **both** OCR and the AI on, each card shows both
+rows. `LLM_ENABLED=false` is the provable zero-egress configuration; production swaps the cloud
+API for an in-firewall endpoint via `LLM_BASE_URL` with no code change.
 
 > The full `docs/` deliverable set is delivered and indexed at
 > **[`docs/index.md`](docs/index.md)** (linked under [Documentation](#documentation) above) —

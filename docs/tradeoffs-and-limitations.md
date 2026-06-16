@@ -97,18 +97,23 @@ at production scale."*
   because the procurement-informing output is a primary value driver of the take-home,
   not gold-plating.
 
-## A4. OCR placement — microservice over in-process
+## A4. OCR placement — in-process over a separate microservice
 
-- **Chosen:** wrap each OCR engine behind a **uniform interface in a microservice**,
-  invoked by background jobs.
-- **Alternative:** call the OCR libraries **in-process** inside the web app.
-- **Why:** A microservice boundary makes engines **swap/compare-able** without touching
-  the app (the whole point of A3), isolates heavy native dependencies (PaddleOCR's stack)
-  from the web tier, and lets OCR scale/parallelize independently for the pre-compute
-  pipeline (A6). It mirrors the "wrap each engine behind a uniform interface" pattern the
-  research recommends.
-- **Trade-off accepted:** an extra deployable and an inter-process hop. At POC scale this
-  is a local call, not a network cost; the architectural clarity is worth it.
+- **Chosen:** wrap each OCR engine behind a **uniform interface, called in-process** inside
+  the app (FastAPI monolith + APScheduler), invoked by the background pre-compute jobs. This
+  is the locked architecture decision (D5).
+- **Alternative considered (and rejected for POC scope):** stand each OCR engine up as a
+  **separate microservice** behind that same interface.
+- **Why:** the **uniform interface** — not a process boundary — is what makes engines
+  **swap/compare-able** (the whole point of A3); the in-process monolith keeps that
+  swap-ability while staying clone-and-run with no extra service to deploy, no inter-process
+  hop, and one process to trace. A microservice would add a deployable and a network hop for
+  no POC-scale benefit, isolating PaddleOCR's heavy native stack is not worth a distributed
+  system here.
+- **Trade-off accepted:** the heavy native OCR dependencies live in the same process as the
+  web tier, and OCR cannot scale independently of it. Fine at POC scale; if OCR throughput
+  ever needed to scale on its own, the uniform interface is exactly the seam to extract it
+  behind later.
 
 ## A5. Scope — cover all three beverage types (spirits worked deepest first)
 
@@ -264,22 +269,25 @@ over-claim.*
   field and diffs application ↔ OCR like brand name (see
   `../ref-docs/Definition of Terms.txt`, "Product Class/Type").
 
-## B4. Benchmark cost & accuracy numbers are PENDING real runs
+## B4. Benchmark cost is now MEASURED; accuracy stays a demo-scale figure
 
 - **Limitation:** the POC ships the **framework** for OCR/LLM speed-accuracy-cost
-  benchmarking, **not** final figures. Concrete "$ per 1,000 verifications," accuracy
-  rankings, and the empirical proof of the ~5-second interaction-latency claim are
-  **PENDING actual benchmark runs**.
-- **Why:** real numbers require running the harness over a representative fixture set on
-  representative hardware (and GPU availability on government infra is itself uncertain —
-  CPU-mode runs are needed too).
-- **Mitigation:** the schema already captures everything needed to *compute* these once the
-  runs happen — model name, full model ID, tokens, latency, confidence, timestamps. The
-  **structure** is done; only the data collection remains. The local-OCR path's marginal
-  cost is structurally ~$0 at the API level (compute-only, no token charges), which is
-  itself a strong early procurement signal even before the cloud comparator runs.
-- **Future work:** execute the harness and populate the comparison tables in
-  [ocr-llm-benchmarking-plan.md](ocr-llm-benchmarking-plan.md).
+  benchmarking. **Cost is now measured**, not pending: ≈ **$0.0099 per label** with
+  gpt-4o-mini (avg ~65k input tokens, ~184 output) — ≈ **$0.15 for the 15-record corpus**.
+  What remains soft is **accuracy**: the ranking is a **demo-scale figure** off a small,
+  partly-synthetic fixture set, not a procurement-grade "$ per 1,000 verifications" with
+  statistical weight behind the accuracy numbers.
+- **Why:** the cost figure falls straight out of the recorded token counts and published
+  per-token pricing, so it is real today. Authoritative *accuracy* still needs the harness
+  run over a larger, representative fixture set on representative hardware (and GPU
+  availability on government infra is itself uncertain — CPU-mode runs matter too).
+- **Mitigation:** the schema captures everything needed — model name, full model ID, tokens,
+  latency, confidence, timestamps — so the measured cost is computed from real rows, not
+  estimated. The local-OCR path's marginal cost is structurally ~$0 at the API level
+  (compute-only, no token charges), which alongside the ~$0.0099/label model cost is already
+  a usable procurement signal.
+- **Future work:** widen the accuracy run over a larger fixture set and populate the
+  comparison tables in [ocr-llm-benchmarking-plan.md](ocr-llm-benchmarking-plan.md).
 
 ## B5. Model-leaderboard numbers are indicative, not authoritative
 
@@ -370,6 +378,20 @@ over-claim.*
   it demonstrates the clean endpoints the hybrid would interpolate between, with the data to
   judge whether the hybrid is worth building.
 
+## B11. Background OCR processing is slow on a small (Railway) instance
+
+- **Limitation:** on the deployed Railway instance (a small box), the background OCR pass is
+  **slow** — PaddleOCR is heavy, and when a fresh corpus is (re)processed the sweeps queue up,
+  so getting a whole corpus to "analyzed" can take **several minutes**.
+- **Why it's bounded, not a contract breach:** this work is **asynchronous** — it runs in the
+  background pre-compute pipeline (A6), off the agent's interaction clock. The reviewer's
+  **read path stays ~0.15 s**, well under the brief's ~5-second interaction-latency contract;
+  a freshly-arrived submission simply needs its background pass to finish before it reads as
+  "instant" (the A6 trade-off, made visible on a constrained instance).
+- **Mitigation / future work:** a larger instance (or GPU) cuts the processing time directly;
+  the architecture is unchanged — only the background throughput scales. The read-path
+  guarantee does not depend on it.
+
 ---
 
 ## Summary — what to take away
@@ -379,7 +401,7 @@ over-claim.*
 | A1 | SQLite over Postgres | Scope-appropriate; portable schema |
 | A2 | Local OCR over cloud VLM | Forced by the firewall; benchmark quantifies the cost |
 | A3 | Multi-OCR/LLM bake-off | Extra work, serves the procurement goal |
-| A4 | OCR microservice | Swap-ability + isolation worth the extra hop |
+| A4 | OCR in-process (monolith, D5) | Uniform interface gives swap-ability; no extra deployable |
 | A5 | All three types covered; spirits worked deepest first | Completeness + a working core |
 | A6 | Pre-compute | The structural answer to the 5-second rule |
 | A7 | Token gate | Auth is explicitly out of scope |
@@ -387,13 +409,14 @@ over-claim.*
 | B1 | No font/dimension check | **Deliberate — matches TTB's own disclaimer** |
 | B2 | Field-of-vision → REVIEW | Recommend, don't decide |
 | B3 | Government Warning checked vs the §16.21 text | Built-in ground truth (the statute); deterministic |
-| B4 | Benchmark numbers PENDING | Framework shipped, data collection remains |
+| B4 | Cost measured (~$0.0099/label); accuracy demo-scale | Cost real from token rows; accuracy run still to widen |
 | B5 | Leaderboard scores indicative | Our own benchmark supersedes them |
 | B6 | Artwork is IP | Fixtures private; public demo synthetic |
 | B7 | Reviewer workflow designed | The POC's differentiator |
 | B8 | No COLA integration | Phase 2 |
 | B9 | Seeded dummy data | Built to exercise the engine, incl. fail cases |
 | B10 | VLM reads the image alone — no OCR-assisted hybrid | Deliberate; keeps the benchmark honest, hybrid is future work |
+| B11 | Background OCR slow on a small instance | Async (off the read path); read stays ~0.15 s, contract holds |
 
 **The through-line:** every limitation in Part B is either (a) a deliberate,
 regulation-aligned scope decision that mirrors TTB's own posture, or (b) a clearly bounded

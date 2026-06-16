@@ -9,7 +9,7 @@ minimum, and confirms the core "recommend, don't decide" alignment.*
 
 > **Delivery status (2026-06-15).** The POC is **built and deployed**. Every core
 > requirement below is **Implemented** with code + tests on disk; the full suite is green
-> (**800 tests** — host-side 799 + the OCR-native test that runs only in the container),
+> (**836 tests** — host-side plus the OCR-native test that runs only in the container),
 > and the app is live (a public, gate-open Railway URL). The Status column reflects that
 > shipped reality; the "Evidence" notes point at the proving code/tests so an evaluator can
 > verify each claim directly.
@@ -62,10 +62,10 @@ tests on disk.
 
 | # | Requirement | Source (brief) | How the POC satisfies it — **Evidence (code · tests)** | Status |
 |---|---|---|---|---|
-| 1 | **Match label artwork against the application** (the core review action) | Sarah Chen, [L15–17](../ref-docs/TTB-take-home-instructions.md) | OCR/LLM extracts label fields; the review screen stacks each application field with the extracted value beneath it, discrepancies flagged. **Code:** `app/web/review_view.py`, `app/web/routes_review.py`, `templates/review.html`. **Tests:** `tests/test_review_view.py`, `tests/test_review.py`. | ✅ Implemented |
+| 1 | **Match label artwork against the application** (the core review action) | Sarah Chen, [L15–17](../ref-docs/TTB-take-home-instructions.md) | **Dual-source comparison (headline feature):** every label image is read *independently* by OCR (Tesseract + PaddleOCR) **and** an AI vision model (gpt-4o-mini), so each review card shows the application value, an **"On label (OCR)"** row **and** an **"On label (AI)"** row. The per-element verdict is **agreement-based** — both sources agree → PASS; they conflict or only one is confident → REVIEW; both wrong → FAIL — across all 7 required elements (brand_name, class_type_designation, alcohol_content, net_contents, applicant_name_address, country_of_origin, government_warning). **Code:** `app/web/review_view.py`, `app/web/routes_review.py`, `templates/review.html`. **Tests:** `tests/test_review_view.py`, `tests/test_review.py`. | ✅ Implemented |
 | 2 | **Brand-name match** (the "STONE'S THROW" vs "Stone's Throw" nuance) | [L15](../ref-docs/TTB-take-home-instructions.md), Dave Morrison [L47](../ref-docs/TTB-take-home-instructions.md) | Centralized normalization (case/whitespace/punctuation-insensitive) so the two forms match, surfaced for human confirmation. **Code:** `app/normalize.py`, `app/engine/checks/field_match.py`. **Tests:** `tests/test_normalize.py`, `tests/test_field_match.py`. | ✅ Implemented |
 | 3 | **ABV / alcohol-content match** | [L15](../ref-docs/TTB-take-home-instructions.md) | ABV extracted and compared to the application value; format validated. **Code:** `app/engine/checks/field_match.py`, `app/engine/checks/format_checks.py`. **Tests:** `tests/test_field_match.py`, `tests/test_format_checks.py`. | ✅ Implemented |
-| 4 | **Government Health Warning — present and exact** (word-for-word; "GOVERNMENT WARNING:" all-caps + bold) | [L15, L57, L77](../ref-docs/TTB-take-home-instructions.md) | Deterministic (no-LLM) exact/normalized check enforcing the all-caps "GOVERNMENT WARNING:" token; catches title-case and reworded warnings (Jenny Park's cases). **Code:** `app/engine/checks/government_warning.py`, `app/engine/rulesets/government_warning.py`. **Tests:** `tests/test_government_warning.py`. | ✅ Implemented |
+| 4 | **Government Health Warning — present and exact** (word-for-word; "GOVERNMENT WARNING:" all-caps + bold) | [L15, L57, L77](../ref-docs/TTB-take-home-instructions.md) | The verdict stays **deterministic** — an exact/normalized §16.21 check enforcing the all-caps "GOVERNMENT WARNING:" token; catches title-case and reworded warnings (Jenny Park's cases). The **AI now also reads the warning verbatim** as the second source, so it passes where OCR garbles small print; an OCR near-miss artifact (e.g. a dropped comma) yields **REVIEW**, not FAIL, rather than failing on noise. **Code:** `app/engine/checks/government_warning.py`, `app/engine/rulesets/government_warning.py`. **Tests:** `tests/test_government_warning.py`. | ✅ Implemented |
 | 5 | **~5-second performance** ("results back in about 5s or nobody's going to use it") | Sarah Chen, [L19](../ref-docs/TTB-take-home-instructions.md) | **Pre-compute pipeline:** OCR + advisory compliance run in background jobs at submission time, so the review screen is a pure pre-computed DB read and renders instantly. **Code:** `app/pipeline/{run,scheduler,ocr,preprocess}.py`, `processing_ms` metric. **Tests:** `tests/test_pipeline.py`. | ✅ Implemented |
 | 6 | **Ease of use for older / mixed tech-comfort users** ("clean, obvious, no hunting for buttons") | Sarah Chen, [L21](../ref-docs/TTB-take-home-instructions.md) | USWDS UI; single "Next Submission" action; vertical stacked comparison; visible checklist; chevron status bar; in-UI help. **Code:** `templates/*.html`, `static/css/brand.css`, `app/web/review_view.py`. **Tests:** `tests/test_shell.py`, `test_queue.py`, `test_review.py`, `test_help_panel.py`, `test_shortcuts.py`. | ✅ Implemented |
 | 7 | **Government Warning is the highest-value, trickiest check** | Jenny Park, [L57](../ref-docs/TTB-take-home-instructions.md) | Covered by #4; called out separately because the brief stresses its difficulty. | ✅ Implemented |
@@ -94,7 +94,7 @@ tests on disk.
 | # | Criterion | Source | How the POC targets it — **Evidence** | Status |
 |---|---|---|---|---|
 | E1 | Correctness & completeness of core requirements | [L106](../ref-docs/TTB-take-home-instructions.md) | All four core checks (#1–4) implemented, demonstrable, and tested (the green suite). | ✅ |
-| E2 | Code quality & organization | [L107](../ref-docs/TTB-take-home-instructions.md) | Modular layout: engine-agnostic OCR/LLM adapters behind one interface (`app/adapters/`), four centralized contracts (`app/contracts.py`, `normalize.py`, `verdict.py`, `disposition.py`), pipeline behind a stage seam. Format → lint (ruff) → mypy → 800 tests all green. | ✅ |
+| E2 | Code quality & organization | [L107](../ref-docs/TTB-take-home-instructions.md) | Modular layout: engine-agnostic OCR/LLM adapters behind one interface (`app/adapters/`), four centralized contracts (`app/contracts.py`, `normalize.py`, `verdict.py`, `disposition.py`), pipeline behind a stage seam. Format → lint (ruff) → mypy → 836 tests all green. | ✅ |
 | E3 | Appropriate technical choices for the scope | [L108](../ref-docs/TTB-take-home-instructions.md) | Local-first stack honoring the firewall constraint; LLM optional/toggleable; Python end-to-end (FastAPI + Jinja2 + SQLite + APScheduler); single Docker image local + deployed. | ✅ |
 | E4 | User experience & error handling | [L109](../ref-docs/TTB-take-home-instructions.md) | USWDS UI, in-UI help, discrepancy highlighting, honest-state patterns (visible error cards, "LLM unavailable — showing OCR result", calm 409s, accessibility floor). **Code:** `app/web/review_view.py`, `templates/`. **Tests:** `test_review.py`, `test_help_panel.py`. | ✅ |
 | E5 | Attention to requirements | [L110](../ref-docs/TTB-take-home-instructions.md) | **This traceability doc**, kept honest with code/test pointers. | ✅ |
@@ -110,7 +110,7 @@ tests on disk.
 | # | Above-and-beyond item | Why beyond the brief | Evidence (code · tests) | Status |
 |---|---|---|---|---|
 | A1 | **Multi-OCR** (Tesseract + PaddleOCR, per-engine jobs + timing) | Brief asks only to match fields. | `app/adapters/ocr/{tesseract,paddleocr}.py`, `app/pipeline/ocr.py` · `test_ocr_adapters.py` | ✅ |
-| A2 | **Multi-LLM + cost analysis** (cost per ~1,000 verifications) | Brief doesn't require an LLM, let alone costing one. | `app/adapters/llm/*`, `app/benchmark/cost.py` · `test_cost.py`, `test_llm_adapters.py` | ✅ |
+| A2 | **Multi-LLM + cost analysis** (cost per ~1,000 verifications) | Brief doesn't require an LLM, let alone costing one. | **Measured** on the shipped model (gpt-4o-mini): ≈ **$0.01 per label** (≈$0.0099; range $0.004–$0.017 with image count) → ≈ **$10 per 1,000 verifications**; ≈$0.15 for the full 15-record corpus. `app/adapters/llm/*`, `app/benchmark/cost.py` · `test_cost.py`, `test_llm_adapters.py` | ✅ |
 | A3 | **Tracing** (latency/timing, optional, disablable) | Pure instrumentation for the procurement story. | `app/benchmark/tracing.py` · `test_tracing.py` | ✅ |
 | A4 | **Pre-compute pipeline** (background OCR + compliance) | Architecture choice to beat 5s dramatically (also satisfies #5). | `app/pipeline/*` · `test_pipeline.py` | ✅ |
 | A5 | **Visible smart checklist** (reframes Jenny's printed sheet) | Context in the brief, not a requested feature. | `app/web/review_view.py` · `test_review_view.py` | ✅ |
@@ -122,7 +122,7 @@ tests on disk.
 | A11 | **Mock COLA DB + data dictionary + schema** | Brief says *not* to integrate with COLA; a modeled mock is added rigor. | `app/db/*`, `docs/data-dictionary.md` · `test_schema_epic3.py`, `test_repositories.py`, `test_seed.py` | ✅ |
 | A12 | **CFR-sourced rule write-ups** (3 per-type rulesets) | Documents the regulatory basis. | `docs/regulatory-rules-{distilled-spirits,wine,beer}.md`, `app/engine/rulesets/*` · `test_wine_malt_rulesets.py`, `test_class_type.py` | ✅ |
 | A13 | **Comparable-software pre-search** | Landscape for the procurement story. | `docs/presearch.md` | ✅ |
-| A14 | **Benchmark report screen + speed/cost stats** | Measurement surface beyond the functional ask; serves the procurement goal. | `app/benchmark/{scoring,cost}.py`, `app/web/routes_benchmark.py` · `test_scoring.py`, `test_benchmark.py` | ✅ |
+| A14 | **Benchmark report screen + speed/cost stats** | Measurement surface beyond the functional ask; serves the procurement goal. | Reports the measured shipped figures: ≈$0.01/label → ≈$10/1,000 verifications, and the ~0.15 s review read-path. `app/benchmark/{scoring,cost}.py`, `app/web/routes_benchmark.py` · `test_scoring.py`, `test_benchmark.py` | ✅ |
 
 ---
 
@@ -160,5 +160,5 @@ All items in §2–§3 are **implemented, tested, and deployed** as of 2026-06-1
 - **All three beverage types** (distilled spirits, wine, malt/beer) are first-class, each with its
   own CFR-sourced ruleset — no spirits-only under-coverage against criterion E1.
 - **Batch** is delivered as the deliberate applicant-side reframing + a working live-enqueue op.
-- **Full gate green** (format → lint → mypy → 800 tests) on both the host venv and inside the
+- **Full gate green** (format → lint → mypy → 836 tests) on both the host venv and inside the
   dev container; the zero-egress `--network none` boot proves the firewall-safe core.

@@ -3,13 +3,15 @@
 Planning and design documentation for the **TTB COLA Label Specialist proof-of-concept**.
 These docs were distilled from the requirements register
 ([`../ref-docs/discussion-points.md`](../ref-docs/discussion-points.md)), the take-home brief,
-and the domain research. Implementation-dependent choices are marked `TODO` with a
-recommendation.
+and the domain research. The system is built and deployed; where these docs once marked an
+implementation-dependent choice as open, it has since been resolved in the shipped POC.
 
 ## Start here
 
 - [`cover-note.md`](cover-note.md) — one-page **submission summary**: the deliverable at a
   glance (repo + live URL), how it meets the brief's core, and where everything lives.
+  (The **dual-source OCR + AI** headline story — every label read by OCR *and* a vision model,
+  shown side by side — lives here and in the README.)
 - [`requirements-mapping.md`](requirements-mapping.md) — what the take-home **requires**
   (mandatory) vs. the **above-and-beyond** features added, plus the project goals.
 - [`approach.md`](approach.md) — the central design: architecture, the pre-compute pipeline,
@@ -45,8 +47,8 @@ recommendation.
 - [`tools-used.md`](tools-used.md) — every tool/library, why chosen, and local-vs-cloud status.
 - [`ocr-llm-benchmarking-plan.md`](ocr-llm-benchmarking-plan.md) — multi-OCR / multi-LLM
   benchmark design, accuracy methodology, and the **cost-per-1,000-verifications** framework.
-- [`outbound-calls-inventory.md`](outbound-calls-inventory.md) — proof the deployed app makes
-  **no firewall-relevant outbound calls**.
+- [`outbound-calls-inventory.md`](outbound-calls-inventory.md) — classifies every outbound
+  call; the OCR-only path (`LLM_ENABLED=false`) is **provably zero-egress**.
 - [`image-handling.md`](image-handling.md) — supported image types and the local OpenCV
   enhancement pipeline for imperfect images.
 

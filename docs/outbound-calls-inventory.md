@@ -66,7 +66,7 @@ Legend:
 | **Database** (mock COLA DB; e.g. SQLite/PostgreSQL on-prem) | **`local`** | localhost / on-prem only | **Yes** | Stores submissions, OCR/LLM results, and timing/benchmark stats. Local connection only; no external replication or telemetry. |
 | **LangChain tracing** (local, statistics only) | **`local`** *(local-only — TODO-3 RESOLVED, Story 5.1)* | Local trace sink (in-process record list + local log); durable record is the `llm_results` row | **Yes** (when enabled) | `app/benchmark/tracing.py` captures latency, model name/ID/full-ID, timestamps, and token counts to a **local-only sink** wrapped around each model call; the durable, queryable record stays the pipeline's `llm_results` row (no new schema). Runs with **local/offline tracing and no telemetry egress** — configures no LangSmith/cloud endpoint. **Toggleable off** via `LANGCHAIN_TRACING_ENABLED` (default off); disabled ⇒ no tracing code path executes. _Source: research → Technical Trends._ See **TODO-3 (RESOLVED)**. |
 | **Local LLM** (optional; locally-hosted small VLM) | **`local`** | Local inference endpoint (localhost) | **Optional** | A locally-hosted model (e.g. Ollama/vLLM on localhost) — the zero-egress model option. Weights pinned/shipped offline like PaddleOCR. See **TODO-2**. |
-| **LLM extraction + benchmark calls** (Gemini / OpenAI / Anthropic in the POC) | **`models-internal-endpoint`** | Provider APIs in the POC (e.g. `api.openai.com`, `generativelanguage.googleapis.com`, `api.anthropic.com`); **internal endpoints in production** | **Yes** *(toggleable off)* | The live pipeline runs LLM extraction and captures per-model benchmark stats (PRD §4.5). In a TTB deployment these resolve to **in-firewall endpoints**; the POC's cloud-API calls **model** them (PRD NFR-2 / addendum A2). **Toggle these off** and the pipeline completes on OCR-only — the zero-egress configuration (FR-12). API keys/base URLs are configuration, so production swaps cloud URLs for internal ones with no code change. See **TODO-7**. |
+| **LLM extraction + benchmark calls** (Gemini / OpenAI / Anthropic in the POC) | **`models-internal-endpoint`** | Provider APIs in the POC (e.g. `api.openai.com`, `generativelanguage.googleapis.com`, `api.anthropic.com`); **internal endpoints in production** | **Yes** *(toggleable off)* | The live pipeline runs LLM extraction and captures per-model benchmark stats (PRD §4.5). In a TTB deployment these resolve to **in-firewall endpoints**; the POC's cloud-API calls **model** them (PRD NFR-2 / addendum A2). **The deployed demo is configured for OpenAI `gpt-4o-mini`, so the single domain it actually contacts is `api.openai.com`.** **Toggle these off** (`LLM_ENABLED=false`) and the pipeline completes on OCR-only — the zero-egress configuration (FR-12). API keys/base URLs are configuration, so production swaps cloud URLs for internal ones with no code change. See **TODO-7**. |
 
 ---
 
@@ -176,14 +176,16 @@ environment — none is an open gap in this deliverable.
   deployer audits third-party libraries (e.g. update-checkers, usage analytics) for any default
   "phone-home" behavior and disables it. The `--network none` smoke test (§4.2) is the backstop —
   any dependency that tried to egress would fail visibly under it.
-- **TODO-7 — Record the cloud domains contacted (PARTIAL — Story 2.5).** The endpoint-swap mechanism
-  is implemented: `LLM_PROVIDER` / `LLM_BASE_URL` / `LLM_MODEL_ID` move provider config from cloud-API
-  (POC) to internal endpoint (production) with no code change, and the only off-host clients in the app
-  are constructed in `app/adapters/llm/{openai,google,anthropic}.py` (a structural test enforces it;
-  `local_vlm.py` is the zero-egress localhost branch). Default cloud domains the POC contacts at
-  runtime (when `LLM_ENABLED=true` and `LLM_BASE_URL` is unset): `api.openai.com` (openai),
-  `api.anthropic.com` (anthropic), `generativelanguage.googleapis.com` (google). Remaining: capture an
-  at-runtime connection log with the model layer enabled to confirm no other domain is contacted.
+- **TODO-7 — Record the cloud domains contacted (RESOLVED — deployed demo).** The endpoint-swap
+  mechanism is implemented: `LLM_PROVIDER` / `LLM_BASE_URL` / `LLM_MODEL_ID` move provider config from
+  cloud-API (POC) to internal endpoint (production) with no code change, and the only off-host clients
+  in the app are constructed in `app/adapters/llm/{openai,google,anthropic}.py` (a structural test
+  enforces it; `local_vlm.py` is the zero-egress localhost branch). Default cloud domains the POC can
+  contact at runtime (when `LLM_ENABLED=true` and `LLM_BASE_URL` is unset): `api.openai.com` (openai),
+  `api.anthropic.com` (anthropic), `generativelanguage.googleapis.com` (google). **The deployed demo
+  is configured `LLM_PROVIDER=openai`, `LLM_MODEL_ID=gpt-4o-mini`, so the only domain it actually
+  contacts is `api.openai.com`** (the `models-internal-endpoint` call) — confirmed against the live
+  service configuration.
 
 ---
 

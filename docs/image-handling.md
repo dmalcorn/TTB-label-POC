@@ -191,13 +191,15 @@ auto-rejects.** Explicit non-goals:
 |---|---|---|
 | **OpenCV (local, open-source)** | **Recommended** | Deskew, perspective correction, glare/illumination normalization, CLAHE, denoise, binarization are **well-established, deterministic, fast, CPU-friendly** techniques that run **entirely on-prem** — **firewall-safe** (no outbound traffic), zero per-image API cost. Directly answers the brief's question "does it require an LLM, or can open-source do it?" → **open-source can.** _Source: domain research, Technical Trends; discussion-points §10 RESOLVED-direction._ |
 | **Cloud LLM / VLM enhancement call** | **Rejected for the deployed path** | The TTB firewall blocks outbound cloud API calls (discussion-points §3). A cloud call to "clean up" an image would violate the no-outbound-calls constraint, add cost and latency, and is unnecessary — OpenCV handles the documented cases. |
-| **Local VLM as a *read* (OCR) fallback** | **Optional, fallback only** | A **locally-hosted** small VLM (e.g. GLM-OCR / dots.ocr / Qwen3-VL class — domain research, "the firewall fork") may **read** a degraded image the classical OCR engines fail on. This is an **OCR fallback**, not an enhancement step, and is **local** so it stays firewall-safe. It is the brief's "LLM optional + fallback when OCR isn't producing good matches" (discussion-points §6). Kept **out of the request path by default**, toggleable. |
-| **Provider VLM (read/extract + benchmark)** | **Allowed in the live pipeline — `models-internal-endpoint`** | Provider VLMs run field extraction and populate the benchmark comparison in the live pre-compute pipeline. Classified `models-internal-endpoint` (cloud API in the POC, internal endpoint in production; PRD NFR-2 / addendum A2), recorded in `llm_results`, and **toggleable off** — with the model layer off, the image path runs OCR-only and zero-egress. _Note: this is a **read/extract** step, never image **enhancement** — enhancement stays local OpenCV._ |
+| **Local VLM as a *read* fallback** | **Optional, fallback only** | A **locally-hosted** small VLM (e.g. GLM-OCR / dots.ocr / Qwen3-VL class — domain research, "the firewall fork") may **read the image** when a constrained instance can't run the heavier provider model. Like the provider model it reads the **image directly (VLM-only — never OCR text)**; it is **local** so it stays firewall-safe. Kept **out of the request path by default**, toggleable. |
+| **Provider VLM (primary per-submission extractor)** | **Runs in the live pipeline — `models-internal-endpoint`** | The provider VLM is a **primary per-submission extractor**: it reads the **label image directly (VLM-only — never OCR text)** and produces its own field reading, which feeds the **"AI" row** of the dual-source comparison the reviewer sees (the "OCR" row comes from Tesseract + PaddleOCR; agreement → PASS, conflict → REVIEW). It is a **co-equal** extractor run alongside OCR, **not an OCR fallback**. Classified `models-internal-endpoint` (cloud API in the POC, internal endpoint in production; PRD NFR-2 / addendum A2), recorded in `llm_results`, and **toggleable off** — with the model layer off, the image path runs OCR-only and zero-egress. _Note: this is a **read/extract** step, never image **enhancement** — enhancement stays local OpenCV._ |
 
-**Summary of the split:** **enhancement = local OpenCV (always, zero-egress);** **read = local OCR
-first, optional local VLM fallback;** **provider VLM extraction + benchmarking = live pipeline,
-classified `models-internal-endpoint` and toggleable off.** The enhancement path is always local;
-the model layer follows the revised firewall posture — see
+**Summary of the split:** **enhancement = local OpenCV (always, zero-egress);** **reading = two
+co-equal extractors per submission — classical OCR (Tesseract + PaddleOCR) AND a provider VLM
+that reads the image directly (VLM-only, never OCR text), feeding the "OCR" and "AI" rows of the
+reviewer's dual-source comparison;** the provider VLM is classified `models-internal-endpoint`
+and **toggleable off** (an optional local VLM can stand in as a read fallback). The enhancement
+path is always local; the model layer follows the revised firewall posture — see
 [`outbound-calls-inventory.md`](outbound-calls-inventory.md).
 
 ---

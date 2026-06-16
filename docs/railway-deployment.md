@@ -23,13 +23,17 @@ so all of that guidance from the source guide is intentionally dropped.
 | **Public URL** | `https://ttb-label-poc-production.up.railway.app` (targetPort **8000**) |
 | **Builder** | `DOCKERFILE` at `/Dockerfile` (✅ not Nixpacks — matches D1) |
 | **Volume** | `ttb-web-volume` mounted at **`/data`** (`DATABASE_PATH=/data/app.db`) — added Story 1.6 |
-| **Service vars** | `ACCESS_TOKEN`, `DATABASE_PATH=/data/app.db`, `LLM_ENABLED=false`, `LANGCHAIN_TRACING_ENABLED=false`, `PORT=8000` (+ Railway's `RAILWAY_*`) |
+| **Service vars** | `ACCESS_TOKEN`, `DATABASE_PATH=/data/app.db`, `LLM_ENABLED=true`, `LLM_PROVIDER=openai`, `LLM_MODEL_ID=gpt-4o-mini`, `OPENAI_API_KEY` (secret), `OCR_ENGINES=paddleocr`, `OCR_PREPROCESS_VARIANTS=false`, `LANGCHAIN_TRACING_ENABLED=false`, `PORT=8000` (+ Railway's `RAILWAY_*`) |
 
 > **Naming note (renamed 2026-06-12):** project and service were initially swapped (project
 > `TTB-label-web`, service `TTB-label-POC`). Renamed via `projectUpdate`/`serviceUpdate` to the
 > table above. The public URL kept its original `ttb-label-poc-…` prefix (Railway doesn't
 > regenerate domains on rename). Internal hostnames are a non-issue here — one service, no
 > cross-service reference variables.
+
+> **Reseeding note:** reseeding the corpus (`POST /reset`) re-runs OCR + AI on every record and is
+> slow on the small instance (several minutes), but the review read path stays fast (~0.15 s). Each
+> full reseed costs ≈ $0.15 in `gpt-4o-mini` calls.
 
 ---
 

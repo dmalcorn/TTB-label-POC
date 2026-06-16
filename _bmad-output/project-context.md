@@ -18,7 +18,7 @@ _This file contains critical rules and patterns that AI agents must follow when 
 
 Pinned in `_bmad-output/planning-artifacts/approved-tech-stack.md` (version-of-record). Pin to the minor line (`~=major.minor`) unless a patch is named.
 
-- **Python 3.13** (Docker base `python:3.13-slim`). Type hints required.
+- **Python 3.13** in the shipped container (Docker base `python:3.13-slim`); the **host dev venv is 3.14** — both are valid validation paths (see CLAUDE.md). Type hints required.
 - **Web (server-rendered, NO SPA, NO build step):** FastAPI ~=0.136 · Uvicorn ~=0.49 · Pydantic v2 ~=2.13 · Jinja2 3.1.
 - **Background jobs:** APScheduler ~=3.11 (in-process; NOT the 4.0 pre-release).
 - **Data:** SQLite via stdlib `sqlite3`, WAL mode. No ORM, no migration framework — plain SQL DDL + Python seed script.

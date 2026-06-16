@@ -1,7 +1,9 @@
 # OCR & LLM Benchmarking Plan — TTB COLA Label Specialist POC
 
-**Status:** Planning artifact (pre-implementation). Numbers marked `TODO` drop in after real benchmark runs.
-**Last updated:** 2026-06-11
+**Status:** Built and deployed. The system ships a dual-source (OCR + AI-vision) review feature, and
+LLM cost is now **measured** (no longer `TODO`) — see §2.2 and §7.3 for the real numbers. The
+remaining `TODO`s are the wider multi-provider bake-off; the shipped configuration is filled in.
+**Last updated:** 2026-06-16
 **Audience:** the POC engineering team; TTB reviewers assessing the procurement-informing value of the POC.
 
 ---
@@ -106,20 +108,29 @@ government infra has no guaranteed GPU, so CPU numbers are the load-bearing ones
 
 ### 2.2 LLMs / VLMs (live-pipeline extraction + benchmarking; `models-internal-endpoint`)
 
-Run in the live pre-compute pipeline (§5) to extract fields and generate the comparison stats the
-brief asks for. Candidate set spans the providers named in
-[`discussion-points.md` §6](../ref-docs/discussion-points.md) (Codex/OpenAI, Gemini, "plus any
-recommended"):
+This is the **shipped dual-source review feature**: every label image is read independently by the
+OCR engines **and** by an AI vision model, and the review screen shows both — an "On label (OCR)"
+row and an "On label (AI)" row per element. The OCR-vs-AI comparison this produces is *also* the
+procurement bake-off the brief asks for (same head-to-head methodology as §4). The VLM reads the
+**image only** (VLM-only purity — never handed OCR text), one call per submission carrying all
+panels.
+
+**Shipped model.** The deployed/benchmarked model is **OpenAI `gpt-4o-mini`** (selectable via
+`LLM_MODEL_ID`), with a **measured** token profile of **~65,000 input tokens** and **~184 output
+tokens** per call — cost is dominated by the image input tokens; output is tiny. The wider
+multi-provider roster below stays as the future bake-off comparison set.
 
 | Provider | Candidate models | `provider` value |
 |---|---|---|
+| **OpenAI** (shipped) | **`gpt-4o-mini`** — the deployed dual-source model | `openai` |
 | Anthropic | Claude Opus-class, Claude Sonnet-class | `anthropic` |
-| OpenAI | GPT-class, Codex | `openai` |
+| OpenAI (other) | GPT-class, Codex | `openai` |
 | Google | Gemini-class | `google` |
 | **Local** (zero-egress model option) | small VLM — e.g. GLM-OCR (~0.9B), dots.ocr (~1.7B), Qwen3-VL | `local` |
 
-**TODO:** pin the exact model IDs and `full_model_id` strings used in each run (these are recorded
-per call — see §3). The VLM landscape is fast-moving; treat 2026 leaderboard scores as indicative
+The shipped `gpt-4o-mini` IDs/profile are pinned above; **TODO:** pin the exact model IDs and
+`full_model_id` strings for the *other* providers when the full bake-off runs. The VLM landscape is
+fast-moving; treat 2026 leaderboard scores as indicative
 ([research → Digital Transformation](../_bmad-output/planning-artifacts/research/domain-ttb-cola-distilled-spirits-label-compliance-and-adjudication-research-2026-06-11.md)).
 
 > **Classification:** provider models (`anthropic`/`openai`/`google`) are `models-internal-endpoint`
@@ -373,16 +384,26 @@ cost_per_1000_verifications(model) = cost_per_verification(model) × 1000
 `llm_results.prompt_tokens` / `completion_tokens`. The analysis program writes per-call
 `cost_usd = total_tokens-derived` and aggregates the table below.
 
-### 7.3 Computation template (numbers PENDING real runs)
+### 7.3 Cost table — shipped model MEASURED; other providers PENDING
+
+The shipped row below is **measured** from real runs (gpt-4o-mini rates: **$0.15 / 1M input**,
+**$0.60 / 1M output** tokens). Token figures are $/1k for table consistency. One verification = one
+submission (its full label-image set); cost scales with the number of panel images, so the
+per-label figure ranges **$0.004–$0.017** (≈ **$0.0099** average). The full 15-record corpus cost
+≈ **$0.15** end to end.
 
 | Path / model | `full_model_id` | mean prompt tok | mean compl. tok | input $/1k | output $/1k | **$/verif.** | **$/1,000 verif.** |
 |---|---|---|---|---|---|---|---|
 | Local OCR (Tesseract) | n/a | — | — | $0 | $0 | **≈ $0** (API) | **≈ $0** (API) |
 | Local OCR (PaddleOCR) | n/a | — | — | $0 | $0 | **≈ $0** (API) | **≈ $0** (API) |
+| **OpenAI — `gpt-4o-mini` (shipped)** | `gpt-4o-mini` | **~65,000** | **~184** | $0.00015 | $0.0006 | **≈ $0.0099** (range $0.004–$0.017) | **≈ $10** |
 | Local small VLM | `TODO` | `TODO` | `TODO` | $0 | $0 | **≈ $0** (API) | **≈ $0** (API) |
 | Cloud — Claude-class | `TODO` | `TODO` | `TODO` | `TODO` | `TODO` | `TODO` | `TODO` |
-| Cloud — GPT-class | `TODO` | `TODO` | `TODO` | `TODO` | `TODO` | `TODO` | `TODO` |
 | Cloud — Gemini-class | `TODO` | `TODO` | `TODO` | `TODO` | `TODO` | `TODO` | `TODO` |
+
+**Measured read:** at ≈$0.0099/label the shipped model is ≈ **$10 per 1,000 verifications** — and
+the full 15-record corpus cost ≈ **$0.15**. Cost is driven almost entirely by image input tokens
+(~65k in vs. ~184 out); a cheaper or smaller-image path moves the input side, not the output.
 
 **TODO(pricing-source):** record the per-model published price (input/output $/1k tokens, plus image
 pricing) and its retrieval date, since prices change — confirm `cost_usd` pricing source per model
@@ -446,8 +467,12 @@ For each triggered case, run the fallback model on the same task and record:
   [`../samples/seed-template.csv`](../samples/seed-template.csv) and the batch template is
   [`batch-template.csv`](./batch-template.csv); it is the benchmark's gold standard (§4.1).
 - **TODO(τ-tuning):** tune per-field tolerance thresholds `τ_field` against the actual fixtures (§4.3).
-- **TODO(model-pinning):** pin exact `model_id` / `full_model_id` for each benchmarked model (§2.2).
-- **TODO(pricing-source):** record per-model token/image prices + retrieval date for the cost table (§7.3).
+- **Model-pinning (shipped DONE):** the deployed model is pinned — OpenAI `gpt-4o-mini` (`LLM_MODEL_ID`),
+  measured ~65k-input/~184-output token profile (§2.2). **TODO:** pin `model_id` / `full_model_id` for
+  the *other* benchmarked providers when the full bake-off runs.
+- **Pricing-source (shipped DONE):** gpt-4o-mini cost is measured (§7.3; $0.15/1M in, $0.60/1M out →
+  ≈$0.0099/label, ≈$10/1,000). **TODO:** record per-model token/image prices + retrieval date for the
+  remaining providers.
 - **TODO(PP-OCRv5):** confirm inclusion after an integration spike (§2.1).
 - **TODO(report-format):** finalize report render format; DB write is format-independent (§6).
 - **TODO(fallback-thresholds):** set OCR-confidence / disagreement triggers for the fallback (§8.1).

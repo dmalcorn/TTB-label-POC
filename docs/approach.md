@@ -1,6 +1,6 @@
 # Approach — TTB COLA Label Specialist POC
 
-**Status:** Central planning document (pre-implementation). · **Last updated:** 2026-06-12
+**Status:** Built and deployed — the central design document, kept current with the shipped POC. · **Last updated:** 2026-06-15
 **Audience:** TTB reviewers and the POC engineering team.
 
 > **Stack & deployment decisions are now locked** in
@@ -175,11 +175,19 @@ Five principles drive every design choice below:
 
 ## 3. The Pre-Compute Pipeline (the centerpiece)
 
-This is the structural answer to the abandoned pilot. Instead of running OCR + compliance
-analysis **while the Label Specialist waits** (the 5–10-minute pilot's fatal flaw), the POC does all
-heavy work **ahead of time, in the background, on submission**. When the Label Specialist clicks
-**"Next Submission,"** everything — extracted text, field comparisons, checklist verdicts — is
-**already computed and waiting in the database**.
+This is the structural answer to the abandoned pilot. Instead of running OCR + AI extraction +
+compliance analysis **while the Label Specialist waits** (the 5–10-minute pilot's fatal flaw), the
+POC does all heavy work **ahead of time, in the background, on submission**. When the Label
+Specialist clicks **"Next Submission,"** everything — extracted text, field comparisons, checklist
+verdicts — is **already computed and waiting in the database**.
+
+Every label is read by **two independent sources**: the OCR engines (Tesseract + PaddleOCR) *and*
+an **AI vision model** (the deployed demo uses OpenAI **gpt-4o-mini**). The AI is a **co-equal
+per-submission extractor**, not a low-confidence fallback — one VLM call per submission, all label
+panels attached, returning JSON-mode structured values for the 7 required elements. Each review
+card then shows the application value with an **"On label (OCR)"** row *and* an **"On label (AI)"**
+row beneath it, and the per-element verdict is **agreement-based** (both sources agree with the
+application → PASS; conflict or only one confident → REVIEW; both mismatch → FAIL).
 
 ### Step-by-step flow
 
@@ -194,14 +202,18 @@ heavy work **ahead of time, in the background, on submission**. When the Label S
                              ▼
   (1) IMAGE ENHANCE  ── OpenCV: deskew / perspective / glare / contrast (per image)
                              ▼
-  (2) OCR (parallel) ── Tesseract  ┐
+  (2a) OCR (parallel) ─ Tesseract  ┐
                         PaddleOCR  ┼─► ocr_results (text + confidence + latency_ms, per engine/image)
                         [PP-OCRv5] ┘     audit: OCR_COMPLETED
+  (2b) AI VISION ────── ONE VLM call per submission, ALL label panels attached → JSON-mode
+                        structured extraction of the 7 fields → llm_results
+                        (independent of OCR; reads the IMAGE, never OCR text)
                              ▼
-  (3) ANALYSIS / VERIFY ── reconcile OCR text → extract field values
-                        ── field_comparisons (app value vs extracted value → MATCH/MISMATCH/…)
-                        ── checklist_items (per CFR check → PASS/REVIEW/FAIL)
-                        ── optional LOCAL LLM fallback when OCR confidence/match is poor
+  (3) ANALYSIS / VERIFY ── extract field values from BOTH sources (OCR + AI)
+                        ── field_comparisons (app value vs OCR value AND vs AI value)
+                        ── checklist_items (per CFR check → PASS/REVIEW/FAIL, agreement-based:
+                           both sources agree with the app → PASS; conflict / only one
+                           confident → REVIEW; both mismatch → FAIL)
                              ▼
   (4) ROLL UP ── engine_verdict (PASS/REVIEW/FAIL) + processing_ms onto submissions
             │     status → READY_FOR_REVIEW;  audit: ANALYSIS_COMPLETED, READY
@@ -257,16 +269,24 @@ and COLAClear's validated CV + structured-LLM + hand-coded-rules architecture):
 | Strategy | How it works | Example checks | Verdict tendency |
 |---|---|---|---|
 | **Deterministic** | String/regex + lookup tables; no LLM. | **Government Warning** (exact/normalized match, enforce caps+bold `GOVERNMENT WARNING:` token), ABV format, standards of fill, net-contents format | Confident PASS/FAIL |
-| **Field-match (app ↔ OCR)** | Normalized string compare with a **tolerance band**. | Brand name, ABV *value*, name/address | PASS/REVIEW (tolerance guards false mismatch) |
-| **Hybrid (rules + LLM-on-ambiguity)** | Rules first; local LLM only for ambiguous designations. | Class/type validity, conflicting designations, statement of composition | PASS/REVIEW/FAIL |
+| **Field-match (app ↔ OCR *and* app ↔ AI)** | Normalized string compare of the app value against **both** extracted sources, **agreement-based**: both agree → PASS; conflict / only one confident → REVIEW; both mismatch → FAIL. | Brand name, ABV *value*, name/address, country of origin | PASS/REVIEW/FAIL (softened — see below) |
+| **Hybrid (catalog + cross-label conflict)** | **SPIRITS class/type only**: catalog recognition of the designation plus cross-label conflict detection; **can FAIL on conflict**. Wine/malt class/type is a plain field-match instead. | Spirits class/type validity, conflicting designations | PASS/REVIEW/FAIL |
 | **Flag-as-REVIEW** | Not auto-decidable → advisory note, defer to human. | Same-field-of-vision spatial inference, image-quality cases, font size (out of scope) | REVIEW |
 
-**Why hybrid, not pure-deterministic or pure-LLM:** rule-bound elements (the Government
+**Why this mix, not pure-deterministic or pure-LLM:** rule-bound elements (the Government
 Warning above all) are deterministic and must stay that way — an LLM's nondeterminism is a
-liability there. But genuinely ambiguous judgments (is "Kentucky Straight Bourbon Whiskey" a
-valid class/type designation? do two labels carry conflicting designations?) benefit from LLM
-reasoning. The engine uses the **cheapest correct tool per check** and reserves the LLM for
-ambiguity and OCR-degradation fallback.
+liability there. But the field-match checks gain robustness from reading the label **twice**, by
+two independent extractors (OCR and the AI vision model), and reconciling them: the verdict is
+**agreement-based**, so a single garbled read no longer forces a false mismatch. The AI is a
+**co-equal extraction source feeding the "On label (AI)" row**, not a low-confidence fallback that
+only fires when OCR struggles. The engine uses the **cheapest correct tool per check** while
+letting the two sources cross-check each other on the field comparisons.
+
+**Verdict softening (deliberate REVIEW, not FAIL).** Three elements legitimately vary between the
+label artwork and the filed value, so a mismatch there **defers to REVIEW** rather than FAIL:
+**brand_name**, **applicant_name_address**, and **country_of_origin**. This is the false-reject
+safety valve applied to exactly the fields where label vs. filed wording diverges in normal
+practice.
 
 ### The PASS / REVIEW / FAIL verdict model
 
@@ -285,22 +305,27 @@ error** (needless correction cycles), so the tolerance band + REVIEW verdict exi
 to curb them — including the cross-type ABV trap and the "STONE'S THROW vs Stone's Throw"
 over-strict-match case.
 
-### Class/type and the Government Warning — how each is verified (important)
+### The seven required elements checked on every beverage type
 
-Two clarifications shape the comparison logic:
+Every submission is checked against the seven mandatory elements: **brand_name**,
+**class_type_designation**, **alcohol_content**, **net_contents**, **applicant_name_address**,
+**country_of_origin**, and **government_warning**. Three of them warrant clarification:
 
 - **Class/type designation** *is* a **maker-entered** application field — the COLAs Online
   "Product Class/Type" code, typed or via lookup (`../ref-docs/Definition of Terms.txt`,
-  "Product Class/Type"). So it is a normal **application ↔ OCR field-match**, exactly like
-  brand name: the stacked comparison shows the maker's class/type above the OCR'd class/type
-  with tolerance-based matching, and the designation's *regulatory validity* is an additional
-  hybrid (rules + LLM-on-ambiguity) check layered on top.
+  "Product Class/Type"). For **wine and malt** it is a plain **application ↔ extracted
+  field-match**, like brand name. For **SPIRITS** it is the **hybrid evaluator** — catalog
+  recognition of the designation plus cross-label conflict detection, which **can FAIL** when
+  the panels carry conflicting designations.
+- **Country of origin** is an **import-aware** card: a **DOMESTIC** product **auto-passes**
+  (no country statement required), while an **IMPORTED** product is an application↔label
+  field-match. Like brand name and applicant, a mismatch here **defers to REVIEW**.
 - **Government Warning** is the one mandatory element the applicant does **not** type (they
-  attest to the label artwork). It is verified from OCR against the **fixed 27 CFR §16.21
-  text** — a fully **deterministic** check whose "expected" side is the *regulation* (a
-  constant), enforcing the caps+bold "GOVERNMENT WARNING:" token. It never lacks a ground
-  truth; it simply compares against the statute rather than a maker field. In the UI this row
-  reads "required text vs. on-label text," PASS/FAIL.
+  attest to the label artwork). Its verdict is driven by a **deterministic exact 27 CFR §16.21
+  match**, whose "expected" side is the *regulation* (a constant), enforcing the caps+bold
+  "GOVERNMENT WARNING:" token. The **AI also returns a verbatim transcription**, so the check
+  can still PASS when the AI reads the warning cleanly on a panel where OCR is garbled. In the
+  UI this row reads "required text vs. on-label text," PASS/FAIL.
 
 In the data model, `class_type_designation` is a populated application column matched against
 `ocr_class_type`; the warning has no application column because its ground truth is the

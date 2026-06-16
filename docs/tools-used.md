@@ -1,7 +1,7 @@
 # Tools Used — TTB COLA Label Specialist POC
 
-**Status:** Planning artifact (pre-implementation). Updated as components are built.
-**Last updated:** 2026-06-11
+**Status:** Built and deployed — the stack is locked; kept current with the shipped POC.
+**Last updated:** 2026-06-15
 **Audience:** TTB reviewers assessing the technology stack; the POC engineering team.
 
 ---
@@ -28,8 +28,9 @@ Three project constraints shape every choice below. They come from
    The model layer is **toggleable off**, leaving a provable **zero-egress, OCR-only**
    configuration (FR-12). *(This supersedes the original "firewall fork / cloud = offline harness
    only" framing from the brief and domain research.)*
-3. **Recommend, don't decide blind.** Where a final implementation pick is still open, this
-   doc gives a **recommendation** and marks it **TODO** rather than pretending it's settled.
+3. **Locked, not aspirational.** The stack is now settled and shipped — FastAPI, Jinja2,
+   SQLite, APScheduler, Tesseract + PaddleOCR, OpenCV. This doc records the chosen tools rather
+   than open recommendations.
 
 > **Cross-links:** [`approach.md`](./approach.md) (overall architecture this stack serves) ·
 > [`outbound-calls-inventory.md`](./outbound-calls-inventory.md) (firewall proof, per
@@ -43,8 +44,8 @@ Three project constraints shape every choice below. They come from
 
 | Tool / Library | Purpose | Local / Cloud | License |
 |---|---|---|---|
-| **Python 3.11+** | Primary language/runtime for app, OCR jobs, rules engine, benchmark harness | Local | PSF (permissive) |
-| **Web/UI framework** *(TODO — recommend FastAPI + server-rendered Jinja2 templates)* | Serve the Label Specialist workspace UI + read APIs | Local | BSD/MIT-class |
+| **Python** (container 3.13-slim / host venv 3.14) | Primary language/runtime for app, OCR jobs, rules engine, benchmark harness | Local | PSF (permissive) |
+| **FastAPI + Jinja2** (server-rendered templates) | Serve the Label Specialist workspace UI + read APIs | Local | MIT / BSD |
 | **USWDS** (U.S. Web Design System) | Federal design system — components, tokens, accessibility | Local (**self-hosted assets**) | Public domain / CC0-class (US Gov) |
 | **SQLite** (POC) | Mock COLA database — submissions, OCR/LLM results, timing stats | Local | Public domain |
 | **PostgreSQL** *(scale path, not POC)* | Production-scale database when POC graduates | Local / on-prem | PostgreSQL License (permissive) |
@@ -52,9 +53,9 @@ Three project constraints shape every choice below. They come from
 | **PaddleOCR** (+ **PP-OCRv5**) | Local OCR engine #2 — accurate on degraded/curved/noisy labels | Local (weights pinned offline) | Apache-2.0 |
 | **OpenCV** (`cv2`) | Image enhancement — deskew, perspective, glare, contrast | Local | Apache-2.0 |
 | **LangChain** | Local tracing of OCR/LLM latencies & model IDs (**toggleable**) | Local (no telemetry egress) | MIT |
-| **Local LLM fallback** *(optional; e.g. Ollama/vLLM + small VLM)* | Advisory fallback when OCR confidence is low | Local (localhost only) | Varies by model/runtime |
-| **LLM/VLM set** (OpenAI / Gemini / Claude-class) | Live-pipeline field extraction + accuracy/speed/cost benchmarking | **`models-internal-endpoint`** — cloud API in the POC, internal endpoint in production; toggleable off | Proprietary APIs |
-| **Background jobs/scheduler** *(TODO — recommend APScheduler or RQ for POC)* | Pre-compute OCR + rule analysis on submission | Local | MIT / BSD-class |
+| **AI vision model — OpenAI gpt-4o-mini** (shipped) | **Primary per-submission extractor** feeding the "On label (AI)" row of the dual-source comparison; one JSON-mode call per submission over all label panels | **`models-internal-endpoint`** — cloud API in the deployed demo, internal endpoint in production; toggleable off (`LLM_ENABLED=false`) ≈ **$0.01/label** | Proprietary API |
+| **Local LLM/VLM option** *(optional; e.g. Ollama/vLLM + small VLM)* | The same AI-extractor role, served on localhost — the fully zero-egress model option | Local (localhost only) | Varies by model/runtime |
+| **Background jobs — APScheduler** (in-process) | Pre-compute OCR + AI extraction + rule analysis on submission | Local | MIT |
 | **Token auth gate** *(lightweight)* | Protect the public demo URL from public/bots | Local | (app code) |
 
 > License notes are the upstream project's published license at time of writing; **verify the
@@ -65,9 +66,9 @@ Three project constraints shape every choice below. They come from
 
 ## 3. Language & runtime — Python
 
-**What it is.** Python 3.11+, the general-purpose interpreted language, is the runtime for the
-web service, the OCR/analysis background jobs, the rules engine, and the benchmark
-harness.
+**What it is.** Python — the general-purpose interpreted language — is the runtime for the
+web service, the OCR/analysis background jobs, the rules engine, and the benchmark harness. The
+shipped container runs **python:3.13-slim**; the host dev venv runs **3.14**.
 
 **Why chosen (Python over Bash).** [`discussion-points.md` §5](../ref-docs/discussion-points.md)
 explicitly asks for a Python-vs-Bash recommendation. **Python is preferred** because:
@@ -94,20 +95,16 @@ network behavior comes only from the libraries inventoried below.
 
 ---
 
-## 4. Web / UI framework — *TODO (recommendation below)*
+## 4. Web / UI framework — FastAPI + Jinja2
 
-**Recommendation (TODO-UI-1).** Use **FastAPI** (Python) for the app server + read APIs, with
-**server-rendered HTML via Jinja2 templates** styled by **USWDS**. Rationale:
+**Decision.** The app server + read APIs run on **FastAPI** (Python), with **server-rendered HTML
+via Jinja2 templates** styled by **USWDS**. Rationale:
 
 - Python-native (single language across the stack — see §3), async-capable, minimal, well
   documented.
 - **Server-rendered HTML keeps the firewall surface tiny** — no heavy client-side SPA pulling
-  packages/CDNs at runtime. The UI ships as same-origin HTML + self-hosted CSS/JS.
+  packages/CDNs at runtime. The UI ships as same-origin HTML + self-hosted CSS/JS, no build step.
 - Pairs cleanly with USWDS, which is framework-agnostic markup + CSS (§5).
-
-*Flask is an acceptable lighter alternative if async isn't needed. **The exact framework is a
-recommendation, not a locked decision — mark TODO-UI-1 until confirmed in
-[`approach.md`](./approach.md).***
 
 **How it's used here.** Serves the "Next Submission" review screen, the vertical
 stacked field-comparison view, the checklist, and read-only APIs over the mock DB. No
@@ -268,9 +265,16 @@ on degraded labels:
 
 This is where the firewall posture lives. There are **three distinct things** here, and they are
 deliberately kept apart. Per the revised posture (PRD §10 NFR-2 / addendum A2): tracing is
-**local-only**; an optional **local** VLM is the zero-egress model option; and the **provider
-LLMs** run in the live pipeline classified `models-internal-endpoint` (cloud API in the POC,
-internal endpoint in production), **toggleable off** to leave a zero-egress OCR-only path.
+**local-only**; the deployed **AI vision model** runs in the live pipeline classified
+`models-internal-endpoint` (cloud API in the demo, internal endpoint in production), **toggleable
+off** (`LLM_ENABLED=false`) to leave a zero-egress OCR-only path; and an optional **local** VLM is
+the fully on-host model option.
+
+The AI vision model is **not a benchmark roster and not an OCR fallback** — it is a **primary
+per-submission extractor**. Each submission triggers **one VLM call** with all label panels
+attached, returning JSON-mode structured values for the 7 required elements; those feed the
+**"On label (AI)" row** of the dual-source comparison alongside the OCR row (see
+[`approach.md` §3–§4](./approach.md)). The model reads the **image**, never OCR text.
 
 ### 9.1 LangChain — local tracing only (toggleable)
 
@@ -304,21 +308,23 @@ when enabled. The **master off-switch** is `LANGCHAIN_TRACING_ENABLED` (default 
 
 **License.** **MIT.**
 
-### 9.2 Optional local LLM (the zero-egress model option)
+### 9.2 Optional local VLM (the fully zero-egress model option)
 
 **What it is.** An optional, **locally-hosted small VLM** — served from a local inference runtime
-(e.g. **Ollama** or **vLLM**) on localhost — used both as an OCR-fallback and as the model
-configuration that keeps the whole app zero-egress when no internal endpoint is reachable.
+(e.g. **Ollama** or **vLLM**) on localhost — that fills the **same primary-extractor role** as the
+deployed gpt-4o-mini, but entirely on-host. It is the model configuration that keeps the whole app
+zero-egress even with the AI row enabled.
 
-**Why chosen.** [`discussion-points.md` §6](../ref-docs/discussion-points.md) makes the LLM
-**optional**: used in the POC and as a **fallback when OCR isn't producing good matches**. The
-research's "hybrid pipeline" outlook (classical OCR for the clean 90%, a small local VLM for the
-degraded long tail) is a natural fit. Capable sub-1B/small open models (GLM-OCR ~0.9B, dots.ocr,
-Qwen3-VL small) now run locally at near-zero inference cost.
+**Why chosen.** It is how a real TTB deployment would point the AI extractor at an in-firewall
+endpoint with no cloud dependency at all. Capable small open VLMs (GLM-OCR ~0.9B, dots.ocr,
+Qwen3-VL small) now run locally at near-zero inference cost, making a local-only AI row practical.
 
-**How it's used here.** **Off by default.** When enabled, it only runs on **low-confidence OCR
-results**, as **advisory** input. **Rule-bound checks stay deterministic** (Government Warning,
-ABV format, standards of fill) — the LLM never overrides them; it only assists ambiguous reads.
+**How it's used here.** Selected by configuration in place of the cloud provider; it performs the
+same one-call-per-submission JSON extraction feeding the "On label (AI)" row. **Rule-bound checks
+stay deterministic** (Government Warning, ABV format, standards of fill) regardless of the model —
+the AI provides a verbatim transcription but never overrides the deterministic §16.21 verdict. The
+fully zero-egress path remains simply **`LLM_ENABLED=false`** (OCR-only); the local VLM is the
+on-host AI option, not the headline.
 
 **Firewall status.** **Local — localhost only.** A locally-hosted model (localhost inference
 endpoint) reaches no external domain. Weights pinned and shipped offline like PaddleOCR
@@ -328,21 +334,25 @@ endpoint) reaches no external domain. Weights pinned and shipped offline like Pa
 **License.** Runtime: Ollama (MIT), vLLM (Apache-2.0). **Model weights carry their own licenses**
 — confirm per chosen model (TODO-LLM-1).
 
-### 9.3 Provider LLM/VLM set — live-pipeline extraction + benchmarking (`models-internal-endpoint`)
+### 9.3 Provider AI vision model — live-pipeline extraction (`models-internal-endpoint`)
 
-**What it is.** A set of **frontier provider models** (OpenAI / Gemini / Claude-class, and capable
-open models) that run field extraction and produce accuracy/speed/cost comparisons over the **same**
-extraction tasks.
+**What it is.** The **deployed demo ships OpenAI gpt-4o-mini** as the AI vision extractor. The same
+slot can host other provider models (Gemini / Claude-class) for accuracy/speed/cost comparison over
+the same extraction task, but gpt-4o-mini is what runs in production.
 
-**Why chosen.** The brief and [`discussion-points.md` §6](../ref-docs/discussion-points.md) ask
-for **benchmark data on multiple OCRs and multiple LLMs** plus a **cost analysis ($/1,000
-verifications)** to inform future procurement. The research shows VLMs lead on hard documents
-(~3–4× lower CER on noisy inputs) — so the comparison is genuinely informative.
+**Why chosen.** gpt-4o-mini reads multi-panel label images reliably in JSON mode at very low cost,
+which is what an AI co-extractor needs. The brief and
+[`discussion-points.md` §6](../ref-docs/discussion-points.md) also ask for a **cost analysis** to
+inform procurement, and the live pipeline records the data for it.
 
-**How it's used here.** In the **live pre-compute pipeline**: every Submission flows through the
-configured models for extraction and benchmark-stat capture (PRD §4.5). It records model name,
-full model ID, tokens, latency, and price so a true $/1,000 figure falls out of recorded data —
-see [`ocr-llm-benchmarking-plan.md`](./ocr-llm-benchmarking-plan.md).
+**How it's used here.** In the **live pre-compute pipeline** as the **primary AI extractor**: one
+JSON-mode call per submission over all label panels, feeding the "On label (AI)" row. It records
+model name, full model ID, tokens, latency, and price so a true cost figure falls out of recorded
+data — see [`ocr-llm-benchmarking-plan.md`](./ocr-llm-benchmarking-plan.md).
+
+**Cost (measured).** ≈ **$0.0099 per label** with gpt-4o-mini (avg ~65,000 input tokens, ~184
+output; range $0.004–$0.017 scaling with image count), ≈ **$0.15 for the 15-record corpus**. Cost
+is dominated by image input tokens.
 
 **Firewall status — `models-internal-endpoint`; toggleable off.** Per the revised posture (PRD §10
 NFR-2 / addendum A2), these LLM calls are **permitted in the deployed path**: in production they
@@ -359,25 +369,19 @@ own licenses.
 
 ---
 
-## 10. Background jobs / scheduler — *TODO (recommendation below)*
+## 10. Background jobs / scheduler — APScheduler (in-process)
 
 **What it does.** The **pre-compute strategy** is the centerpiece
 ([`discussion-points.md` §5](../ref-docs/discussion-points.md)): a background pipeline steps
-through newly-submitted records, triggers OCR (Tesseract + PaddleOCR in parallel), stores the
-results, runs the advisory rule analysis — so that when a Label Specialist clicks **"Next
-Submission,"** the screen loads **instantly**.
+through newly-submitted records, triggers OCR (Tesseract + PaddleOCR in parallel) **and the AI
+vision extraction**, stores the results, runs the advisory rule analysis — so that when a Label
+Specialist clicks **"Next Submission,"** the screen loads **instantly**.
 
-**Recommendation (TODO-JOB-1).** For the POC, keep it **simple and local**:
-
-- **APScheduler** (in-process scheduler) for a periodic batch sweep of new submissions — minimal,
-  no extra services, ideal for a single-node POC; **or**
-- **RQ (Redis Queue)** if true parallel worker processes are wanted for the per-image OCR jobs
-  (adds a local Redis dependency).
-
-**Recommendation:** start with **APScheduler** for the POC (fewest moving parts, no extra
-service); note **RQ/Celery** as the scale path when concurrency grows. *Marked TODO until
-confirmed in [`approach.md`](./approach.md).* Heavyweight workflow/state-machine engines are
-**out of scope** (resolved in `discussion-points.md` §5 — minimal status enum + timestamps only).
+**Decision.** The POC uses **APScheduler** — an **in-process scheduler** running a periodic batch
+sweep of new submissions inside the single FastAPI service. It has the fewest moving parts and no
+extra services, ideal for a single-node POC. **RQ/Celery** (with a local Redis) is noted as the
+scale path when concurrency grows. Heavyweight workflow/state-machine engines are **out of scope**
+(resolved in `discussion-points.md` §5 — minimal status enum + timestamps only).
 
 **Firewall status.** **Local.** In-process (APScheduler) or local Redis (RQ) — no external
 service.
@@ -410,7 +414,8 @@ provider, no outbound call.
 
 ## 12. Open TODOs (implementation picks still to confirm)
 
-- **TODO-UI-1** — Confirm the web/UI framework (**recommended: FastAPI + Jinja2 + USWDS**).
+- **TODO-UI-1** — **RESOLVED.** Web/UI framework is **FastAPI + Jinja2 + USWDS** (server-rendered,
+  no build step).
 - **TODO-1** *(in inventory)* — **Self-host all USWDS/font/icon assets** (no CDN). Highest-risk
   accidental-outbound spot.
 - **TODO-2** *(in inventory)* — **Pin & ship PaddleOCR / local-VLM weights offline** so runtime
@@ -419,7 +424,7 @@ provider, no outbound call.
   in `app/benchmark/tracing.py`; master off-switch `LANGCHAIN_TRACING_ENABLED` (default `false`); no
   LangSmith/cloud endpoint configured; identity + timing + tokens captured to the local DB only.
 - **TODO-OCR-1** — Evaluate **PP-OCRv5** alongside default PaddleOCR models in the benchmark.
-- **TODO-JOB-1** — Confirm the **scheduler** (recommended: APScheduler for POC).
+- **TODO-JOB-1** — **RESOLVED.** Scheduler is **in-process APScheduler**.
 - **TODO-LLM-1** — Pick the **local fallback model** + confirm its weight license.
 - **TODO-LIC** — Pin dependency versions and **verify each license** at build time.
 

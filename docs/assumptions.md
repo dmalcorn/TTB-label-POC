@@ -212,7 +212,18 @@ label value with normalization/tolerance.
 ([L15–17](../ref-docs/TTB-take-home-instructions.md)). Normalization handles Dave
 Morrison's "STONE'S THROW" vs "Stone's Throw" case
 ([brief L47](../ref-docs/TTB-take-home-instructions.md)) so an obvious match isn't
-false-flagged.
+false-flagged. *(These four, plus **class/type** (A17), the **Government Warning** (A17), and
+**country of origin** (A18a) make up exactly the **seven** elements the engine checks on every
+type.)*
+
+**A18a. Country of origin IS one of the seven checked elements — an import-aware card.**
+Country of origin is a real comparison **card**, not an omission: it keys off the application's
+**import / source-of-product** flag. `IMPORTED` ⇒ the filed country (e.g. "Scotland") is
+field-matched against the label; `DOMESTIC` ⇒ **auto-PASS** with "Not imported" (we trust the
+flag rather than attempting US-state recognition).
+*Rationale/implication:* completes the seven common elements (brand name, class/type, alcohol
+content, net contents, name & address, Government Warning, country of origin); detailed in
+[`tradeoffs-and-limitations.md` B2](tradeoffs-and-limitations.md).
 
 **A19. The ABV-present requirement is not hard-coded; matching branches on beverage type.**
 "ABV must always be present" is true only for spirits — beer is usually optional, wine
